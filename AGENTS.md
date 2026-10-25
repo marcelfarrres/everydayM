@@ -41,5 +41,15 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 ## 3. Reglas de Seguridad (CRÍTICO)
 1. **Cero Secretos Hardcodeados**: Ninguna URL de proyecto, API Key, JWT o credencial de Supabase debe escribirse directamente en el código fuente. Todo acceso debe realizarse exclusivamente mediante `process.env.NEXT_PUBLIC_SUPABASE_URL` y `process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 2. **Protección de Entorno**: Los archivos `.env` y `.env*.local` están estrictamente bloqueados en `.gitignore`. Solo `.env.example` (con claves vacías) puede versionarse en Git.
-3. ** Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mp4`, `.mov`, `.pem` o `.key` al repositorio Git; los activos multimedia se almacenan únicamente en el bucket `workout-videos` de Supabase Storage.
-4. **Calidad antes de Commit**: Todo cambio debe superar `npm run lint` y `npm run build` sin errores antes de integrarse en las ramas `dev` o `main`.
+3. **Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mp4`, `.mov`, `.pem` o `.key` al repositorio Git; los activos multimedia se almacenan únicamente en el bucket `workout-videos` de Supabase Storage.
+4. **Calidad antes de Commit**: Todo cambio debe superar `npm run lint`, `npm run typecheck` y `npm run build` sin errores antes de integrarse en las ramas `dev` o `main`.
+
+## 4. Flujo de Trabajo Git Obligatorio
+1. **Producción Intocable (`main`)**: La rama `main` es **PRODUCCIÓN INTOCABLE**. Tienes estrictamente prohibido hacer commits directos o push directos a `main`.
+2. **Rama Base (`dev`)**: La rama base de trabajo e integración continua es `dev`.
+3. **Ciclo de Desarrollo por Funcionalidad/Fix**: Cada vez que el usuario pida una nueva funcionalidad o arreglo, tu primer paso automático debe ser:
+   - Situarte en `dev` (`git checkout dev`).
+   - Crear una rama descriptiva (`feat/nombre-feature` o `fix/nombre-bug`).
+   - Desarrollar y verificar los cambios en dicha rama (`npm run lint`, `npm run typecheck`, `npm run build`).
+   - Al terminar, fusionarla de vuelta en `dev` (`git checkout dev && git merge <rama>`) y hacer push a `origin dev` (`git push origin dev`).
+4. **Lanzamiento a Producción (SemVer)**: Solo cuando el usuario diga explícitamente *"prepara una nueva versión para producción (main)"*, incrementarás la versión en `package.json` (`npm run release:patch`, `npm run release:minor` o `npm run release:major`), crearás el tag semántico (`vX.Y.Z`) y prepararás el paso de `dev` a `main`.

@@ -1,12 +1,16 @@
 {
-  "name": "fitness-app",
-  "version": "0.1.0",
+  "name": "everydaym",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "release:patch": "npm version patch -m \"chore(release): v%s\"",
+    "release:minor": "npm version minor -m \"chore(release): v%s\"",
+    "release:major": "npm version major -m \"chore(release): v%s\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
