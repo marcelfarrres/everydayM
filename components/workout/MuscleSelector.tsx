@@ -178,8 +178,8 @@ function AnatomyView({
   };
 
   return (
-    <div className="min-w-0 rounded-2xl border border-white/10 bg-[#111713] p-2">
-      <p className="text-center text-[9px] font-black uppercase tracking-[0.12em] text-neutral-300">
+    <div className="min-w-0 rounded-2xl border border-white/15 bg-[#111713] p-2.5">
+      <p className="text-center text-[11px] font-black uppercase tracking-[0.12em] text-neutral-200">
         {side}
       </p>
       <svg
@@ -255,17 +255,17 @@ export function MuscleSelector({
   );
 
   return (
-    <section aria-label="Selección de músculos" className="space-y-2">
+    <section aria-label="Selección de músculos" className="space-y-2.5">
       <div>
-        <h2 className="text-[10px] font-black uppercase tracking-[0.15em] text-neutral-400">
+        <h2 className="text-xs font-black uppercase tracking-[0.15em] text-neutral-300">
           Músculos a trabajar
         </h2>
-        <p className="mt-1 text-[10px] text-neutral-500">
+        <p className="mt-1 text-xs text-neutral-400">
           Toca una zona: secundario · principal · quitar
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2.5">
         <AnatomyView
           side="Frente"
           regions={FRONT_REGIONS}
@@ -280,15 +280,15 @@ export function MuscleSelector({
         />
       </div>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] font-bold uppercase tracking-wide text-neutral-400">
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-300">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-yellow-400" /> Participa
+          <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" /> Participa (secundario)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-green-500" /> Principal
+          <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> Principal
         </span>
         {selectedMuscles.length > 0 && (
-          <span className="w-full text-neutral-300">
+          <span className="w-full text-neutral-200">
             Seleccionados: {selectedMuscles.map((group) => {
               const isPrimary = group.ids.some((id) =>
                 value.some((entry) => entry.id === id && entry.role === 'primary'),

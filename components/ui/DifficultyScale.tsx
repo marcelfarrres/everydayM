@@ -9,7 +9,7 @@ export function DifficultyScale({
 }) {
   return (
     <fieldset className="space-y-2">
-      <legend className="mb-2 block text-[10px] font-black uppercase tracking-[0.15em] text-neutral-400">
+      <legend className="mb-2 block text-xs font-black uppercase tracking-[0.15em] text-neutral-300">
         Dificultad · {value}/10
       </legend>
       <div
@@ -30,8 +30,8 @@ export function DifficultyScale({
               onClick={() => onChange(level)}
               className={`flex h-10 min-w-0 items-center justify-center rounded-lg border text-xs font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80] ${
                 selected
-                  ? 'border-[#4ade80] bg-[#22c55e] text-black'
-                  : 'border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-[#4ade80]/60 hover:text-white'
+                  ? 'border-[#4ade80] bg-[#22c55e] text-black shadow-[0_0_12px_rgba(34,197,94,0.35)]'
+                  : 'border-neutral-800 bg-neutral-950 text-neutral-300 hover:border-[#4ade80]/60 hover:text-white'
               }`}
             >
               {level}
@@ -39,7 +39,7 @@ export function DifficultyScale({
           );
         })}
       </div>
-      <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-neutral-500">
+      <div className="flex justify-between text-[11px] font-bold uppercase tracking-wider text-neutral-400">
         <span>Fácil</span>
         <span>Difícil</span>
       </div>
