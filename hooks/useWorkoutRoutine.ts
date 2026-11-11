@@ -1,30 +1,44 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getExerciseMuscles } from '@/components/workout/MuscleSelector';
-import { getDifficultyLevel } from '@/lib/difficulty';
+import {
+  INTRO_DURATION_SECONDS,
+  buildRoutine,
+  buildTimeline,
+  getItemDuration,
+  getRestDuration,
+} from '@/lib/routine';
 import type {
   Exercise,
   MuscleSelection,
+  RoutineIntent,
   RoutineItem,
+  RoutineMeta,
+  TimelineSegment,
   WorkoutFilters,
 } from '@/types/workout';
 
-export type { Exercise, RoutineItem, WorkoutFilters };
-
-function getItemDuration(item: RoutineItem | undefined): number {
-  return item?.kind === 'rest' ? item.duration : 60;
-}
+export type {
+  Exercise,
+  RoutineIntent,
+  RoutineItem,
+  RoutineMeta,
+  TimelineSegment,
+  WorkoutFilters,
+};
 
 export function useWorkoutRoutine() {
   const [step, setStep] = useState<'config' | 'player'>('config');
   const [loading, setLoading] = useState(false);
   const [queue, setQueue] = useState<RoutineItem[]>([]);
+  const [meta, setMeta] = useState<RoutineMeta | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState(60);
   const [totalItemDuration, setTotalItemDuration] = useState(60);
+  const remainingRef = useRef<number>(60);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -36,11 +50,48 @@ export function useWorkoutRoutine() {
     includeWarmup: true,
   });
 
-  const getRestDuration = (difficulty: number) =>
-    20 - Math.round(((difficulty - 1) * 10) / 9);
+  const timeline = useMemo(
+    () => buildTimeline(queue, meta?.slotSeconds),
+    [queue, meta?.slotSeconds],
+  );
 
-  const generateWorkout = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const totalSeconds = useMemo(
+    () =>
+      meta?.totalSeconds ??
+      timeline.reduce((acc, segment) => acc + segment.duration, 0),
+    [meta?.totalSeconds, timeline],
+  );
+
+  const elapsedSeconds = useMemo(() => {
+    const seg = timeline[currentIndex];
+    if (!seg) return 0;
+    const itemElapsed = Math.max(
+      0,
+      Math.min(seg.duration, totalItemDuration - timeLeft),
+    );
+    return Math.min(totalSeconds, seg.start + itemElapsed);
+  }, [timeline, currentIndex, totalItemDuration, timeLeft, totalSeconds]);
+
+  const startBuiltRoutine = useCallback(
+    (builtQueue: RoutineItem[], builtMeta: RoutineMeta) => {
+      const initialDuration = getItemDuration(
+        builtQueue[0],
+        builtMeta.slotSeconds,
+      );
+      remainingRef.current = initialDuration;
+      setMeta(builtMeta);
+      setQueue(builtQueue);
+      setCurrentIndex(0);
+      setTotalItemDuration(initialDuration);
+      setTimeLeft(initialDuration);
+      setIsPaused(false);
+      setStep('player');
+    },
+    [],
+  );
+
+  const generateWorkout = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!filters.muscles.some((selection) => selection.role === 'primary')) {
       alert('Marca al menos un músculo principal para generar la rutina.');
       return;
@@ -60,136 +111,11 @@ export function useWorkoutRoutine() {
         return;
       }
 
-      const intros = allExercises.filter((ex) => ex.type?.toLowerCase() === 'intro');
-      const warmups = allExercises.filter((ex) => ex.type === 'warmup');
-      let workouts = allExercises.filter(
-        (ex) => ex.type !== 'warmup' && ex.type?.toLowerCase() !== 'intro',
+      const { queue: builtQueue, meta: builtMeta } = buildRoutine(
+        allExercises as Exercise[],
+        filters,
       );
-      if (workouts.length === 0) workouts = allExercises;
-
-      const primaryTargetIds = new Set(
-        filters.muscles
-          .filter((selection) => selection.role === 'primary')
-          .map((selection) => selection.id),
-      );
-      const targetMuscleIds = new Set(filters.muscles.map((selection) => selection.id));
-
-      const scored = workouts.map((ex) => {
-        const exerciseMuscles = getExerciseMuscles(ex.muscles, ex.muscle);
-        const matchesPrimaryTarget = exerciseMuscles.some(
-          (exerciseMuscle) =>
-            exerciseMuscle.role === 'primary' &&
-            primaryTargetIds.has(exerciseMuscle.id),
-        );
-        const matchesSelectedMuscle = exerciseMuscles.some((exerciseMuscle) =>
-          targetMuscleIds.has(exerciseMuscle.id),
-        );
-        const difficultyDifference = Math.abs(
-          getDifficultyLevel(ex.difficulty) - filters.difficulty,
-        );
-        const score = 1 + (10 - difficultyDifference);
-        const musclePriority = matchesPrimaryTarget ? 0 : matchesSelectedMuscle ? 1 : 2;
-
-        return { exercise: ex as Exercise, score, musclePriority };
-      });
-
-      const pickWeighted = (
-        pool: typeof scored,
-        excludedIds: Set<string>,
-      ): Exercise | null => {
-        const available = pool.filter((item) => !excludedIds.has(item.exercise.id));
-        if (available.length === 0) return null;
-
-        const totalWeight = available.reduce((acc, curr) => acc + curr.score, 0);
-        let randomVal = Math.random() * totalWeight;
-
-        for (const item of available) {
-          if (randomVal < item.score) return item.exercise;
-          randomVal -= item.score;
-        }
-        return available[0].exercise;
-      };
-
-      const circuitExercises: Exercise[] = [];
-      const usedIds = new Set<string>();
-
-      for (let i = 0; i < filters.exercisesPerRound; i++) {
-        const priorityOrder = (i + 1) % 4 === 0 ? [1, 0, 2] : [0, 1, 2];
-        let picked: Exercise | null = null;
-
-        for (const priority of priorityOrder) {
-          const pool = scored.filter((item) => item.musclePriority === priority);
-          picked = pickWeighted(pool, usedIds);
-          if (picked) break;
-        }
-
-        if (!picked) {
-          usedIds.clear();
-          for (const priority of priorityOrder) {
-            const pool = scored.filter((item) => item.musclePriority === priority);
-            picked = pickWeighted(pool, usedIds);
-            if (picked) break;
-          }
-        }
-
-        if (picked) {
-          usedIds.add(picked.id);
-          circuitExercises.push(picked);
-        }
-      }
-
-      const restSec = getRestDuration(filters.difficulty);
-      const newQueue: RoutineItem[] = [];
-
-      if (intros.length > 0) {
-        newQueue.push({ kind: 'intro', exercise: intros[0] as Exercise });
-      }
-
-      if (filters.includeWarmup && warmups.length > 0) {
-        warmups.slice(0, 3).forEach((w) => {
-          newQueue.push({ kind: 'warmup', exercise: w as Exercise });
-        });
-      }
-
-      for (let r = 1; r <= filters.totalRounds; r++) {
-        circuitExercises.forEach((ex, exIdx) => {
-          newQueue.push({
-            kind: 'workout',
-            exercise: ex,
-            round: r,
-            totalRounds: filters.totalRounds,
-            exerciseIndexInRound: exIdx + 1,
-            totalExercisesPerRound: circuitExercises.length,
-          });
-
-          const isLast =
-            r === filters.totalRounds && exIdx === circuitExercises.length - 1;
-
-          if (!isLast) {
-            const isEndOfRound = exIdx === circuitExercises.length - 1;
-            const nextRound = isEndOfRound ? r + 1 : r;
-            const nextExercise = isEndOfRound
-              ? circuitExercises[0]
-              : circuitExercises[exIdx + 1];
-
-            newQueue.push({
-              kind: 'rest',
-              duration: isEndOfRound ? restSec + 10 : restSec,
-              nextExercise,
-              nextRound,
-              totalRounds: filters.totalRounds,
-              isEndOfRound,
-            });
-          }
-        });
-      }
-
-      const initialDuration = getItemDuration(newQueue[0]);
-      setTotalItemDuration(initialDuration);
-      setTimeLeft(initialDuration);
-      setQueue(newQueue);
-      setCurrentIndex(0);
-      setStep('player');
+      startBuiltRoutine(builtQueue, builtMeta);
     } catch (err: unknown) {
       console.error(err);
       alert('Error al generar la rutina');
@@ -198,62 +124,200 @@ export function useWorkoutRoutine() {
     }
   };
 
+  const generateFromIntent = useCallback(
+    async (intent: RoutineIntent) => {
+      setLoading(true);
+
+      try {
+        const { data: allExercises, error } = await supabase
+          .from('exercises')
+          .select('*');
+
+        if (error) throw error;
+        if (!allExercises || allExercises.length === 0) {
+          alert('No hay ejercicios registrados. Sube clips en /admin primero.');
+          setLoading(false);
+          return;
+        }
+
+        const { queue: builtQueue, meta: builtMeta } = buildRoutine(
+          allExercises as Exercise[],
+          intent,
+        );
+
+        setFilters({
+          difficulty: builtMeta.difficulty,
+          muscles: builtMeta.muscles,
+          exercisesPerRound: builtMeta.exercisesPerRound || 5,
+          totalRounds: builtMeta.rounds,
+          includeWarmup: intent.includeWarmup,
+        });
+
+        startBuiltRoutine(builtQueue, builtMeta);
+      } catch (err: unknown) {
+        console.error(err);
+        alert('Error al generar la rutina');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [startBuiltRoutine],
+  );
+
   const nextItem = useCallback(() => {
     if (currentIndex < queue.length - 1) {
       const nextIdx = currentIndex + 1;
-      const nextDuration = getItemDuration(queue[nextIdx]);
+      const nextDuration = getItemDuration(queue[nextIdx], meta?.slotSeconds);
+      remainingRef.current = nextDuration;
       setTotalItemDuration(nextDuration);
       setTimeLeft(nextDuration);
       setCurrentIndex(nextIdx);
+      setIsPaused(false);
       return;
     }
 
-    alert('¡ENTRENAMIENTO COMPLETADO!');
-    setStep('config');
-    setCurrentIndex(0);
-  }, [currentIndex, queue]);
+    // Already on the final item (outro): stay in 'player' with 0s remaining so the user can exit or repeat.
+    remainingRef.current = 0;
+    setTimeLeft(0);
+  }, [currentIndex, queue, meta?.slotSeconds]);
+
+  const prevItem = useCallback(() => {
+    if (queue.length === 0) return;
+
+    const targetIdx = currentIndex > 0 ? currentIndex - 1 : 0;
+    const prevDuration = getItemDuration(queue[targetIdx], meta?.slotSeconds);
+    remainingRef.current = prevDuration;
+    setTotalItemDuration(prevDuration);
+    setTimeLeft(prevDuration);
+    setCurrentIndex(targetIdx);
+    setIsPaused(false);
+
+    if (targetIdx === currentIndex && videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+  }, [currentIndex, queue, meta?.slotSeconds]);
+
+  const togglePause = useCallback(() => {
+    setIsPaused((prev) => {
+      const nextPaused = !prev;
+      const videoEl = videoRef.current;
+      if (videoEl) {
+        if (nextPaused) {
+          videoEl.pause();
+        } else {
+          videoEl.play().catch(() => {});
+        }
+      }
+      return nextPaused;
+    });
+  }, []);
 
   useEffect(() => {
+    if (step !== 'player') return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    if (isPaused) {
+      videoEl.pause();
+    } else {
+      videoEl.play().catch(() => {});
+    }
+  }, [isPaused, currentIndex, step]);
+
+  useEffect(() => {
+    if (step !== 'player' || isPaused) return;
     const current = queue[currentIndex];
-    if (!current || current.kind !== 'rest') return;
+    if (!current) return;
 
-    let remaining = current.duration;
+    const isTimerDriven =
+      current.kind === 'rest' ||
+      current.kind === 'summary' ||
+      current.kind === 'outro' ||
+      current.kind === 'intro';
+
+    if (!isTimerDriven) return;
+
     const interval = setInterval(() => {
-      remaining -= 1;
-      setTimeLeft(remaining);
+      remainingRef.current = Math.max(0, remainingRef.current - 1);
+      setTimeLeft(remainingRef.current);
 
-      if (remaining <= 0) {
+      if (remainingRef.current <= 0) {
         clearInterval(interval);
-        nextItem();
+        if (current.kind !== 'outro') {
+          nextItem();
+        }
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [currentIndex, queue, nextItem]);
+  }, [currentIndex, queue, isPaused, step, nextItem]);
 
-  const handleVideoTimeUpdate = () => {
-    if (videoRef.current) {
-      const remaining = Math.ceil(
-        videoRef.current.duration - videoRef.current.currentTime,
+  const handleVideoTimeUpdate = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const current = queue[currentIndex];
+    if (current?.kind === 'intro') {
+      const rawDur =
+        Number.isFinite(videoEl.duration) && videoEl.duration > 0
+          ? Math.min(INTRO_DURATION_SECONDS, Math.ceil(videoEl.duration))
+          : INTRO_DURATION_SECONDS;
+      const remaining = Math.max(
+        0,
+        Math.ceil(rawDur - videoEl.currentTime),
       );
-      if (!isNaN(remaining)) setTimeLeft(remaining);
+      remainingRef.current = remaining;
+      setTotalItemDuration(rawDur);
+      setTimeLeft(remaining);
+      if (videoEl.currentTime >= INTRO_DURATION_SECONDS) {
+        nextItem();
+      }
+      return;
     }
-  };
+
+    if (
+      current?.kind === 'workout' ||
+      current?.kind === 'warmup'
+    ) {
+      if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+        const realDuration = Math.max(1, Math.ceil(videoEl.duration));
+        const remaining = Math.max(
+          0,
+          Math.ceil(videoEl.duration - videoEl.currentTime),
+        );
+        remainingRef.current = remaining;
+        setTotalItemDuration((prev) =>
+          prev !== realDuration ? realDuration : prev,
+        );
+        setTimeLeft(remaining);
+      }
+    }
+  }, [queue, currentIndex, nextItem]);
 
   return {
     step,
     setStep,
     loading,
     queue,
+    meta,
+    timeline,
     currentIndex,
     currentItem: queue[currentIndex],
     timeLeft,
     totalItemDuration,
+    elapsedSeconds,
+    totalSeconds,
+    isPaused,
+    setIsPaused,
+    togglePause,
     videoRef,
     filters,
     setFilters,
+    getRestDuration,
     generateWorkout,
+    generateFromIntent,
     nextItem,
+    prevItem,
     handleVideoTimeUpdate,
   };
 }
