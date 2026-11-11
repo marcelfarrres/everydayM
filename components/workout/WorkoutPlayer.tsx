@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type RefObject } from 'react';
+import { useState, useRef, useEffect, type RefObject } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   ChevronLeft,
@@ -67,7 +67,8 @@ interface WorkoutPlayerProps {
 function getActiveExercise(item: RoutineItem | undefined): Exercise | undefined {
   if (!item) return undefined;
   if (item.kind === 'rest') return item.nextExercise;
-  return item.exercise;
+  if (item.kind === 'warmup' || item.kind === 'workout') return item.exercise;
+  return undefined;
 }
 
 function getActiveMuscles(
@@ -130,17 +131,27 @@ export function WorkoutPlayer({
 }: WorkoutPlayerProps) {
   const prefersReducedMotion = useReducedMotion();
   const [beepEnabled, setBeepEnabled] = useState(true);
+  const itemIndex = currentIndex;
+  const activeIndexRef = useRef(currentIndex);
+
+  useEffect(() => {
+    activeIndexRef.current = currentIndex;
+  }, [currentIndex]);
 
   const handleNext = () => {
+    activeIndexRef.current = -1;
     if (videoRef.current) {
       videoRef.current.pause();
+      videoRef.current = null;
     }
     onNext();
   };
 
   const handlePrev = () => {
+    activeIndexRef.current = -1;
     if (videoRef.current) {
       videoRef.current.pause();
+      videoRef.current = null;
     }
     onPrev?.();
   };
@@ -260,7 +271,7 @@ export function WorkoutPlayer({
 
       {/* MAIN 9:16 STAGE (Mobile max-w-[420px], Desktop ~85vh tall) */}
       <div className="relative w-full max-w-[420px] lg:max-w-none lg:w-auto lg:h-[85vh] lg:max-h-[880px] lg:min-h-[620px] aspect-[9/16] bg-[#0c110e] rounded-[32px] overflow-hidden border border-[#22c55e]/35 shadow-[0_24px_70px_rgba(0,0,0,0.9)] shrink-0">
-        <AnimatePresence initial={false}>
+        <AnimatePresence mode="wait" initial={false}>
           {/* 1. INTRO SCREEN */}
           {currentItem?.kind === 'intro' ? (
             <motion.div
@@ -273,20 +284,34 @@ export function WorkoutPlayer({
             >
               <video
                 key={currentItem.exercise.video_url}
-                ref={videoRef}
+                ref={(el) => {
+                  if (activeIndexRef.current === itemIndex) {
+                    videoRef.current = el;
+                  }
+                }}
                 src={currentItem.exercise.video_url}
                 autoPlay
                 playsInline
                 muted={false}
                 onTimeUpdate={(e) => {
-                  if (e.currentTarget.paused) return;
+                  if (
+                    activeIndexRef.current !== itemIndex ||
+                    e.currentTarget.paused
+                  ) {
+                    e.currentTarget.pause();
+                    return;
+                  }
                   if (e.currentTarget.volume !== 1.0) {
                     e.currentTarget.volume = 1.0;
                   }
                   onVideoTimeUpdate();
                   if (e.currentTarget.currentTime >= 10) handleNext();
                 }}
-                onEnded={handleNext}
+                onEnded={() => {
+                  if (activeIndexRef.current === itemIndex) {
+                    handleNext();
+                  }
+                }}
                 className="w-full h-full object-cover"
               />
 
@@ -745,17 +770,30 @@ export function WorkoutPlayer({
             >
               <video
                 key={currentItem?.exercise.video_url}
-                ref={videoRef}
+                ref={(el) => {
+                  if (activeIndexRef.current === itemIndex) {
+                    videoRef.current = el;
+                  }
+                }}
                 src={currentItem?.exercise.video_url}
                 autoPlay
                 playsInline
                 muted={true}
                 onTimeUpdate={(e) => {
-                  if (!e.currentTarget.paused) {
-                    onVideoTimeUpdate();
+                  if (
+                    activeIndexRef.current !== itemIndex ||
+                    e.currentTarget.paused
+                  ) {
+                    e.currentTarget.pause();
+                    return;
+                  }
+                  onVideoTimeUpdate();
+                }}
+                onEnded={() => {
+                  if (activeIndexRef.current === itemIndex) {
+                    handleNext();
                   }
                 }}
-                onEnded={handleNext}
                 className="w-full h-full object-cover"
               />
 
@@ -975,17 +1013,33 @@ export function WorkoutPlayer({
                 <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[#4ade80] block">
                   {currentItem?.kind === 'rest'
                     ? 'Siguiente ejercicio'
-                    : 'Ejercicio activo'}
+                    : currentItem?.kind === 'summary' ||
+                        currentItem?.kind === 'intro'
+                      ? 'Enfoque de la rutina'
+                      : currentItem?.kind === 'outro'
+                        ? 'Rutina completada'
+                        : 'Ejercicio activo'}
                 </span>
                 <h3 className="text-base font-black uppercase tracking-tight text-white leading-tight mt-0.5 truncate">
-                  {activeExercise?.title ?? meta?.focusLabel ?? 'Entrenamiento'}
+                  {activeExercise?.title ??
+                    (currentItem?.kind === 'summary' ||
+                    currentItem?.kind === 'outro'
+                      ? currentItem.meta.focusLabel
+                      : undefined) ??
+                    meta?.focusLabel ??
+                    'Entrenamiento'}
                 </h3>
               </div>
-              {activeExercise && (
-                <span className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-2 py-0.5 text-xs font-bold text-neutral-200">
-                  Nv.{getDifficultyLevel(activeExercise.difficulty)}/10
-                </span>
-              )}
+              <span className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-2 py-0.5 text-xs font-bold text-neutral-200">
+                Nv.
+                {activeExercise
+                  ? getDifficultyLevel(activeExercise.difficulty)
+                  : (currentItem?.kind === 'summary' ||
+                      currentItem?.kind === 'outro'
+                      ? currentItem.meta.difficulty
+                      : meta?.difficulty) ?? 5}
+                /10
+              </span>
             </div>
 
             <div className="my-1.5 flex items-center justify-between gap-2.5">
