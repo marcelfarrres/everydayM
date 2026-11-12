@@ -526,31 +526,37 @@ export default function AdminStudioPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#080b09] text-white p-4 md:p-8 font-sans selection:bg-[#4ade80] selection:text-black">
+    <div className="min-h-screen bg-[#080b09] bg-neon-grid text-white p-4 md:p-8 font-sans selection:bg-[#4ade80] selection:text-black">
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center -z-10">
         <div className="w-[650px] h-[650px] bg-gradient-to-tr from-[#166534]/30 via-[#22c55e]/20 to-[#4ade80]/10 rounded-full blur-[160px] opacity-75" />
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8">
         {/* Cabecera */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#101411]/95 border border-[#22c55e]/30 p-6 rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel border border-[#22c55e]/30 p-6 rounded-3xl backdrop-blur-2xl">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#4ade80] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> EverydayM Studio · Local
               </span>
               <Link
                 href="/"
-                className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 hover:text-white flex items-center gap-1 transition-colors"
+                className="text-[10px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white flex items-center gap-1 transition-colors"
               >
-                <ArrowLeft className="w-3 h-3" /> Ir al Reproductor
+                <ArrowLeft className="w-3 h-3 text-[#4ade80]" /> Ir al Reproductor
+              </Link>
+              <Link
+                href="/?rec=1"
+                className="text-[10px] font-bold uppercase tracking-wider rounded-full border border-[#22c55e]/35 bg-[#22c55e]/10 px-2.5 py-0.5 text-[#4ade80] hover:bg-[#22c55e] hover:text-black transition-colors"
+              >
+                Modo Creador TikTok 9:16
               </Link>
             </div>
             <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white uppercase italic mt-1">
               Estudio de Ingesta & Biblioteca
             </h1>
-            <p className="text-xs text-neutral-400 mt-1">
-              Compresión local H.264 (1080p, HDR→SDR, CRF 24, faststart) y subida segura con Service Role.
+            <p className="text-xs text-neutral-300 mt-1">
+              Compresión local H.264 (1080p, HDR→SDR, CRF 24, faststart), exportación de resumen TikTok MP4 y subida segura con Service Role.
             </p>
           </div>
 
