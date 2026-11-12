@@ -30,6 +30,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key_publica
 # 2. Exclusivo de EverydayM Studio en tu PC (SOLO en .env.local, NUNCA en Vercel)
 SUPABASE_SERVICE_ROLE_KEY=tu_service_role_secret_key
 STUDIO_ENABLED=true
+# Opcional: PIN (mín. 6 caracteres) para abrir el Studio desde el móvil en la misma WiFi
+STUDIO_LAN_PIN=tu_pin_seguro_123
 
 # 3. Clave de IA Gemini (en .env.local Y en Vercel, SIN el prefijo NEXT_PUBLIC_)
 GEMINI_API_KEY=tu_api_key_de_google_ai_studio
@@ -67,6 +69,13 @@ Con la prueba real sobre tus clips `.MOV` de iPhone (HEVC HDR HLG `1920×1080` v
 
 ### Opción B: Desde la terminal
 1. Con `STUDIO_ENABLED=true` en tu `.env.local`, ejecuta `npm run dev` y abre `http://localhost:3000/admin`.
+
+### Opción C: Subir vídeos nuevos directamente desde el móvil (misma WiFi)
+1. Añade `STUDIO_LAN_PIN=tu_pin_min_6_caracteres` a tu `.env.local` (nunca en Vercel).
+2. Abre **EverydayM Studio** en tu PC (icono del escritorio o `powershell -ExecutionPolicy Bypass -File .\scripts\studio\EverydayM-Studio.ps1`).
+   - Al detectar el PIN, el lanzador escucha en la red local (`-H 0.0.0.0`) e imprime en amarillo la dirección exacta, por ejemplo `http://192.168.1.25:3000/admin`.
+   - Si Windows pregunta por el Firewall la primera vez, permite Node.js **solo en Redes privadas**.
+3. Abre esa dirección en el navegador de tu iPhone o Android (conectado al mismo WiFi), introduce tu PIN en `/studio-login` y selecciona los vídeos directamente de tu galería. Tu PC los recibirá, los comprimirá con FFmpeg y los subirá a Supabase.
 
 ### Flujo de subida por lotes (40 vídeos):
 1. **Arrastra tus archivos `.MOV` o `.MP4`** al recuadro de **"1. Cola de Subida por Lotes"** (puedes arrastrarlos de 10 en 10 o los 40 de golpe).

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Upload,
   CheckCircle2,
@@ -17,6 +18,8 @@ import {
   X,
   Play,
   HardDriveDownload,
+  LogOut,
+  Smartphone,
 } from 'lucide-react';
 import {
   getExerciseMuscles,
@@ -106,11 +109,35 @@ export default function AdminStudioPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isLanSession = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const host = window.location.hostname.toLowerCase();
+      return (
+        host !== 'localhost' &&
+        host !== '127.0.0.1' &&
+        host !== '::1' &&
+        host !== '[::1]'
+      );
+    },
+    () => false,
+  );
+
+  const handleLanLogout = async () => {
+    await fetch('/api/admin/session', { method: 'DELETE' }).catch(() => {});
+    router.replace('/studio-login');
+  };
 
   const fetchExercises = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/exercises');
+      if (res.status === 401) {
+        router.replace('/studio-login');
+        return;
+      }
       const data = (await res.json()) as {
         exercises?: Exercise[];
         error?: string;
@@ -126,7 +153,7 @@ export default function AdminStudioPage() {
     } finally {
       setLoadingExercises(false);
     }
-  }, []);
+  }, [router]);
 
   const refreshExercises = useCallback(async () => {
     setLoadingExercises(true);
@@ -137,6 +164,10 @@ export default function AdminStudioPage() {
     let cancelled = false;
     fetch('/api/admin/exercises')
       .then(async (res) => {
+        if (res.status === 401) {
+          router.replace('/studio-login');
+          return;
+        }
         const data = (await res.json()) as {
           exercises?: Exercise[];
           error?: string;
@@ -164,7 +195,7 @@ export default function AdminStudioPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   const addFilesToQueue = useCallback((fileList: FileList | File[]) => {
     const incoming = Array.from(fileList).filter(
@@ -273,6 +304,10 @@ export default function AdminStudioPage() {
       });
 
       if (!response.ok || !response.body) {
+        if (response.status === 401) {
+          router.replace('/studio-login');
+          return false;
+        }
         const errData = (await response.json().catch(() => ({}))) as {
           error?: string;
         };
@@ -389,6 +424,10 @@ export default function AdminStudioPage() {
       const res = await fetch('/api/admin/recalculate-durations', {
         method: 'POST',
       });
+      if (res.status === 401) {
+        router.replace('/studio-login');
+        return;
+      }
       const data = (await res.json()) as {
         total?: number;
         updated?: number;
@@ -455,6 +494,10 @@ export default function AdminStudioPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editForm),
       });
+      if (res.status === 401) {
+        router.replace('/studio-login');
+        return;
+      }
       const data = (await res.json()) as {
         exercise?: Exercise;
         error?: string;
@@ -488,6 +531,10 @@ export default function AdminStudioPage() {
       const res = await fetch(`/api/admin/exercises/${id}`, {
         method: 'DELETE',
       });
+      if (res.status === 401) {
+        router.replace('/studio-login');
+        return;
+      }
       const data = (await res.json()) as {
         deleted?: boolean;
         error?: string;
@@ -561,6 +608,21 @@ export default function AdminStudioPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {isLanSession && (
+              <>
+                <span className="px-3 py-2 rounded-xl bg-[#22c55e]/15 border border-[#22c55e]/30 text-[11px] font-black uppercase tracking-wider text-[#4ade80] flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5" /> WiFi móvil
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLanLogout}
+                  className="px-3.5 py-3 rounded-2xl bg-[#141b16] hover:bg-red-500/15 border border-white/15 hover:border-red-500/40 text-xs font-black uppercase tracking-wider text-neutral-300 hover:text-red-300 flex items-center gap-1.5 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Cerrar sesión
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleRecalculateDurations}
