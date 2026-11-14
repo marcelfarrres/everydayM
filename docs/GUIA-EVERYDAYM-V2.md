@@ -12,7 +12,7 @@ Esta guía documenta todos los cambios de arquitectura, seguridad y diseño impl
 | **Fase 2** | **Slots Estándar + Fase "¡Prepárate!"** | Los clips de ejercicio **nunca se recortan ni se repiten en bucle**. Cada rutina define un slot estándar (p. ej. `50 s`). Si un clip dura `42 s`, los `8 s` restantes pasan automáticamente al descanso siguiente como fase **¡PREPÁRATE 3-2-1 ¡YA!!** con vista previa del siguiente ejercicio. |
 | **Fase 3** | **Rediseño del Reproductor 9:16 + Escritorio** | En escritorio combina el escenario vertical 9:16 con un panel lateral en vivo: **anillo SVG de cuenta atrás** (con aviso en rojo y pitido en los últimos 3 s), **mini mapa muscular**, **línea de tiempo completa** de la rutina y cola *"A continuación"*. Incluye pantalla de **Resumen inicial animado** y pantalla **Final de rutina completada** (sin `alert()`). |
 | **Fase 4** | **Generador de Rutinas por Texto o Voz con IA** | Describe tu entreno escribiendo o dictando por micrófono (ej. *"Full body con enfoque en brazos, 40 minutos"*). `/api/routine-intent` interpreta la frase con **Google Gemini** (o con el analizador local por palabras clave si no hay clave configurada) y el solver calcula automáticamente `rondas × ejercicios + descansos` para clavarse en los minutos pedidos. |
-| **Fase 5** | **Suite Creador TikTok 9:16 + Resumen 14s MP4** | De una misma rutina obtienes **dos vídeos**: (1) **Modo Grabación 9:16 (`/?rec=1`)** sin botones ni cursor, con claqueta `3-2-1`, zonas seguras de TikTok y marca de agua `@everydaym` para grabar en OBS; y (2) **Resumen animado de 14 s** exportable directamente a `.mp4` (`1080×1920` a `30 fps`) desde EverydayM Studio, además de guardado/carga en `everydaym-routine.json`. |
+| **Fase 5** | **Vídeo para TikTok** | Desde el reproductor (menú «···»): **Resumen de 15 s** o **Rutina completa** en MP4 `1080×1920` a `30 fps`, renderizados con FFmpeg en el ordenador del Estudio. |
 
 ---
 
@@ -38,7 +38,7 @@ GEMINI_API_KEY=tu_api_key_de_google_ai_studio
 ```
 
 > **Importante de seguridad:**
-> - **Nunca** pongas `SUPABASE_SERVICE_ROLE_KEY` ni `STUDIO_ENABLED=true` en Vercel. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/render-summary` devuelven **`404 Not Found`**.
+> - **Nunca** pongas `SUPABASE_SERVICE_ROLE_KEY` ni `STUDIO_ENABLED=true` en Vercel. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/tiktok` devuelven **`404 Not Found`**.
 > - `GEMINI_API_KEY` solo se lee en el servidor (`app/api/routine-intent/route.ts`), nunca llega al navegador.
 
 ### 2.2. Aplicar la Migración de Seguridad RLS en Supabase (Paso único)
@@ -121,18 +121,15 @@ Con la prueba real sobre tus clips `.MOV` de iPhone (HEVC HDR HLG `1920×1080` v
 
 ---
 
-## 5. Cómo Crear los 2 Vídeos de TikTok desde la Misma Rutina
+## 5. Cómo Crear los Vídeos de TikTok
 
-Para una guía detallada de configuración de OBS Studio, consulta [`docs/OBS-TIKTOK-GUIDE.md`](file:///C:/Users/marce/fitness-app/docs/OBS-TIKTOK-GUIDE.md).
+Los vídeos se crean en el ordenador del Estudio (`STUDIO_ENABLED=true`, FFmpeg instalado). Funciona también desde el móvil por la WiFi de casa.
 
-### Resumen rápido del flujo doble:
-1. **Genera tu rutina** en la pantalla principal (por ejemplo, *"Full body con enfoque en brazos, 40 minutos"*).
-2. En el reproductor, pulsa el botón **"TikTok 14s"** (icono de claqueta) para abrir la **EverydayM Creator Suite 9:16**:
-   - **Paso 1 — Guarda la rutina en JSON (`Guardar JSON`):** descarga `everydaym-routine.json`. Así tienes garantizado que el resumen corto y la sesión larga usan exactamente los mismos ejercicios, rondas y tiempos.
-   - **Paso 2 — Vídeo Corto (Resumen TikTok 14s en MP4):**
-     - Previsualiza la animación vertical de 14 segundos en el reproductor interactivo (gancho + cortes rápidos de cada ejercicio + mapa muscular + cierre con CTA).
-     - Si estás en **EverydayM Studio local** (`localhost:3000` con `STUDIO_ENABLED=true`), pulsa **"Exportar Resumen MP4"**. FFmpeg renderizará directamente un archivo `everydaym-tiktok-summary.mp4` a **`1080×1920` y `30 fps`** listo para subir a TikTok.
-   - **Paso 3 — Vídeo Largo (Rutina Completa 20–40 min con OBS):**
-     - Pulsa **"Abrir Modo Grabación 9:16 (Claqueta 3-2-1)"** (o entra con `/?rec=1`).
-     - Dale a **Iniciar grabación** en OBS Studio y haz clic en **"Empezar Grabación (3-2-1)"**.
-     - El escenario 9:16 reproduce toda la rutina limpia (sin botones, sin cursor, respetando las zonas seguras de TikTok y con música desactivada por defecto para que añadas audio tendencia en TikTok).
+1. Crea la rutina y pulsa **Empezar**.
+2. En el reproductor, abre el menú **«···» → Vídeo para TikTok**.
+3. Elige:
+   - **Resumen · 15 s**: Marcel, el plan y un vistazo a cada ejercicio. Tarda unos 10 s.
+   - **Rutina completa**: entera, con carteles de fase, cuenta atrás, barra de progreso y descansos con vista previa. Tarda unos 10 s por minuto de rutina.
+4. Cuando termine, mira la vista previa y pulsa **Descargar MP4** (1080×1920, 30 fps, sin música: añade el sonido en TikTok).
+
+Cómo funciona: el FFmpeg de Homebrew no trae `drawtext`, así que los textos se dibujan como imágenes (SVG → PNG con `sharp`) y FFmpeg solo las superpone a los clips (`lib/server/tiktokExport.ts`, ruta `app/api/studio/tiktok`).

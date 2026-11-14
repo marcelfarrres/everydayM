@@ -23,3 +23,5 @@ export {
   extractExerciseMuscles,
   isRoutineIntent,
 } from './buildRoutine';
+
+export { REST_LINES, cheerFor } from './cheers';

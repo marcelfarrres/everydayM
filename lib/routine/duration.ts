@@ -1,9 +1,12 @@
 import type { Exercise, RoutineItem } from '@/types/workout';
 
 export const INTRO_DURATION_SECONDS = 10;
-export const SUMMARY_DURATION_SECONDS = 8;
+export const SUMMARY_DURATION_SECONDS = 12; // the plan's clock needs time to go round
 export const OUTRO_DURATION_SECONDS = 8;
 export const DEFAULT_CLIP_SECONDS = 60;
+// A short clip leaves its slot unfilled; the gap goes to the next rest, but never more than this,
+// or rests drag on (a 32 s clip in a 50 s slot used to add 18 s of rest).
+export const MAX_PREP_SECONDS = 8;
 
 export function getClipDuration(
   exercise: Exercise | undefined,

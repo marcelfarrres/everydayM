@@ -41,7 +41,7 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 ## 3. Reglas de Seguridad (CRÍTICO)
 1. **Cero Secretos Hardcodeados**: Ninguna URL de proyecto, API Key, JWT o credencial de Supabase debe escribirse directamente en el código fuente. Todo acceso debe realizarse exclusivamente mediante `process.env.NEXT_PUBLIC_SUPABASE_URL` y `process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 2. **Protección de Entorno**: Los archivos `.env` y `.env*.local` están estrictamente bloqueados en `.gitignore`. Solo `.env.example` (con claves vacías) puede versionarse en Git.
-3. **Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mp4`, `.mov`, `.pem` o `.key` al repositorio Git; los activos multimedia se almacenan únicamente en el bucket `workout-videos` de Supabase Storage.
+3. **Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mov`, `.pem` o `.key` al repositorio Git. Los `.mp4` solo se permiten dentro de `public/` (vídeos propios de la app, ligeros: menos de 10 MB cada uno); los clips de ejercicios se almacenan únicamente en el bucket `workout-videos` de Supabase Storage.
 4. **Calidad antes de Commit**: Todo cambio debe superar `npm run lint`, `npm run typecheck` y `npm run build` sin errores antes de integrarse en las ramas `dev` o `main`.
 
 ## 4. Flujo de Trabajo Git Obligatorio

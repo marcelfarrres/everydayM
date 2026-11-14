@@ -22,7 +22,13 @@ export const MUSCLE_LABELS: Record<MuscleId, string> = {
 
 export const ALL_MUSCLE_IDS: MuscleId[] = Object.keys(MUSCLE_LABELS) as MuscleId[];
 
-const ARM_MUSCLES: MuscleId[] = ['hombros', 'biceps', 'triceps', 'antebrazos'];
+const ARM_MUSCLES: MuscleId[] = ['biceps', 'triceps', 'antebrazos'];
+const SHOULDER_MUSCLES: MuscleId[] = ['hombros'];
+const SHOULDER_REGION: MuscleRegion = {
+  ids: SHOULDER_MUSCLES,
+  label: 'Hombros',
+  d: 'M65 56 C57 57 52 62 49 72 L50 81 C56 76 64 74 70 72 L75 67 Z M115 56 C123 57 128 62 131 72 L130 81 C124 76 116 74 110 72 L105 67 Z',
+};
 const LEG_MUSCLES: MuscleId[] = ['cuadriceps', 'aductores', 'isquiotibiales', 'gemelos'];
 const CHEST_MUSCLES: MuscleId[] = ['pectorales'];
 const BACK_MUSCLES: MuscleId[] = ['trapecio', 'dorsales', 'lumbares'];
@@ -50,6 +56,7 @@ const FRONT_REGIONS: MuscleRegion[] = [
     label: 'Piernas',
     d: 'M68 149 C74 151 82 153 89 152 L89 198 C89 214 85 228 83 241 L82 282 L68 282 L69 241 C68 226 63 213 63 198 L63 165 C64 159 66 153 68 149 Z M112 149 C106 151 98 153 91 152 L91 198 C91 214 95 228 97 241 L98 282 L112 282 L111 241 C112 226 117 213 117 198 L117 165 C116 159 114 153 112 149 Z',
   },
+  SHOULDER_REGION,
 ];
 
 const BACK_REGIONS: MuscleRegion[] = [
@@ -73,19 +80,41 @@ const BACK_REGIONS: MuscleRegion[] = [
     label: 'Piernas',
     d: 'M67 177 C74 175 82 176 89 179 L89 198 C89 214 85 228 83 241 L82 282 L68 282 L69 241 C68 226 63 213 63 198 L63 183 Z M113 177 C106 175 98 176 91 179 L91 198 C91 214 95 228 97 241 L98 282 L112 282 L111 241 C112 226 117 213 117 198 L117 183 Z',
   },
+  SHOULDER_REGION,
 ];
+
+const TONES = {
+  brand: {
+    base: '#1c251f', baseStroke: '#5a6b5e',
+    primary: '#22c55e', primaryStroke: '#bbf7d0',
+    secondary: '#facc15', secondaryStroke: '#fef08a',
+    idle: '#2a362e', idleStroke: '#47584c',
+  },
+  // heat: the muscle that works hardest glows red
+  heat: {
+    base: '#171a26', baseStroke: '#444b63',
+    primary: '#ff4b3e', primaryStroke: '#ffd0cb',
+    secondary: '#8a3a3a', secondaryStroke: '#c56a66',
+    idle: '#222637', idleStroke: '#3a4058',
+  },
+} as const;
+
+export type MuscleMapTone = keyof typeof TONES;
 
 function MiniBodySilhouette({
   regions,
   muscles,
   label,
   heightClass,
+  tone,
 }: {
   regions: MuscleRegion[];
   muscles: MuscleSelection[];
   label: string;
   heightClass: string;
+  tone: MuscleMapTone;
 }) {
+  const c = TONES[tone];
   return (
     <div className="flex flex-col items-center">
       <svg
@@ -96,8 +125,8 @@ function MiniBodySilhouette({
       >
         <g transform="translate(-13.5 0) scale(1.15 1)">
           <g
-            fill="#1c251f"
-            stroke="#5a6b5e"
+            fill={c.base}
+            stroke={c.baseStroke}
             strokeWidth="1.8"
             strokeLinejoin="round"
           >
@@ -120,21 +149,20 @@ function MiniBodySilhouette({
               <path
                 key={region.ids.join('-')}
                 d={region.d}
-                fill={
-                  isPrimary
-                    ? '#22c55e'
-                    : isSecondary
-                      ? '#facc15'
-                      : '#2a362e'
-                }
+                fill={isPrimary ? c.primary : isSecondary ? c.secondary : c.idle}
                 fillOpacity={isPrimary ? 0.98 : isSecondary ? 0.9 : 0.55}
                 stroke={
                   isPrimary
-                    ? '#bbf7d0'
+                    ? c.primaryStroke
                     : isSecondary
-                      ? '#fef08a'
-                      : '#47584c'
+                      ? c.secondaryStroke
+                      : c.idleStroke
                 }
+                style={{
+                  transition:
+                    'fill 0.7s ease, stroke 0.7s ease, fill-opacity 0.7s ease',
+                  transitionDelay: isPrimary ? '0.35s' : '0s',
+                }}
                 strokeWidth={isPrimary || isSecondary ? 2.2 : 1}
                 strokeLinejoin="round"
               />
@@ -151,14 +179,18 @@ export function MiniMuscleMap({
   size = 'md',
   showLegend = false,
   className = '',
+  tone = 'brand',
+  heightClassName,
 }: {
   muscles: MuscleSelection[];
   size?: 'sm' | 'md' | 'lg';
   showLegend?: boolean;
   className?: string;
+  tone?: MuscleMapTone;
+  heightClassName?: string;
 }) {
   const heightClass =
-    size === 'sm' ? 'h-20' : size === 'lg' ? 'h-36' : 'h-28';
+    heightClassName ?? (size === 'sm' ? 'h-20' : size === 'lg' ? 'h-36' : 'h-28');
 
   return (
     <div className={`flex flex-col items-center gap-1.5 ${className}`}>
@@ -168,12 +200,14 @@ export function MiniMuscleMap({
           muscles={muscles}
           label="frontal"
           heightClass={heightClass}
+          tone={tone}
         />
         <MiniBodySilhouette
           regions={BACK_REGIONS}
           muscles={muscles}
           label="posterior"
           heightClass={heightClass}
+          tone={tone}
         />
       </div>
       {showLegend && (

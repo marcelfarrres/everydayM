@@ -366,7 +366,24 @@ function parseTargetMinutes(normalized: string): number | null {
     }
   }
 
+  // "piernas 40": a lone number that is not rounds, seconds or kilos reads as minutes.
+  const bare = /(?:^|[\s,])(\d{2})(?=$|[\s,.])(?!\s*(?:rondas?|series?|seg|s\b|kg|reps?|repeticiones))/.exec(normalized);
+  if (bare) {
+    const mins = Number.parseInt(bare[1], 10);
+    if (mins >= 10 && mins <= 90) return mins;
+  }
+
   return null;
+}
+
+const ROUND_WORDS: Record<string, number> = { una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 };
+
+/** "3 rondas", "tres vueltas" → 3. null when the text does not say. */
+export function parseRounds(text: string): number | null {
+  const match = /\b(\d|una|un|dos|tres|cuatro|cinco|seis)\s+(?:rondas?|vueltas?|circuitos?)\b/i.exec(text);
+  if (!match) return null;
+  const value = ROUND_WORDS[match[1].toLowerCase()] ?? Number.parseInt(match[1], 10);
+  return value >= 1 && value <= 6 ? value : null;
 }
 
 function parseSlotSeconds(normalized: string): number | null {

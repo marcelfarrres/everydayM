@@ -1,6 +1,7 @@
 import type { Exercise } from '@/types/workout';
 import {
   INTRO_DURATION_SECONDS,
+  MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
   SUMMARY_DURATION_SECONDS,
   getClipDuration,
@@ -58,7 +59,7 @@ function estimateCircuitDuration(
       } else {
         const isEndOfRound = i === exercisesPerRound - 1;
         const baseRest = isEndOfRound ? restSec + 10 : restSec;
-        const prepSeconds = Math.max(0, slotSeconds - clipSeconds);
+        const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
         total += clipSeconds + baseRest + prepSeconds;
       }
     }
@@ -134,12 +135,12 @@ export function solveForMinutes(
       );
       const timeDiff = Math.abs(estimatedSeconds - targetSeconds);
 
-      // Gentle ergonomic preference when two shapes yield almost identical duration:
-      // favor 2..5 rounds and 4..8 exercises per round.
+      // Shape matters more than the last seconds: a normal circuit is 3-4 rounds of 4-6 exercises.
+      // Penalties are in seconds of time error, so being ~1-2 min off beats 7 rounds of 2.
       const roundPenalty =
-        rounds < 2 ? 6 : rounds > 5 ? (rounds - 5) * 4 : 0;
+        rounds === 1 ? 240 : rounds === 2 ? 60 : rounds > 4 ? (rounds - 4) * 90 : 0;
       const exPenalty =
-        exPerRound < 3 ? (3 - exPerRound) * 5 : exPerRound > 8 ? (exPerRound - 8) * 3 : 0;
+        exPerRound < 4 ? (4 - exPerRound) * 90 : exPerRound > 6 ? (exPerRound - 6) * 50 : 0;
       const cost = timeDiff + roundPenalty + exPenalty;
 
       if (cost < bestCost) {
