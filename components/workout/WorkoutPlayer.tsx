@@ -325,7 +325,7 @@ export function WorkoutPlayer({
       <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl bg-white p-1.5 text-[15px] font-medium text-ink shadow-[0_24px_60px_-18px_rgba(0,0,0,0.35)]">
         {onOpenTiktok && (
           <button type="button" onClick={onOpenTiktok} className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-ink/8 ${FOCUS}`}>
-            Vídeo para TikTok
+            TikTok: idea y vídeos de hoy
           </button>
         )}
         <button type="button" onClick={handleTogglePiP} className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-ink/8 ${FOCUS}`}>
