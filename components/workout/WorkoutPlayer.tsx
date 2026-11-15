@@ -19,6 +19,8 @@ import { CloudTransition, type Journey } from '@/components/workout/CloudTransit
 import { playCountdownBeep } from '@/components/workout/CountdownRing';
 import { formatSeconds } from '@/components/workout/RoutineTimeline';
 import { cheerFor } from '@/lib/routine';
+import { KeepAwake } from '@capacitor-community/keep-awake';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import type {
   Exercise,
   PlaylistTrack,
@@ -263,6 +265,14 @@ export function WorkoutPlayer({
     onPrev?.();
   }, [onPrev, videoRef]);
 
+  // The screen stays on while training (iPhone app and browsers with Wake Lock).
+  useEffect(() => {
+    KeepAwake.keepAwake().catch(() => {});
+    return () => {
+      KeepAwake.allowSleep().catch(() => {});
+    };
+  }, []);
+
   // Space pauses, arrows skip.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -286,6 +296,8 @@ export function WorkoutPlayer({
       if (lastBeepRef.current !== timeLeft) {
         lastBeepRef.current = timeLeft;
         playCountdownBeep(timeLeft);
+        // a tap on the wrist-side of the phone too (iPhone app; Android browsers vibrate)
+        Haptics.impact({ style: timeLeft === 1 ? ImpactStyle.Heavy : ImpactStyle.Light }).catch(() => {});
       }
     } else {
       lastBeepRef.current = null;

@@ -167,7 +167,7 @@ async function resolveIntent(text: string): Promise<RoutineIntent> {
 
 interface RoutineComposerProps {
   onStart: (queue: RoutineItem[], meta: RoutineMeta, intent: RoutineIntent, prompt: string) => void;
-  onOpenStudio: () => void;
+  onOpenStudio?: () => void; // only where the Studio is switched on
 }
 
 export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps) {
@@ -221,6 +221,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   useEffect(() => {
     loadExercises().catch(() => {});
   }, [loadExercises]);
+
+  // Ready to type on a computer; on a phone the keyboard waits for a tap (it would cover Marcel).
+  useEffect(() => {
+    if (window.matchMedia('(pointer: fine)').matches) document.getElementById('routine-prompt')?.focus();
+  }, []);
 
   const minutes = built ? Math.round(built.meta.totalSeconds / 60) : 0;
   const ready = stage >= 4;
@@ -418,7 +423,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   return (
     <div className="relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row">
-      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-center justify-between px-5 sm:px-8">
+      <header className="absolute inset-x-0 top-0 z-10 box-content flex h-16 items-center justify-between px-5 pt-[env(safe-area-inset-top)] sm:px-8">
         {view !== 'ask' ? (
           <button
             type="button"
@@ -431,14 +436,16 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         ) : (
           <span className="text-lg font-bold tracking-tight">Everyday M</span>
         )}
-        <button
-          type="button"
-          onClick={onOpenStudio}
-          aria-label="Estudio y modo avanzado"
-          className={`flex h-11 w-11 items-center justify-center rounded-full text-ink/65 hover:bg-ink/10 hover:text-ink ${focusRing}`}
-        >
-          <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
-        </button>
+        {onOpenStudio && (
+          <button
+            type="button"
+            onClick={onOpenStudio}
+            aria-label="Estudio y modo avanzado"
+            className={`flex h-11 w-11 items-center justify-center rounded-full text-ink/65 hover:bg-ink/10 hover:text-ink ${focusRing}`}
+          >
+            <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
       </header>
 
       {/* Marcel in street clothes; on create he comes back ready for the gym, and a scan line paints the muscles */}
@@ -514,7 +521,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               id="routine-prompt"
               rows={1}
               maxLength={500}
-              autoFocus
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {

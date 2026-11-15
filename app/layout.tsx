@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Caveat, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -24,6 +24,13 @@ const chalk = Caveat({
   weight: ["500", "700"],
   subsets: ["latin"],
 });
+
+// viewport-fit=cover: the iPhone app and the home-screen web app draw edge to edge; pages keep
+// their content clear of the notch with env(safe-area-inset-*).
+export const viewport: Viewport = {
+  viewportFit: 'cover',
+  themeColor: '#e9e9e7',
+};
 
 export const metadata: Metadata = {
   title: "Everyday M | Entrena cada día",
