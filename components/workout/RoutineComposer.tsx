@@ -15,7 +15,7 @@ import { buildRoutine } from '@/lib/routine';
 import { parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
 import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types';
 import { MinutesSlider } from '@/components/workout/MinutesSlider';
-import { ExerciseFigure } from '@/components/workout/ExerciseFigure';
+import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import type {
   Exercise,
   MuscleId,
@@ -47,9 +47,11 @@ const GROUPS: { label: string; ids: MuscleId[] }[] = [
   { label: 'glúteos', ids: ['gluteos'] },
 ];
 // ms each build step stays on screen: thinking → minutes → muscles → exercises → ready
-const STEP_MS = [250, 650, 250, 1100];
-// Marcel waiting on the question; once the routine exists, today's exercises take his place.
-const POSTER = '/marcel-ready-poster.webp';
+// ms each build step stays on screen: thinking → minutes → muscles → exercises → ready
+// stage 1: the clip (Marcel leaves in street clothes, comes back ready), then the laser paints the muscles
+const STEP_MS = [200, 1900, 300, 1500];
+const CLIP = { src: '/marcel-ready.mp4', poster: '/marcel-ready-poster.webp' };
+const SCAN = { duration: 1.7, ease: [0.65, 0, 0.35, 1] } as const;
 const CAPTIONS = ['Creando tu rutina', 'Tiempo', 'Músculos', 'Ejercicios', ''];
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -178,6 +180,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [error, setError] = useState('');
   const [listening, setListening] = useState(false);
   const [draftMinutes, setDraftMinutes] = useState(30);
+  const [clipDone, setClipDone] = useState(false);
   const [library, setLibrary] = useState<Exercise[]>([]);
   const [intent, setIntent] = useState<RoutineIntent | null>(null);
   const [built, setBuilt] = useState<Built | null>(null);
@@ -185,6 +188,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [tray, setTray] = useState<Tray>(null);
 
   const exercisesRef = useRef<Promise<Exercise[]> | null>(null);
+  const clipRef = useRef<HTMLVideoElement>(null);
   const exerciseListRef = useRef<Exercise[]>([]);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const minutesRef = useRef<HTMLSpanElement>(null);
@@ -224,12 +228,13 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // Build sequence: each step holds for its beat, then hands over to the next.
   useEffect(() => {
     if (view !== 'result' || !built || stage >= 4) return;
+    if (stage === 1 && !clipDone) return; // the scan starts on the clip's last frame
     const timer = setTimeout(
       () => setStage((s) => (reducedMotion ? 4 : s + 1)),
       reducedMotion ? 0 : STEP_MS[stage],
     );
     return () => clearTimeout(timer);
-  }, [view, built, stage, reducedMotion]);
+  }, [view, built, stage, clipDone, reducedMotion]);
 
   // Minutes count up (1, 2, 3… 20) and re-count when the routine is retouched.
   const counting = stage >= 1;
@@ -282,6 +287,15 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     setStage(0);
     setView('result');
 
+    const clip = clipRef.current;
+    setClipDone(false);
+    if (clip && !reducedMotion) {
+      clip.currentTime = 0;
+      clip.play().catch(() => setClipDone(true));
+    } else {
+      setClipDone(true);
+    }
+
     try {
       const [list, parsed] = await Promise.all([
         loadExercises(),
@@ -308,7 +322,15 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     }
   };
 
-  const backToAsk = () => setView('ask');
+  const backToAsk = () => {
+    const clip = clipRef.current;
+    if (clip) {
+      clip.pause();
+      clip.currentTime = 0; // back to the still first frame
+    }
+    setClipDone(false);
+    setView('ask');
+  };
 
   /** The routine these minutes would give, as "3 rondas × 5 ejercicios" (fixed seed: no reshuffle while dragging). */
   const shapeFor = (minutes: number, base?: RoutineIntent | null) => {
@@ -390,7 +412,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     `min-h-11 rounded-full px-4 text-[15px] font-semibold transition-colors ${focusRing} ${
       active ? 'bg-ink text-white' : 'bg-white text-ink hover:bg-white/70'
     }`;
-  const tiles = built ? built.meta.circuit.filter((e, i, all) => all.findIndex((x) => x.id === e.id) === i) : [];
+  // The clip ends on the very photo the muscles are painted on, so the laser only adds colour.
+  const scanned = view === 'result' && stage >= 1 && clipDone;
+  const scanning = scanned && stage === 1;
 
   return (
     <div className="relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row">
@@ -417,48 +441,52 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         </button>
       </header>
 
-      {/* Marcel waiting; when the routine is built, today's exercises pop in one by one */}
+      {/* Marcel in street clothes; on create he comes back ready for the gym, and a scan line paints the muscles */}
       <div
         onClick={() => {
-          if (built && !ready) setStage(4);
+          if (built && !ready) {
+            setClipDone(true);
+            setStage(4);
+          }
         }}
         className={`media-feather relative mx-auto aspect-[9/16] shrink-0 overflow-hidden transition-[height] duration-500 lg:mx-0 lg:h-dvh ${view === 'questions' ? 'h-[30dvh]' : 'h-[52dvh]'}`}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element -- a single local still */}
-        <img
-          src={POSTER}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover grayscale brightness-[1.06] contrast-[1.04]"
-        />
-        <AnimatePresence>
-          {view === 'result' && stage >= 1 && tiles.length > 0 && (
+        <motion.div
+          initial={false}
+          animate={{ scale: scanning && !reducedMotion ? 1.06 : 1 }}
+          transition={{ duration: SCAN.duration, ease: SCAN.ease }}
+          className="absolute inset-0 origin-[50%_35%]"
+        >
+          <video
+            ref={clipRef}
+            src={CLIP.src}
+            poster={CLIP.poster}
+            muted
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onEnded={() => setClipDone(true)}
+            onError={() => setClipDone(true)}
+            className="absolute inset-0 h-full w-full object-cover grayscale brightness-[1.06] contrast-[1.04]"
+          />
+          <motion.div
+            initial={false}
+            animate={{ clipPath: scanned ? 'inset(0% 0% 0% 0%)' : 'inset(0% 0% 100% 0%)' }}
+            transition={reducedMotion ? { duration: 0 } : SCAN}
+            className="absolute inset-0"
+          >
+            <MarcelFigure variant="scene" muscles={built ? built.meta.muscles : []} className="h-full w-full" />
+          </motion.div>
+          {!reducedMotion && (
             <motion.div
-              key={tiles.map((t) => t.id).join()}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-1.5 bg-paper p-1.5"
-            >
-              {Array.from({ length: 4 }, (_, i) => tiles[i % tiles.length]).map((exercise, i) => (
-                <motion.video
-                  key={i}
-                  src={exercise.video_url}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  aria-hidden="true"
-                  initial={reducedMotion ? false : { opacity: 0, scale: 0.8, rotate: i % 2 ? 4 : -4 }}
-                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                  transition={{ delay: 0.1 + i * 0.14, type: 'spring', stiffness: 260, damping: 22 }}
-                  className="h-full w-full rounded-2xl object-cover"
-                />
-              ))}
-            </motion.div>
+              aria-hidden="true"
+              initial={false}
+              animate={{ top: scanned ? '100%' : '0%', opacity: scanned ? [0, 1, 1, 0] : 0 }}
+              transition={SCAN}
+              className="absolute inset-x-0 h-0.5 bg-heat shadow-[0_0_28px_8px_rgba(255,59,48,0.55)]"
+            />
           )}
-        </AnimatePresence>
+        </motion.div>
       </div>
 
       {view === 'ask' ? (
@@ -616,13 +644,16 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       ) : (
         <div
           onClick={() => {
-            if (built && !ready) setStage(4); // tap anywhere to skip the build
+            if (built && !ready) {
+              setClipDone(true);
+              setStage(4); // tap anywhere to skip the build
+            }
           }}
           className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-5 px-5 pb-8 sm:px-8 lg:px-16"
         >
           <div>
             <p aria-live="polite" className="h-6 text-[15px] font-medium text-ink/60">
-              {CAPTIONS[stage]}
+              {scanned && stage === 1 ? CAPTIONS[2] : CAPTIONS[stage]}
             </p>
             <button
               type="button"
@@ -670,9 +701,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.09, duration: 0.4, ease: EASE }}
-                    className="flex items-center gap-1.5 rounded-full bg-white py-1 pl-1.5 pr-3.5 text-[15px] font-medium"
+                    className="rounded-full bg-white px-3.5 py-2 text-[15px] font-medium"
                   >
-                    <ExerciseFigure exercise={exercise} className="h-8 w-auto max-w-10 drop-shadow-none" />
                     {exercise.title}
                   </motion.li>
                 ))}

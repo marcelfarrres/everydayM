@@ -17,7 +17,6 @@ import {
 import { getExerciseMuscles } from '@/components/workout/MuscleSelector';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import { RoutinePlan } from '@/components/workout/RoutinePlan';
-import { ExerciseFigure } from '@/components/workout/ExerciseFigure';
 import { playCountdownBeep } from '@/components/workout/CountdownRing';
 import { formatSeconds } from '@/components/workout/RoutineTimeline';
 import { cheerFor } from '@/lib/routine';
@@ -978,20 +977,7 @@ export function WorkoutPlayer({
                 </div>
               </div>
               {later.length > 0 && (
-                <div className="flex items-end gap-3 px-3">
-                  <span className="pb-1 text-[13px] font-semibold uppercase tracking-[0.1em] text-ink/45">Después</span>
-                  {later.map((exercise, i) => (
-                    <motion.div
-                      key={`${currentIndex}-${i}`}
-                      initial={reduced ? false : { opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.1 + i * 0.08, type: 'spring', stiffness: 380, damping: 24 }}
-                      className="h-14"
-                    >
-                      <ExerciseFigure exercise={exercise} className="h-full w-auto max-w-16" />
-                    </motion.div>
-                  ))}
-                </div>
+                <p className="truncate px-3 text-[14px] font-medium text-ink/45">Después: {later.map((e) => e.title).join(' · ')}</p>
               )}
             </div>
           )}
