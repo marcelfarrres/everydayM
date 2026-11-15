@@ -650,7 +650,7 @@ export function WorkoutPlayer({
           <motion.div
             key={`summary-${currentIndex}`}
             {...fade}
-            className="relative flex h-full w-full flex-col items-center justify-center gap-4 bg-black px-5 pb-48 pt-28 text-white lg:p-7"
+            className="relative flex h-full w-full flex-col items-center justify-center gap-4 bg-black px-5 pb-24 pt-28 text-white lg:p-7"
           >
             {mosaic}
             <div className="pointer-events-none absolute inset-0 bg-black/70" />
@@ -666,7 +666,7 @@ export function WorkoutPlayer({
           <motion.div
             key={`rest-${currentIndex}`}
             {...fade}
-            className="relative flex h-full w-full flex-col items-center justify-center gap-5 bg-rest p-6 pb-52 pt-32 text-center text-white lg:pb-8 lg:pt-8"
+            className="relative flex h-full w-full flex-col items-center justify-center gap-5 bg-rest p-6 pb-28 pt-32 text-center text-white lg:pb-8 lg:pt-8"
           >
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_70%_at_50%_0%,rgba(255,255,255,0.25),transparent_60%)]" />
             <p className="relative text-[min(13cqw,3.25rem)] font-bold leading-none tracking-[-0.03em]">{title}</p>
@@ -1006,10 +1006,15 @@ export function WorkoutPlayer({
         </p>
       </footer>
 
-      {/* PHONE: thin routine line on top, a compact now-playing card at the bottom */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-40 bg-gradient-to-b from-black/60 to-transparent lg:hidden" />
+      {/* PHONE: one simple progress bar on top, a slim now-playing bar at the bottom */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-36 bg-gradient-to-b from-black/60 to-transparent lg:hidden" />
       <div className="pointer-events-none absolute inset-x-4 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-20 lg:hidden">
-        <RoutineLine blocks={blocks} currentIndex={currentIndex} itemProgress={itemProgress} compact />
+        <div className="h-1 overflow-hidden rounded-full bg-white/25">
+          <div
+            className="h-full rounded-full bg-white transition-[width] duration-1000 ease-linear"
+            style={{ width: `${(kind === 'outro' ? 1 : total > 0 ? Math.min(1, elapsedSeconds / total) : 0) * 100}%` }}
+          />
+        </div>
         <p className="mt-1.5 flex justify-between text-[12px] font-semibold tabular-nums text-white/80">
           <span>{percent}%</span>
           <span>Quedan {formatSeconds(remaining)}</span>
@@ -1017,33 +1022,48 @@ export function WorkoutPlayer({
       </div>
 
       {showMini && (
-        <div className="absolute inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-[28px] bg-black/50 p-4 pb-3 text-white backdrop-blur-xl lg:hidden">
-          <div className="flex items-center gap-2.5">
-            <PhaseBadge tone={tone} size="sm" />
-            {where.rounds > 0 && (
-              <span className="flex items-center gap-2 text-[13px] font-semibold text-white/85">
-                Ronda {where.round}/{where.rounds}
-                <RoundDots round={where.round} rounds={where.rounds} onDark />
-              </span>
-            )}
+        <div className="absolute inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex items-center gap-2 rounded-[22px] bg-black/55 py-2 pl-4 pr-2 text-white backdrop-blur-xl lg:hidden">
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 truncate text-[11px] font-bold uppercase tracking-[0.08em] text-white/75">
+              <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${tone === 'calm' ? 'bg-white' : DOT[tone]}`} />
+              {tone === 'work' ? 'Principal' : PHASE_NAME[tone] || 'Tu rutina'}
+              {where.rounds > 0 && <span className="font-semibold text-white/55">· R{where.round}/{where.rounds}</span>}
+              {where.of > 0 && kind !== 'rest' && <span className="font-semibold text-white/55">· {where.n}/{where.of}</span>}
+            </p>
+            <p className="truncate text-[17px] font-semibold leading-tight">
+              {kind === 'rest' && nextExercise ? `Luego: ${nextExercise.title}` : kind === 'summary' ? meta?.focusLabel : title}
+            </p>
           </div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <h2 className="min-w-0 truncate text-xl font-semibold tracking-[-0.01em]">
-              {kind === 'rest' && nextExercise ? `Siguiente: ${nextExercise.title}` : kind === 'summary' ? meta?.focusLabel : title}
-            </h2>
-            {kind !== 'rest' && (
-              <RollingTime value={time} className={`shrink-0 text-4xl font-bold leading-none tracking-[-0.04em] ${critical ? 'text-heat' : ''}`} />
-            )}
-          </div>
-          {where.of > 0 && kind !== 'rest' && (
-            <div className="mt-2.5 flex items-center gap-3">
-              <Ticks n={where.n} of={where.of} tone={tone} onDark />
-              <span className="shrink-0 text-[12px] font-semibold tabular-nums text-white/70">
-                {where.n}/{where.of}
-              </span>
-            </div>
+          {kind !== 'rest' && (
+            <RollingTime value={time} className={`shrink-0 pr-1 text-2xl font-bold leading-none tracking-[-0.03em] ${critical ? 'text-heat' : ''}`} />
           )}
-          <div className="mt-2">{transport(true)}</div>
+          {kind === 'rest' && onExtend ? (
+            <button type="button" onClick={() => onExtend(10)} aria-label="Diez segundos más de descanso" className={`h-10 shrink-0 rounded-full px-3 text-[14px] font-semibold hover:bg-white/15 ${FOCUS}`}>
+              +10 s
+            </button>
+          ) : (
+            <button type="button" onClick={handlePrev} disabled={!onPrev || currentIndex <= 0} aria-label="Anterior" className={`flex h-10 w-9 shrink-0 items-center justify-center rounded-full hover:bg-white/15 disabled:opacity-30 ${FOCUS}`}>
+              <SkipBack className="h-4 w-4 fill-current" aria-hidden="true" />
+            </button>
+          )}
+          <motion.button
+            type="button"
+            onClick={onTogglePause}
+            whileTap={{ scale: 0.9 }}
+            aria-label={isPaused ? 'Reanudar' : 'Pausar'}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-ink ${FOCUS}`}
+          >
+            {isPaused ? <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" /> : <Pause className="h-5 w-5 fill-current" aria-hidden="true" />}
+          </motion.button>
+          {kind === 'rest' ? (
+            <button type="button" onClick={handleNext} className={`h-10 shrink-0 rounded-full px-3 text-[14px] font-semibold hover:bg-white/15 ${FOCUS}`}>
+              Saltar
+            </button>
+          ) : (
+            <button type="button" onClick={handleNext} aria-label="Siguiente" className={`flex h-10 w-9 shrink-0 items-center justify-center rounded-full hover:bg-white/15 ${FOCUS}`}>
+              <SkipForward className="h-4 w-4 fill-current" aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </div>
