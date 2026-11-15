@@ -12,7 +12,7 @@ export default async function StudioLoginPage() {
   if (access === 'local' || access === 'lan') redirect('/admin');
 
   return (
-    <main className="min-h-screen bg-[#080b09] bg-neon-grid text-white flex items-center justify-center p-5 font-sans">
+    <main className="flex min-h-dvh items-center justify-center bg-paper p-5 font-[family-name:var(--font-display)] text-ink">
       <StudioLoginForm />
     </main>
   );

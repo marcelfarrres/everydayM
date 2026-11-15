@@ -157,9 +157,9 @@ export default function WorkoutPage() {
                 Los vídeos para TikTok se crean desde la rutina: menú «···» del reproductor.
               </p>
 
-              <details className="group rounded-3xl bg-[#0d120f] p-4 text-white">
+              <details className="group rounded-3xl bg-ink/5 p-4">
                 <summary className={`cursor-pointer list-none text-lg font-semibold [&::-webkit-details-marker]:hidden ${FOCUS}`}>
-                  Modo manual <span className="text-white/50">· elige rondas y músculos</span>
+                  Modo manual <span className="text-ink/50">· elige rondas y músculos</span>
                 </summary>
                 <form
                   onSubmit={(e) => {
@@ -187,19 +187,19 @@ export default function WorkoutPage() {
                   </div>
                   <MuscleSelector value={filters.muscles} onChange={(muscles) => setFilters({ ...filters, muscles })} />
                   <DifficultyScale value={filters.difficulty} onChange={(difficulty) => setFilters({ ...filters, difficulty })} />
-                  <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3.5">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white p-3.5">
                     <input
                       type="checkbox"
                       checked={filters.includeWarmup}
                       onChange={(e) => setFilters({ ...filters, includeWarmup: e.target.checked })}
-                      className="h-4 w-4 rounded accent-white"
+                      className="h-4 w-4 rounded accent-ink"
                     />
                     <span className="text-[15px] font-medium">Con calentamiento</span>
                   </label>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-white text-lg font-semibold text-ink disabled:opacity-50"
+                    className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-ink text-lg font-semibold text-white disabled:opacity-50"
                   >
                     {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5 fill-current" />}
                     Empezar

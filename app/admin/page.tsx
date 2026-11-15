@@ -3,24 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  Upload,
-  CheckCircle2,
-  Loader2,
-  Trash2,
-  Pencil,
-  RefreshCw,
-  Film,
-  AlertCircle,
-  Sparkles,
-  ArrowLeft,
-  Save,
-  X,
-  Play,
-  HardDriveDownload,
-  LogOut,
-  Smartphone,
-} from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Ellipsis, Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   getExerciseMuscles,
   MuscleSelector,
@@ -30,11 +13,12 @@ import type { Exercise, MuscleSelection } from '@/types/workout';
 
 type ClipType = 'workout' | 'warmup' | 'intro' | 'filler';
 
-type QueueStatus = 'pending' | 'compressing' | 'uploading' | 'done' | 'error';
+type QueueStatus = 'pending' | 'waiting' | 'compressing' | 'uploading' | 'done' | 'error';
 
 interface QueueItem {
   id: string;
   file: File;
+  previewUrl: string; // local copy to watch it before uploading
   originalSize: number;
   compressedSize: number | null;
   durationSeconds: number | null;
@@ -59,11 +43,61 @@ interface StreamProgressEvent {
 }
 
 const CLIP_TYPE_LABELS: Record<ClipType, string> = {
-  workout: 'Rutina Principal (Entreno)',
+  workout: 'Entreno',
   warmup: 'Calentamiento',
-  intro: 'Intro (Vídeo inicial)',
-  filler: 'Relleno / fondo',
+  intro: 'Intro',
+  filler: 'Relleno',
 };
+const EQUIPMENT: Record<string, string> = {
+  ninguno: 'Sin material',
+  mancuernas: 'Mancuernas',
+  bandas: 'Bandas elásticas',
+  esterilla: 'Esterilla',
+};
+const STATUS_LABEL: Record<QueueStatus, string> = {
+  pending: 'Sin subir',
+  waiting: 'En cola',
+  compressing: 'Comprimiendo',
+  uploading: 'Subiendo',
+  done: 'Subido',
+  error: 'Error',
+};
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
+
+type ClipFields = { title: string; type: ClipType; difficulty: number; muscles: MuscleSelection[]; equipment: string };
+
+/** Title, type, difficulty, muscles and equipment: the same form for a new clip and a saved one. */
+function ClipForm({ value, onChange }: { value: ClipFields; onChange: (patch: Partial<ClipFields>) => void }) {
+  const field = `h-12 w-full rounded-2xl bg-white px-4 text-[16px] font-medium focus:outline-2 focus:outline-ink`;
+  return (
+    <div className="flex flex-col gap-5">
+      <label className="block">
+        <span className="mb-1.5 block text-[13px] font-semibold text-ink/60">Nombre del ejercicio</span>
+        <input type="text" value={value.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Ej. Flexiones diamante" className={field} />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="mb-1.5 block text-[13px] font-semibold text-ink/60">Tipo</span>
+          <select value={value.type} onChange={(e) => onChange({ type: e.target.value as ClipType })} className={field}>
+            {(Object.keys(CLIP_TYPE_LABELS) as ClipType[]).map((t) => (
+              <option key={t} value={t}>{CLIP_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-[13px] font-semibold text-ink/60">Material</span>
+          <select value={value.equipment} onChange={(e) => onChange({ equipment: e.target.value })} className={field}>
+            {Object.entries(EQUIPMENT).map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <DifficultyScale value={value.difficulty} onChange={(difficulty) => onChange({ difficulty })} />
+      {value.type === 'workout' && <MuscleSelector value={value.muscles} onChange={(muscles) => onChange({ muscles })} />}
+    </div>
+  );
+}
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) {
@@ -97,7 +131,7 @@ export default function AdminStudioPage() {
   const [recalculating, setRecalculating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
     title: string;
     type: ClipType;
@@ -111,6 +145,12 @@ export default function AdminStudioPage() {
 
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // The clip open in the editor: one not uploaded yet, or one from the library.
+  const [editor, setEditor] = useState<{ kind: 'queue' | 'exercise'; id: string } | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDialogElement | null>(null);
+  // uploads run one after another, whatever order they are asked in
+  const uploads = useRef<Promise<unknown>>(Promise.resolve());
 
   const isLanSession = useSyncExternalStore(
     () => () => {},
@@ -154,11 +194,6 @@ export default function AdminStudioPage() {
       setLoadingExercises(false);
     }
   }, [router]);
-
-  const refreshExercises = useCallback(async () => {
-    setLoadingExercises(true);
-    await fetchExercises();
-  }, [fetchExercises]);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,6 +250,7 @@ export default function AdminStudioPage() {
     const newItems: QueueItem[] = incoming.map((file) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       file,
+      previewUrl: URL.createObjectURL(file),
       originalSize: file.size,
       compressedSize: null,
       durationSeconds: null,
@@ -234,6 +270,8 @@ export default function AdminStudioPage() {
     });
     setSelectedQueueId((prev) => prev ?? newItems[0]?.id ?? null);
     setBannerMessage(null);
+    // straight to the first new clip: watch it and fill it in
+    if (newItems[0]) setEditor({ kind: 'queue', id: newItems[0].id });
   }, []);
 
   const updateQueueItem = useCallback(
@@ -246,6 +284,9 @@ export default function AdminStudioPage() {
   );
 
   const removeQueueItem = (id: string) => {
+    const gone = queue.find((item) => item.id === id);
+    if (gone) URL.revokeObjectURL(gone.previewUrl);
+    if (editor?.kind === 'queue' && editor.id === id) setEditor(null);
     setQueue((prev) => {
       const remaining = prev.filter((item) => item.id !== id);
       if (selectedQueueId === id) {
@@ -263,7 +304,7 @@ export default function AdminStudioPage() {
       item.type === 'workout' &&
       !item.muscles.some((m) => m.role === 'primary')
     ) {
-      return `Marca al menos un músculo principal para "${item.title || item.file.name}".`;
+      return `Marca al menos un músculo principal en «${item.title || item.file.name}» (toca dos veces una zona).`;
     }
     return null;
   };
@@ -473,17 +514,17 @@ export default function AdminStudioPage() {
     });
   };
 
-  const handleSaveEdit = async (id: string) => {
-    if (!editForm) return;
+  const handleSaveEdit = async (id: string): Promise<boolean> => {
+    if (!editForm) return false;
     if (
       editForm.type === 'workout' &&
       !editForm.muscles.some((m) => m.role === 'primary')
     ) {
       setBannerMessage({
         kind: 'error',
-        text: 'Debes seleccionar al menos un músculo principal para un ejercicio de entreno.',
+        text: 'Marca al menos un músculo principal (toca dos veces una zona).',
       });
-      return;
+      return false;
     }
 
     setSavingEdit(true);
@@ -496,7 +537,7 @@ export default function AdminStudioPage() {
       });
       if (res.status === 401) {
         router.replace('/studio-login');
-        return;
+        return false;
       }
       const data = (await res.json()) as {
         exercise?: Exercise;
@@ -513,18 +554,20 @@ export default function AdminStudioPage() {
       setEditForm(null);
       setBannerMessage({
         kind: 'success',
-        text: `Ejercicio "${data.exercise.title}" actualizado.`,
+        text: `«${data.exercise.title}» guardado.`,
       });
+      return true;
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : 'Error al guardar cambios';
       setBannerMessage({ kind: 'error', text: msg });
+      return false;
     } finally {
       setSavingEdit(false);
     }
   };
 
-  const handleDeleteExercise = async (id: string) => {
+  const handleDeleteExercise = async (id: string): Promise<boolean> => {
     setDeletingId(id);
     setBannerMessage(null);
     try {
@@ -533,7 +576,7 @@ export default function AdminStudioPage() {
       });
       if (res.status === 401) {
         router.replace('/studio-login');
-        return;
+        return false;
       }
       const data = (await res.json()) as {
         deleted?: boolean;
@@ -547,19 +590,55 @@ export default function AdminStudioPage() {
       setConfirmDeleteId(null);
       setBannerMessage({
         kind: 'success',
-        text: 'Ejercicio y archivo de vídeo eliminados de Supabase.',
+        text: 'Vídeo borrado.',
       });
+      return true;
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : 'Error al eliminar el ejercicio';
       setBannerMessage({ kind: 'error', text: msg });
+      return false;
     } finally {
       setDeletingId(null);
     }
   };
 
-  const selectedItem =
-    queue.find((item) => item.id === selectedQueueId) ?? queue[0] ?? null;
+  // The editor is a native <dialog>: open it whenever a clip is chosen.
+  useEffect(() => {
+    const dialog = editorRef.current;
+    if (!dialog) return;
+    if (editor && !dialog.open) dialog.showModal();
+    if (!editor && dialog.open) dialog.close();
+  }, [editor]);
+
+  const openExercise = (ex: Exercise) => {
+    startEditingExercise(ex);
+    setConfirmDeleteId(null);
+    setEditorError(null);
+    setEditor({ kind: 'exercise', id: ex.id });
+  };
+
+  const editingQueueItem = editor?.kind === 'queue' ? queue.find((q) => q.id === editor.id) ?? null : null;
+  const editingExercise = editor?.kind === 'exercise' ? exercises.find((e) => e.id === editor.id) ?? null : null;
+  const pendingCount = queue.filter((i) => i.status === 'pending' || i.status === 'error').length;
+
+  /** Upload this clip (after the ones already going) and move on to the next one still to fill in. */
+  const uploadFromEditor = (item: QueueItem) => {
+    const problem = validateItemMetadata(item);
+    if (problem) {
+      setEditorError(problem);
+      return;
+    }
+    setEditorError(null);
+    updateQueueItem(item.id, { status: 'waiting', error: null });
+    uploads.current = uploads.current.then(() => processSingleQueueItem(item));
+    const next = queue.find((q) => q.id !== item.id && q.status === 'pending');
+    setEditor(next ? { kind: 'queue', id: next.id } : null);
+  };
+
+  const saveFromEditor = async (id: string) => {
+    if (await handleSaveEdit(id)) setEditor(null);
+  };
 
   const filteredExercises = exercises.filter((ex) => {
     if (!searchQuery.trim()) return true;
@@ -572,722 +651,335 @@ export default function AdminStudioPage() {
     );
   });
 
-  return (
-    <div className="min-h-screen bg-[#080b09] bg-neon-grid text-white p-4 md:p-8 font-sans selection:bg-[#4ade80] selection:text-black">
-      <div className="pointer-events-none fixed inset-0 flex items-center justify-center -z-10">
-        <div className="w-[650px] h-[650px] bg-gradient-to-tr from-[#166534]/30 via-[#22c55e]/20 to-[#4ade80]/10 rounded-full blur-[160px] opacity-75" />
-      </div>
-
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Cabecera */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel border border-[#22c55e]/30 p-6 rounded-3xl backdrop-blur-2xl">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#4ade80] flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> EverydayM Studio · Local
-              </span>
-              <Link
-                href="/"
-                className="text-[10px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white flex items-center gap-1 transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3 text-[#4ade80]" /> Ir al Reproductor
-              </Link>
-            </div>
-            <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white uppercase italic mt-1">
-              Estudio de Ingesta & Biblioteca
-            </h1>
-            <p className="text-xs text-neutral-300 mt-1">
-              Compresión local H.264 (1080p, HDR→SDR, CRF 24, faststart), exportación de resumen TikTok MP4 y subida segura con Service Role.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {isLanSession && (
-              <>
-                <span className="px-3 py-2 rounded-xl bg-[#22c55e]/15 border border-[#22c55e]/30 text-[11px] font-black uppercase tracking-wider text-[#4ade80] flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5" /> WiFi móvil
-                </span>
-                <button
-                  type="button"
-                  onClick={handleLanLogout}
-                  className="px-3.5 py-3 rounded-2xl bg-[#141b16] hover:bg-red-500/15 border border-white/15 hover:border-red-500/40 text-xs font-black uppercase tracking-wider text-neutral-300 hover:text-red-300 flex items-center gap-1.5 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Cerrar sesión
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={handleRecalculateDurations}
-              disabled={recalculating}
-              className="px-4 py-3 rounded-2xl bg-[#141b16] hover:bg-[#1b251d] border border-[#22c55e]/30 text-xs font-black uppercase tracking-wider text-[#4ade80] flex items-center gap-2 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${recalculating ? 'animate-spin' : ''}`}
-              />
-              {recalculating
-                ? 'Recalculando con ffprobe...'
-                : 'Recalcular duraciones'}
-            </button>
-          </div>
-        </header>
-
-        {bannerMessage && (
-          <div
-            className={`p-4 rounded-2xl text-sm font-bold flex items-center justify-between gap-3 border ${
-              bannerMessage.kind === 'error'
-                ? 'bg-red-500/10 text-red-300 border-red-500/30'
-                : 'bg-[#22c55e]/15 text-[#4ade80] border-[#22c55e]/30'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              {bannerMessage.kind === 'error' ? (
-                <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-[#4ade80]" />
-              )}
-              <span>{bannerMessage.text}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setBannerMessage(null)}
-              className="text-neutral-400 hover:text-white p-1"
-              aria-label="Cerrar mensaje"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+  const banner = bannerMessage && (
+    <div
+      role={bannerMessage.kind === 'error' ? 'alert' : 'status'}
+      className={`flex items-start justify-between gap-3 rounded-2xl p-4 text-[15px] font-medium ${
+        bannerMessage.kind === 'error' ? 'bg-heat/10 text-heat' : 'bg-white text-ink'
+      }`}
+    >
+      <span className="flex items-start gap-2.5">
+        {bannerMessage.kind === 'error' ? (
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-ink/60" aria-hidden="true" />
         )}
+        {bannerMessage.text}
+      </span>
+      <button type="button" onClick={() => setBannerMessage(null)} aria-label="Cerrar mensaje" className={`shrink-0 rounded-full p-1 opacity-60 hover:opacity-100 ${FOCUS}`}>
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
 
-        {/* Bloque 1: Subida por lotes y editor de metadatos */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Columna izquierda: Drag & Drop + Cola de archivos */}
-          <div className="lg:col-span-5 bg-[#101411]/95 border border-[#22c55e]/25 rounded-3xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-black uppercase tracking-tight text-white">
-                  1. Cola de Subida por Lotes
-                </h2>
-                <p className="text-xs text-neutral-400">
-                  Arrastra varios archivos .MOV o .MP4 del iPhone o cámara.
-                </p>
-              </div>
-              {queue.some((i) => i.status === 'done') && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setQueue((prev) => prev.filter((i) => i.status !== 'done'))
-                  }
-                  className="text-[10px] font-black uppercase tracking-wider text-neutral-400 hover:text-white"
-                >
-                  Limpiar completados
-                </button>
-              )}
-            </div>
+  return (
+    <main
+      className="min-h-dvh bg-paper font-[family-name:var(--font-display)] text-ink"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files?.length) addFilesToQueue(e.dataTransfer.files);
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="video/quicktime,video/mp4,video/*,.mov,.mp4"
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            addFilesToQueue(e.target.files);
+            e.target.value = '';
+          }
+        }}
+        className="hidden"
+      />
 
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                if (e.dataTransfer.files?.length) {
-                  addFilesToQueue(e.dataTransfer.files);
-                }
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                isDragging
-                  ? 'border-[#4ade80] bg-[#22c55e]/15'
-                  : 'border-[#22c55e]/30 bg-[#141b16]/70 hover:border-[#4ade80]/60 hover:bg-[#141b16]'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="video/quicktime,video/mp4,video/*,.mov,.mp4"
-                onChange={(e) => {
-                  if (e.target.files?.length) {
-                    addFilesToQueue(e.target.files);
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-              />
-              <Upload className="w-8 h-8 text-[#4ade80] mx-auto mb-2" />
-              <p className="text-sm font-black uppercase tracking-wide text-white">
-                Arrastra tus vídeos aquí o haz clic para elegir
-              </p>
-              <p className="text-[11px] text-neutral-400 mt-1">
-                Soporta lotes de .MOV (HEVC/HDR) y .MP4 · Límite de salida &lt; 50 MB
-              </p>
-            </div>
-
-            {queue.length > 0 ? (
-              <div className="space-y-3">
-                <div className="max-h-[420px] overflow-y-auto space-y-2 pr-1">
-                  {queue.map((item) => {
-                    const isSelected = selectedItem?.id === item.id;
-                    const savingsPct =
-                      item.compressedSize && item.originalSize > 0
-                        ? Math.round(
-                            (1 - item.compressedSize / item.originalSize) * 100,
-                          )
-                        : null;
-
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => setSelectedQueueId(item.id)}
-                        className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-[#141b16] border-[#4ade80]'
-                            : 'bg-[#0c100d] border-white/10 hover:border-[#22c55e]/40'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-white truncate">
-                              {item.title || item.file.name}
-                            </p>
-                            <p className="text-[11px] text-neutral-400 truncate">
-                              {item.file.name} · {CLIP_TYPE_LABELS[item.type]}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {item.status === 'pending' && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-neutral-800 text-neutral-300">
-                                Pendiente
-                              </span>
-                            )}
-                            {item.status === 'compressing' && (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 flex items-center gap-1">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Comprimiendo
-                              </span>
-                            )}
-                            {item.status === 'uploading' && (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-sky-500/20 text-sky-300 flex items-center gap-1">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Subiendo
-                              </span>
-                            )}
-                            {item.status === 'done' && (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-[#22c55e]/20 text-[#4ade80]">
-                                ✅ Subido
-                              </span>
-                            )}
-                            {item.status === 'error' && (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-500/20 text-red-300">
-                                Error
-                              </span>
-                            )}
-
-                            {item.status !== 'compressing' &&
-                              item.status !== 'uploading' && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeQueueItem(item.id);
-                                  }}
-                                  className="p-1 text-neutral-500 hover:text-red-400 transition-colors"
-                                  aria-label={`Quitar ${item.file.name} de la cola`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-neutral-300">
-                          <span className="inline-flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-md">
-                            <HardDriveDownload className="w-3 h-3 text-[#4ade80]" />
-                            {formatBytes(item.originalSize)}
-                            {item.compressedSize !== null && (
-                              <>
-                                {' → '}
-                                <span className="text-[#4ade80] font-black">
-                                  {formatBytes(item.compressedSize)}
-                                </span>
-                                {savingsPct !== null && savingsPct > 0 && (
-                                  <span className="text-[#4ade80]">
-                                    (-{savingsPct}%)
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </span>
-
-                          {item.durationSeconds !== null && (
-                            <span className="bg-black/40 px-2 py-0.5 rounded-md text-neutral-300">
-                              ⏱ {item.durationSeconds}s
-                            </span>
-                          )}
-
-                          {item.isHdr && (
-                            <span className="bg-[#22c55e]/15 text-[#4ade80] px-2 py-0.5 rounded-md font-bold">
-                              HDR→SDR
-                            </span>
-                          )}
-                        </div>
-
-                        {item.error && (
-                          <p className="mt-1.5 text-[11px] font-semibold text-red-400">
-                            {item.error}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  disabled={
-                    batchRunning ||
-                    !queue.some(
-                      (i) => i.status === 'pending' || i.status === 'error',
-                    )
-                  }
-                  onClick={handleProcessBatch}
-                  className="w-full bg-[#22c55e] hover:bg-[#4ade80] text-black font-black uppercase tracking-wider py-3.5 rounded-2xl transition-all shadow-[0_10px_30px_rgba(34,197,94,0.3)] flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {batchRunning ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Procesando cola...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-5 h-5" />
-                      Comprimir y Subir Cola (
-                      {
-                        queue.filter(
-                          (i) => i.status === 'pending' || i.status === 'error',
-                        ).length
-                      }
-                      )
-                    </>
-                  )}
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-neutral-500 text-center py-4">
-                No hay vídeos en la cola. Añade uno o varios clips para configurar sus metadatos.
-              </p>
-            )}
-          </div>
-
-          {/* Columna derecha: Formulario de metadatos del archivo seleccionado */}
-          <div className="lg:col-span-7 bg-[#101411]/95 border border-[#22c55e]/25 rounded-3xl p-6 shadow-2xl">
-            {selectedItem ? (
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#4ade80]">
-                      Metadatos del clip seleccionado
-                    </span>
-                    <h3 className="text-xl font-black text-white truncate">
-                      {selectedItem.file.name} (
-                      {formatBytes(selectedItem.originalSize)})
-                    </h3>
-                  </div>
-
-                  {(selectedItem.status === 'pending' ||
-                    selectedItem.status === 'error') && (
-                    <button
-                      type="button"
-                      disabled={batchRunning}
-                      onClick={() => void processSingleQueueItem(selectedItem)}
-                      className="px-4 py-2.5 rounded-xl bg-[#22c55e] hover:bg-[#4ade80] text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Subir este clip
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-neutral-400 mb-2 uppercase tracking-[0.15em]">
-                      Título del ejercicio
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedItem.title}
-                      onChange={(e) =>
-                        updateQueueItem(selectedItem.id, {
-                          title: e.target.value,
-                        })
-                      }
-                      placeholder="Ej. Flexiones diamante"
-                      className="w-full bg-[#141b16] border border-white/15 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:border-[#4ade80] transition-colors text-white placeholder-neutral-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-black text-neutral-400 mb-2 uppercase tracking-[0.15em]">
-                      Tipo de Clip
-                    </label>
-                    <select
-                      value={selectedItem.type}
-                      onChange={(e) =>
-                        updateQueueItem(selectedItem.id, {
-                          type: e.target.value as ClipType,
-                        })
-                      }
-                      className="w-full bg-[#141b16] border border-white/15 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:border-[#4ade80] transition-colors text-white"
-                    >
-                      <option value="workout">Rutina Principal (Entreno)</option>
-                      <option value="warmup">Calentamiento</option>
-                      <option value="intro">Intro (Vídeo inicial)</option>
-                      <option value="filler">Relleno / fondo</option>
-                    </select>
-                  </div>
-                </div>
-
-                <DifficultyScale
-                  value={selectedItem.difficulty}
-                  onChange={(difficulty) =>
-                    updateQueueItem(selectedItem.id, { difficulty })
-                  }
-                />
-
-                {selectedItem.type === 'workout' && (
-                  <MuscleSelector
-                    value={selectedItem.muscles}
-                    onChange={(muscles) =>
-                      updateQueueItem(selectedItem.id, { muscles })
-                    }
-                  />
-                )}
-
-                <div>
-                  <label className="block text-[10px] font-black text-neutral-400 mb-2 uppercase tracking-[0.15em]">
-                    Equipamiento
-                  </label>
-                  <select
-                    value={selectedItem.equipment}
-                    onChange={(e) =>
-                      updateQueueItem(selectedItem.id, {
-                        equipment: e.target.value,
-                      })
-                    }
-                    className="w-full bg-[#141b16] border border-white/15 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:border-[#4ade80] transition-colors text-white"
-                  >
-                    <option value="ninguno">Ninguno (Peso corporal)</option>
-                    <option value="mancuernas">Mancuernas</option>
-                    <option value="bandas">Bandas elásticas</option>
-                    <option value="esterilla">Esterilla</option>
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center p-6 text-neutral-500">
-                <Film className="w-12 h-12 text-[#22c55e]/40 mb-3" />
-                <p className="text-sm font-bold text-neutral-300">
-                  Selecciona o arrastra vídeos a la cola
-                </p>
-                <p className="text-xs text-neutral-500 max-w-sm mt-1">
-                  Podrás configurar el título, tipo (entreno, calentamiento, intro o relleno/fondo), dificultad, mapa muscular y equipamiento de cada clip antes de subirlo.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Bloque 2: Biblioteca de ejercicios existentes */}
-        <section className="bg-[#101411]/95 border border-[#22c55e]/25 rounded-3xl p-6 space-y-5 shadow-2xl">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-black uppercase tracking-tight text-white">
-                2. Biblioteca de Ejercicios ({exercises.length})
-              </h2>
-              <p className="text-xs text-neutral-400">
-                Edita los metadatos o elimina clips existentes (borra tanto la fila como el archivo en Supabase Storage).
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar por título, tipo o músculo..."
-                className="bg-[#141b16] border border-white/15 rounded-xl px-4 py-2.5 text-xs font-semibold text-white placeholder-neutral-500 focus:outline-none focus:border-[#4ade80] w-64"
-              />
+      <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-24 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
+        <header className="flex items-center justify-between gap-3">
+          <Link href="/" className={`flex h-11 items-center gap-1.5 rounded-full bg-ink/6 pl-3 pr-4 text-[15px] font-semibold hover:bg-ink/10 ${FOCUS}`}>
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> App
+          </Link>
+          <details className="relative">
+            <summary aria-label="Más opciones" className={`flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full bg-ink/6 hover:bg-ink/10 [&::-webkit-details-marker]:hidden ${FOCUS}`}>
+              <Ellipsis className="h-5 w-5" aria-hidden="true" />
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-2xl bg-white p-1.5 text-[15px] font-medium shadow-[0_24px_60px_-18px_rgba(0,0,0,0.35)]">
               <button
                 type="button"
-                onClick={() => void refreshExercises()}
-                disabled={loadingExercises}
-                className="p-2.5 rounded-xl bg-[#141b16] border border-white/15 text-neutral-300 hover:text-white hover:border-[#4ade80]"
-                aria-label="Recargar lista de ejercicios"
+                onClick={() => void handleRecalculateDurations()}
+                disabled={recalculating}
+                className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-left hover:bg-ink/6 disabled:opacity-50 ${FOCUS}`}
               >
-                <RefreshCw
-                  className={`w-4 h-4 ${loadingExercises ? 'animate-spin' : ''}`}
-                />
+                {recalculating && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {recalculating ? 'Recalculando…' : 'Recalcular duraciones'}
               </button>
+              {isLanSession && (
+                <button type="button" onClick={() => void handleLanLogout()} className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-ink/6 ${FOCUS}`}>
+                  Cerrar sesión
+                </button>
+              )}
             </div>
-          </div>
+          </details>
+        </header>
 
-          {loadingExercises ? (
-            <div className="py-12 flex items-center justify-center gap-2 text-sm text-neutral-400">
-              <Loader2 className="w-5 h-5 animate-spin text-[#4ade80]" />
-              Cargando ejercicios...
-            </div>
-          ) : filteredExercises.length === 0 ? (
-            <p className="text-sm text-neutral-500 text-center py-8">
-              No se encontraron ejercicios.
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-semibold tracking-[-0.03em] sm:text-5xl">Tus vídeos</h1>
+            <p className="mt-1 text-[16px] text-ink/55">
+              {loadingExercises ? 'Cargando…' : `${exercises.length} clips`} · se comprimen en el ordenador del Estudio
             </p>
-          ) : (
-            <div className="space-y-3">
-              {filteredExercises.map((ex) => {
-                const isEditing = editingId === ex.id && editForm !== null;
-                const isConfirmingDelete = confirmDeleteId === ex.id;
-                const exMuscles = getExerciseMuscles(ex.muscles, ex.muscle);
-                const typeLabel =
-                  CLIP_TYPE_LABELS[ex.type as ClipType] ?? ex.type;
+          </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex h-14 items-center gap-2 rounded-full bg-ink pl-5 pr-6 text-lg font-semibold text-white transition-transform active:scale-[0.98] ${FOCUS}`}
+          >
+            <Plus className="h-5 w-5" aria-hidden="true" /> Subir vídeos
+          </button>
+        </div>
 
-                return (
-                  <div
-                    key={ex.id}
-                    className="rounded-2xl border border-white/10 bg-[#141b16]/90 p-4 transition-colors"
+        {banner}
+
+        {/* STILL TO UPLOAD */}
+        {queue.length > 0 && (
+          <section aria-label="Por subir" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Por subir</h2>
+              <div className="flex items-center gap-2">
+                {queue.some((i) => i.status === 'done') && (
+                  <button type="button" onClick={() => setQueue((prev) => prev.filter((i) => i.status !== 'done'))} className={`h-9 rounded-full px-3 text-[14px] font-medium text-ink/60 hover:text-ink ${FOCUS}`}>
+                    Quitar subidos
+                  </button>
+                )}
+                {pendingCount > 1 && (
+                  <button
+                    type="button"
+                    disabled={batchRunning}
+                    onClick={() => void handleProcessBatch()}
+                    className={`flex h-9 items-center gap-1.5 rounded-full bg-ink px-4 text-[14px] font-semibold text-white disabled:opacity-50 ${FOCUS}`}
                   >
-                    {!isEditing ? (
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-base font-black text-white">
-                              {ex.title}
-                            </h3>
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-[#22c55e]/15 text-[#4ade80] border border-[#22c55e]/30">
-                              {typeLabel}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/40 text-neutral-300">
-                              Dificultad {ex.difficulty}/10
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/40 text-neutral-300">
-                              ⏱ {ex.duration_seconds}s
-                            </span>
-                            {ex.equipment && (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/40 text-neutral-400 uppercase">
-                                {ex.equipment}
-                              </span>
-                            )}
-                          </div>
-
-                          {exMuscles.length > 0 && (
-                            <p className="text-xs text-neutral-400">
-                              Músculos:{' '}
-                              {exMuscles
-                                .map(
-                                  (m) =>
-                                    `${m.id}${m.role === 'primary' ? ' (principal)' : ''}`,
-                                )
-                                .join(', ')}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                          {ex.video_url && (
-                            <a
-                              href={ex.video_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-2 rounded-xl bg-black/40 hover:bg-black/70 border border-white/10 text-xs font-bold text-neutral-300 hover:text-white flex items-center gap-1.5"
-                            >
-                              <Play className="w-3.5 h-3.5 text-[#4ade80]" />
-                              Ver clip
-                            </a>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => startEditingExercise(ex)}
-                            className="px-3 py-2 rounded-xl bg-black/40 hover:bg-[#1b251d] border border-white/10 hover:border-[#4ade80]/40 text-xs font-bold text-neutral-200 flex items-center gap-1.5"
-                          >
-                            <Pencil className="w-3.5 h-3.5 text-[#4ade80]" />
-                            Editar
-                          </button>
-
-                          {!isConfirmingDelete ? (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(ex.id)}
-                              className="px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-xs font-bold text-red-300 flex items-center gap-1.5"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Borrar
-                            </button>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                disabled={deletingId === ex.id}
-                                onClick={() => void handleDeleteExercise(ex.id)}
-                                className="px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-black text-xs font-black uppercase flex items-center gap-1"
-                              >
-                                {deletingId === ex.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                                Confirmar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(null)}
-                                className="px-2.5 py-2 rounded-xl bg-neutral-800 text-xs font-bold text-neutral-300 hover:text-white"
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-4 pt-1">
-                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                          <span className="text-xs font-black uppercase tracking-wider text-[#4ade80]">
-                            Editando ejercicio
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditForm(null);
-                            }}
-                            className="text-xs font-bold text-neutral-400 hover:text-white flex items-center gap-1"
-                          >
-                            <X className="w-4 h-4" /> Cancelar
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-[10px] font-black text-neutral-400 mb-1.5 uppercase tracking-[0.15em]">
-                              Título
-                            </label>
-                            <input
-                              type="text"
-                              value={editForm.title}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  title: e.target.value,
-                                })
-                              }
-                              className="w-full bg-[#0c100d] border border-white/15 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-[#4ade80]"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-neutral-400 mb-1.5 uppercase tracking-[0.15em]">
-                              Tipo de Clip
-                            </label>
-                            <select
-                              value={editForm.type}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  type: e.target.value as ClipType,
-                                })
-                              }
-                              className="w-full bg-[#0c100d] border border-white/15 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-[#4ade80]"
-                            >
-                              <option value="workout">
-                                Rutina Principal (Entreno)
-                              </option>
-                              <option value="warmup">Calentamiento</option>
-                              <option value="intro">
-                                Intro (Vídeo inicial)
-                              </option>
-                              <option value="filler">Relleno / fondo</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-neutral-400 mb-1.5 uppercase tracking-[0.15em]">
-                              Equipamiento
-                            </label>
-                            <select
-                              value={editForm.equipment}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  equipment: e.target.value,
-                                })
-                              }
-                              className="w-full bg-[#0c100d] border border-white/15 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-[#4ade80]"
-                            >
-                              <option value="ninguno">
-                                Ninguno (Peso corporal)
-                              </option>
-                              <option value="mancuernas">Mancuernas</option>
-                              <option value="bandas">Bandas elásticas</option>
-                              <option value="esterilla">Esterilla</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <DifficultyScale
-                          value={editForm.difficulty}
-                          onChange={(difficulty) =>
-                            setEditForm({ ...editForm, difficulty })
-                          }
-                        />
-
-                        {editForm.type === 'workout' && (
-                          <MuscleSelector
-                            value={editForm.muscles}
-                            onChange={(muscles) =>
-                              setEditForm({ ...editForm, muscles })
-                            }
-                          />
-                        )}
-
-                        <div className="flex justify-end gap-2 pt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditForm(null);
-                            }}
-                            className="px-4 py-2.5 rounded-xl bg-neutral-800 text-xs font-bold text-neutral-300 hover:text-white"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingEdit}
-                            onClick={() => void handleSaveEdit(ex.id)}
-                            className="px-5 py-2.5 rounded-xl bg-[#22c55e] hover:bg-[#4ade80] text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            {savingEdit ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Save className="w-4 h-4" />
-                            )}
-                            Guardar cambios
-                          </button>
-                        </div>
-                      </div>
+                    {batchRunning && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                    Subir todos ({pendingCount})
+                  </button>
+                )}
+              </div>
+            </div>
+            <ul className="flex flex-col gap-2">
+              {queue.map((item) => {
+                const busy = item.status === 'waiting' || item.status === 'compressing' || item.status === 'uploading';
+                return (
+                  <li key={item.id} className="flex items-center gap-3 rounded-2xl bg-white p-2 pr-3">
+                    <button
+                      type="button"
+                      disabled={busy || item.status === 'done'}
+                      onClick={() => {
+                        setEditorError(item.error);
+                        setEditor({ kind: 'queue', id: item.id });
+                      }}
+                      className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left ${FOCUS}`}
+                    >
+                      <video src={item.previewUrl} muted playsInline preload="metadata" aria-hidden="true" className="aspect-[9/16] w-11 shrink-0 rounded-lg bg-ink/10 object-cover" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[16px] font-semibold">{item.title || item.file.name}</span>
+                        <span className={`mt-0.5 flex items-center gap-1.5 text-[13px] font-medium ${item.status === 'error' ? 'text-heat' : 'text-ink/55'}`}>
+                          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                          {item.status === 'done' && <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                          {item.status === 'error' && item.error ? item.error : STATUS_LABEL[item.status]}
+                          {item.compressedSize !== null && item.status !== 'error' && ` · ${formatBytes(item.compressedSize)}`}
+                        </span>
+                      </span>
+                    </button>
+                    {!busy && (
+                      <button type="button" onClick={() => removeQueueItem(item.id)} aria-label={`Quitar ${item.file.name}`} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink/40 hover:bg-ink/6 hover:text-heat ${FOCUS}`}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </button>
                     )}
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
+          </section>
+        )}
+
+        {/* THE LIBRARY */}
+        <section aria-label="Biblioteca" className="flex flex-col gap-4">
+          <label className="relative block">
+            <span className="sr-only">Buscar</span>
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/40" aria-hidden="true" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por nombre, tipo o músculo"
+              className="h-12 w-full rounded-full bg-ink/6 pl-11 pr-4 text-[16px] placeholder:text-ink/40 focus:outline-2 focus:outline-ink"
+            />
+          </label>
+
+          {loadingExercises ? (
+            <p className="flex items-center justify-center gap-2 py-16 text-ink/55">
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> Cargando vídeos…
+            </p>
+          ) : filteredExercises.length === 0 ? (
+            <p className="py-16 text-center text-ink/55">{exercises.length ? 'Nada con ese nombre.' : 'Aún no hay vídeos. Pulsa «Subir vídeos».'}</p>
+          ) : (
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {filteredExercises.map((ex) => (
+                <li key={ex.id}>
+                  <button
+                    type="button"
+                    onClick={() => openExercise(ex)}
+                    onMouseEnter={(e) => void e.currentTarget.querySelector('video')?.play().catch(() => {})}
+                    onMouseLeave={(e) => e.currentTarget.querySelector('video')?.pause()}
+                    className={`group block w-full overflow-hidden rounded-2xl bg-white text-left shadow-[0_16px_34px_-28px_rgba(0,0,0,0.5)] ${FOCUS}`}
+                  >
+                    <video
+                      src={`${ex.video_url}#t=0.5`}
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                      aria-hidden="true"
+                      className="aspect-[4/5] w-full bg-ink/10 object-cover"
+                    />
+                    <span className="block p-3">
+                      <span className="block truncate text-[15px] font-semibold">{ex.title}</span>
+                      <span className="mt-0.5 block truncate text-[13px] text-ink/55">
+                        {CLIP_TYPE_LABELS[ex.type as ClipType] ?? ex.type} · {ex.duration_seconds} s
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
       </div>
-    </div>
+
+      {/* drop anywhere on a computer */}
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-3 z-40 flex items-center justify-center rounded-[32px] border-2 border-dashed border-ink/40 bg-paper/90 text-2xl font-semibold">
+          Suelta los vídeos aquí
+        </div>
+      )}
+
+      {/* THE EDITOR: the clip playing small, and its details */}
+      <dialog
+        ref={editorRef}
+        onClose={() => {
+          setEditor(null);
+          setEditorError(null);
+          setEditingId(null);
+          setEditForm(null);
+        }}
+        aria-label="Editar vídeo"
+        className="m-auto max-h-[94dvh] w-[min(96vw,44rem)] overflow-y-auto rounded-[32px] bg-paper p-0 font-[family-name:var(--font-display)] text-ink shadow-[0_40px_80px_-30px_rgba(0,0,0,0.5)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+      >
+        {(editingQueueItem || (editingExercise && editForm)) && (
+          <div className="flex flex-col gap-5 p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <video
+                key={editingQueueItem?.previewUrl ?? editingExercise?.video_url}
+                src={editingQueueItem?.previewUrl ?? editingExercise?.video_url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="aspect-[9/16] w-28 shrink-0 rounded-2xl bg-black object-cover sm:w-36"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">{editingQueueItem ? 'Nuevo vídeo' : 'Tu vídeo'}</p>
+                <p className="mt-1 break-words text-2xl font-semibold leading-tight tracking-[-0.02em]">
+                  {(editingQueueItem ? editingQueueItem.title : editForm?.title) || 'Sin nombre'}
+                </p>
+                <p className="mt-1 text-[14px] text-ink/55">
+                  {editingQueueItem
+                    ? `${editingQueueItem.file.name} · ${formatBytes(editingQueueItem.originalSize)}`
+                    : `${editingExercise?.duration_seconds ?? '—'} s`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditor(null)}
+                aria-label="Cerrar"
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink/8 hover:bg-ink/15 ${FOCUS}`}
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            {editingQueueItem ? (
+              <ClipForm value={editingQueueItem} onChange={(patch) => updateQueueItem(editingQueueItem.id, patch)} />
+            ) : (
+              editForm && <ClipForm value={editForm} onChange={(patch) => setEditForm({ ...editForm, ...patch })} />
+            )}
+
+            {(editorError || (editor && bannerMessage?.kind === 'error')) && (
+              <p role="alert" className="rounded-2xl bg-heat/10 px-4 py-3 text-[15px] font-medium text-heat">
+                {editorError ?? bannerMessage?.text}
+              </p>
+            )}
+
+            <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-3 bg-paper/95 p-5 backdrop-blur sm:-mx-6 sm:-mb-6 sm:px-6">
+              {editingQueueItem ? (
+                <>
+                  <button type="button" onClick={() => removeQueueItem(editingQueueItem.id)} className={`h-12 rounded-full px-4 text-[15px] font-medium text-ink/60 hover:text-heat ${FOCUS}`}>
+                    Quitar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => uploadFromEditor(editingQueueItem)}
+                    className={`flex h-12 items-center gap-2 rounded-full bg-ink px-6 text-[16px] font-semibold text-white active:scale-[0.98] ${FOCUS}`}
+                  >
+                    {queue.some((q) => q.id !== editingQueueItem.id && q.status === 'pending') ? 'Subir y siguiente' : 'Subir'}
+                  </button>
+                </>
+              ) : editingExercise ? (
+                <>
+                  {confirmDeleteId === editingExercise.id ? (
+                    <span className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={deletingId === editingExercise.id}
+                        onClick={async () => {
+                          if (await handleDeleteExercise(editingExercise.id)) setEditor(null);
+                        }}
+                        className={`flex h-12 items-center gap-1.5 rounded-full bg-heat px-4 text-[15px] font-semibold text-white disabled:opacity-60 ${FOCUS}`}
+                      >
+                        {deletingId === editingExercise.id && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                        Borrar para siempre
+                      </button>
+                      <button type="button" onClick={() => setConfirmDeleteId(null)} className={`h-12 rounded-full px-3 text-[15px] font-medium text-ink/60 ${FOCUS}`}>
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmDeleteId(editingExercise.id)} className={`h-12 rounded-full px-4 text-[15px] font-medium text-ink/60 hover:text-heat ${FOCUS}`}>
+                      Borrar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={savingEdit}
+                    onClick={() => void saveFromEditor(editingExercise.id)}
+                    className={`flex h-12 items-center gap-2 rounded-full bg-ink px-6 text-[16px] font-semibold text-white disabled:opacity-60 active:scale-[0.98] ${FOCUS}`}
+                  >
+                    {savingEdit && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                    Guardar
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </dialog>
+    </main>
   );
 }

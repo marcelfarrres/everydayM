@@ -18,8 +18,8 @@ export function NumberStepper({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-[#22c55e]/20 bg-[#141b16] p-3.5">
-      <p className="text-[11px] font-black uppercase tracking-[0.12em] text-neutral-300">
+    <div className="rounded-2xl bg-white p-3.5">
+      <p className="text-[13px] font-semibold text-ink/60">
         {label}
       </p>
       <div className="mt-2 flex items-center justify-between gap-2">
@@ -28,13 +28,13 @@ export function NumberStepper({
           aria-label={`Reducir ${label.toLowerCase()}`}
           disabled={value <= min}
           onClick={() => onChange(Math.max(min, value - 1))}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-black/30 text-white transition-colors hover:border-[#4ade80]/50 hover:text-[#4ade80] disabled:cursor-not-allowed disabled:opacity-35"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink/6 text-ink transition-colors hover:bg-ink/12 disabled:cursor-not-allowed disabled:opacity-35"
         >
           <Minus className="h-4 w-4" />
         </button>
         <div className="text-center" aria-live="polite">
-          <span className="block text-3xl font-black leading-none text-white">{value}</span>
-          <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-neutral-300">
+          <span className="block text-3xl font-semibold leading-none tabular-nums text-ink">{value}</span>
+          <span className="mt-1 block text-[12px] font-medium text-ink/55">
             {unit}
           </span>
         </div>
@@ -43,12 +43,12 @@ export function NumberStepper({
           aria-label={`Aumentar ${label.toLowerCase()}`}
           disabled={value >= max}
           onClick={() => onChange(Math.min(max, value + 1))}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/15 text-[#4ade80] transition-colors hover:bg-[#22c55e]/25 disabled:cursor-not-allowed disabled:opacity-35"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink text-white transition-colors hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-35"
         >
           <Plus className="h-4 w-4" />
         </button>
       </div>
-      <p className="mt-2 text-center text-[11px] text-neutral-400">
+      <p className="mt-2 text-center text-[12px] text-ink/45">
         De {min} a {max}
       </p>
     </div>
