@@ -12,7 +12,7 @@ import { stagger, useAnimate, useReducedMotion } from 'motion/react';
  *
  * Timing, from the moment `playKey` changes:
  *   0.0-1.1 s  the banks drift in one after another (the old exercise is still underneath)
- *   0.3-1.7 s  the rocket flies in from below and settles; the words appear by its nose
+ *   0.0-1.8 s  with them, the rocket rises from the bottom edge and settles; the words appear by its nose
  *   1.1-2.6 s  everything holds; the rest screen mounts behind
  *   2.6-4.2 s  the rocket shoots off the top while the banks open outwards
  */
@@ -85,13 +85,19 @@ export function CloudTransition({
     if (reduced) return;
     const id = ++run.current;
     const play = async () => {
-      animate('.cl-rocket', { y: '85vh' }, { duration: 0 });
-      animate('.cl-words', { opacity: 0, y: 12 }, { duration: 0 });
+      // pixels, not vh: motion doesn't move a plain element by viewport units
+      // and keyframes from a start value: an instant set followed by an animation is lost
+      const screen = window.innerHeight;
+      // start with the nose just under the bottom edge, so it shows up as the clouds do
+      const parked = (scope.current as HTMLElement).querySelector<HTMLElement>('.cl-rocket')?.offsetTop ?? 0;
+      const below = Math.max(0, screen - parked + 8);
+      animate('.cl-flight', { opacity: 1 }, { duration: 0 });
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
-      // the rocket flies in from below and parks at the height of the routine done
-      animate('.cl-flight', { opacity: 1 }, { duration: 0.4, delay: 0.3 });
-      animate('.cl-rocket', { y: 0 }, { duration: 1.4, delay: 0.3, ease: [0.16, 1, 0.3, 1] });
-      animate('.cl-words', { opacity: 1, y: 0 }, { duration: 0.5, delay: 0.9, ease: [0.22, 1, 0.36, 1] });
+      // as the clouds come in, the rocket rises from the bottom edge (slow start, like a launch)
+      // and parks at the height of the routine done
+      animate('.cl-rocket', { y: [below, 0] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
+      animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
+      animate('.cl-words', { opacity: [0, 1], y: [12, 0] }, { duration: 0.5, delay: 1.2, ease: [0.22, 1, 0.36, 1] });
       await Promise.all([
         animate('.cl-l, .cl-r', { x: '0%', scale: 1, filter: 'blur(0px)' }, { ...CLOSE, delay: stagger(0.07) }),
         animate('.cl-t, .cl-b', { y: '0%', scale: 1, filter: 'blur(0px)' }, { ...CLOSE, delay: 0.12 }),
@@ -105,7 +111,7 @@ export function CloudTransition({
       if (id !== run.current) return;
       // lift-off: the words go, the rocket shoots off the top, the clouds part
       animate('.cl-words', { opacity: 0, y: -8 }, { duration: 0.25 });
-      animate('.cl-rocket', { y: '-120vh' }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
+      animate('.cl-rocket', { y: -screen * 1.3 }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
       await wait(150);
       if (id !== run.current) return;
       await Promise.all([
@@ -153,7 +159,7 @@ export function CloudTransition({
       <div className="cl-flight absolute inset-0 z-[8] opacity-0">
         <div className="absolute left-[34%] top-0 h-full w-0 sm:left-[42%]">
           {journey && (
-            <>
+            <div className="cl-rail opacity-0">
               <div className="absolute bottom-[26%] top-[18%] w-px bg-[#1d2533]/15" />
               <p className="absolute right-3 top-[18%] -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-[#1d2533]/55">
                 {journey.total}
@@ -168,7 +174,7 @@ export function CloudTransition({
                   <span className="h-px w-[9px] translate-x-[12px] bg-current" />
                 </p>
               ))}
-            </>
+            </div>
           )}
           {/* the rocket: its nose is where you are */}
           {/* eslint-disable-next-line @next/next/no-img-element -- decorative cutout */}
