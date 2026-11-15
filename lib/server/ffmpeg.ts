@@ -12,7 +12,18 @@ const MAX_OUTPUT_BYTES = 50 * 1024 * 1024; // 50 MB limit for Supabase Free
 
 const HDR_VF_CHAIN =
   'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,scale=1080:-2,format=yuv420p';
+// Homebrew's ffmpeg ships without zscale: convert the BT.2020 colours to BT.709 instead of a
+// full tone-map. iPhone HLG is designed to look right this way on SDR screens.
+const HDR_VF_FALLBACK = 'colorspace=all=bt709:iall=bt2020:irange=tv:range=tv:format=yuv420p,scale=1080:-2';
 const SDR_VF_CHAIN = 'scale=1080:-2,format=yuv420p';
+
+let zscaleCheck: Promise<boolean> | null = null;
+function hasZscale(): Promise<boolean> {
+  zscaleCheck ??= execFileAsync('ffmpeg', ['-hide_banner', '-filters'], { windowsHide: true })
+    .then(({ stdout }) => /\szscale\s/.test(stdout))
+    .catch(() => false);
+  return zscaleCheck;
+}
 
 interface FfprobeSideData {
   side_data_type?: string;
@@ -154,7 +165,7 @@ async function runFfmpegEncode(params: {
   keepAudio: boolean;
   crf: number;
 }): Promise<void> {
-  const vfChain = params.isHdr ? HDR_VF_CHAIN : SDR_VF_CHAIN;
+  const vfChain = !params.isHdr ? SDR_VF_CHAIN : (await hasZscale()) ? HDR_VF_CHAIN : HDR_VF_FALLBACK;
 
   const args: string[] = ['-y', '-i', params.inputPath, '-map', '0:v:0'];
 

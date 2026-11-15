@@ -592,12 +592,6 @@ export default function AdminStudioPage() {
               >
                 <ArrowLeft className="w-3 h-3 text-[#4ade80]" /> Ir al Reproductor
               </Link>
-              <Link
-                href="/?rec=1"
-                className="text-[10px] font-bold uppercase tracking-wider rounded-full border border-[#22c55e]/35 bg-[#22c55e]/10 px-2.5 py-0.5 text-[#4ade80] hover:bg-[#22c55e] hover:text-black transition-colors"
-              >
-                Modo Creador TikTok 9:16
-              </Link>
             </div>
             <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white uppercase italic mt-1">
               Estudio de Ingesta & Biblioteca

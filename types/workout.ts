@@ -101,6 +101,7 @@ export interface RoutineIntent {
   slotSeconds: number | null; // null => engine default by difficulty (40-60)
   includeWarmup: boolean;
   focusLabel: string;
+  rounds?: number | null; // said by the user ("3 rondas"); null => the engine picks
 }
 
 export interface TimelineSegment {

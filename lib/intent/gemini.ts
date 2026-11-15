@@ -7,7 +7,9 @@ import {
   type RoutineIntentResponse,
 } from './types';
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+// An alias, not a pinned version: Google retires pinned models (2.5-flash stopped working for
+// new keys). Lite answers in ~2 s, well inside the 8 s timeout; reading one sentence needs no more.
+const DEFAULT_GEMINI_MODEL = 'gemini-flash-lite-latest';
 const GEMINI_TIMEOUT_MS = 8_000;
 
 const SYSTEM_INSTRUCTION = `Eres el motor de interpretación de entrenamientos de EverydayM.

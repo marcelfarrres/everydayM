@@ -10,6 +10,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Everyday M light world: paper matches the wall behind Marcel, one red accent */
+  --color-paper: #e9e9e7;
+  --color-ink: #131313;
+  --color-heat: #ff3b30;
+  /* Phase colours of the player, always paired with a word: warm-up, rest. Work is heat. */
+  --color-warm: #ff9f0a;
+  --color-rest: #2f6bff;
 }
 
 body {
@@ -59,4 +66,51 @@ body {
 @keyframes progress {
   from { width: 0%; }
   to { width: 100%; }
+}
+
+/* Marcel's photo and video melt into the page instead of ending in a hard edge */
+.media-feather {
+  mask-image:
+    linear-gradient(to right, transparent, black 14%, black 86%, transparent),
+    linear-gradient(to bottom, transparent, black 12%, black 82%, transparent);
+  mask-composite: intersect;
+}
+
+@media (min-width: 64rem) {
+  .media-feather {
+    mask-image:
+      linear-gradient(to right, black 76%, transparent),
+      linear-gradient(to bottom, transparent, black 10%);
+  }
+}
+
+/* Player: the video's frame is the clock. --p (0..1) fills it clockwise; --spin turns the
+   light that runs around it while resting. Registered so both can animate. */
+@property --p {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@property --spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.stage-ring {
+  background: conic-gradient(from 0deg, var(--ring) calc(var(--p) * 1turn), rgb(19 19 19 / 0.08) 0);
+  transition: --p 1s linear;
+}
+.stage-spin {
+  background: conic-gradient(from var(--spin), rgb(47 107 255 / 0.12) 0 55%, var(--ring) 80%, #fff 90%, rgb(47 107 255 / 0.12) 100%);
+  animation: stage-spin 2.6s linear infinite;
+}
+@keyframes stage-spin {
+  to {
+    --spin: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-spin {
+    animation: none;
+  }
 }

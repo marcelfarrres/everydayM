@@ -9,7 +9,7 @@ import type {
   WorkoutFilters,
 } from '@/types/workout';
 import {
-  INTRO_DURATION_SECONDS,
+  MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
   SUMMARY_DURATION_SECONDS,
   getClipDuration,
@@ -168,9 +168,6 @@ export function buildRoutine(
       ? Math.max(15, Math.round(input.slotSeconds))
       : getDefaultSlotSeconds(difficulty);
 
-  const intros = allExercises.filter(
-    (ex) => ex.type?.toLowerCase() === 'intro',
-  );
   const warmups = allExercises.filter(
     (ex) => ex.type?.toLowerCase() === 'warmup',
   );
@@ -238,13 +235,8 @@ export function buildRoutine(
 
   const selectedWarmups =
     includeWarmup && warmups.length > 0 ? warmups.slice(0, 3) : [];
-  const introExercise = intros[0] ?? background;
-  const introDuration = introExercise
-    ? Math.min(
-        INTRO_DURATION_SECONDS,
-        getClipDuration(introExercise, INTRO_DURATION_SECONDS),
-      )
-    : 0;
+  // No intro clip in the app: the workout starts with the plan. (TikTok exports add their own opening.)
+  const introDuration = 0;
 
   let rounds = 3;
   let exercisesPerRound = 5;
@@ -260,6 +252,7 @@ export function buildRoutine(
         .map((item) => item.exercise);
 
       const solved = solveForMinutes({
+        ...(input.rounds ? { minRounds: input.rounds, maxRounds: input.rounds, maxExercisesPerRound: 20 } : {}),
         targetMinutes: input.targetMinutes,
         difficulty,
         slotSeconds,
@@ -331,6 +324,7 @@ export function buildRoutine(
     circuitExercises.length > 0
   ) {
     const refined = solveForMinutes({
+      ...(input.rounds ? { minRounds: input.rounds, maxRounds: input.rounds } : {}),
       targetMinutes: input.targetMinutes,
       difficulty,
       slotSeconds,
@@ -379,10 +373,6 @@ export function buildRoutine(
       duration_seconds: slotSeconds,
     };
 
-  if (allExercises.length > 0 && introExercise) {
-    queue.push({ kind: 'intro', exercise: introExercise });
-  }
-
   if (allExercises.length > 0) {
     queue.push({
       kind: 'summary',
@@ -418,7 +408,7 @@ export function buildRoutine(
           : circuitExercises[exIdx + 1];
 
         const clipSeconds = getClipDuration(ex, slotSeconds);
-        const prepSeconds = Math.max(0, slotSeconds - clipSeconds);
+        const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
         const baseRest = isEndOfRound ? restSec + 10 : restSec;
 
         queue.push({

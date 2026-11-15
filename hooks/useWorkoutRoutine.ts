@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
-  INTRO_DURATION_SECONDS,
   buildRoutine,
   buildTimeline,
   getItemDuration,
@@ -39,6 +38,8 @@ export function useWorkoutRoutine() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [totalItemDuration, setTotalItemDuration] = useState(60);
   const remainingRef = useRef<number>(60);
+  // When the running timer-driven item ends (performance.now() ms); null while paused or video-driven.
+  const deadlineRef = useRef<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -78,6 +79,7 @@ export function useWorkoutRoutine() {
         builtQueue[0],
         builtMeta.slotSeconds,
       );
+      deadlineRef.current = null;
       remainingRef.current = initialDuration;
       setMeta(builtMeta);
       setQueue(builtQueue);
@@ -165,6 +167,7 @@ export function useWorkoutRoutine() {
   );
 
   const nextItem = useCallback(() => {
+    deadlineRef.current = null;
     if (currentIndex < queue.length - 1) {
       const nextIdx = currentIndex + 1;
       const nextDuration = getItemDuration(queue[nextIdx], meta?.slotSeconds);
@@ -186,6 +189,7 @@ export function useWorkoutRoutine() {
 
     const targetIdx = currentIndex > 0 ? currentIndex - 1 : 0;
     const prevDuration = getItemDuration(queue[targetIdx], meta?.slotSeconds);
+    deadlineRef.current = null;
     remainingRef.current = prevDuration;
     setTotalItemDuration(prevDuration);
     setTimeLeft(prevDuration);
@@ -196,6 +200,14 @@ export function useWorkoutRoutine() {
       videoRef.current.currentTime = 0;
     }
   }, [currentIndex, queue, meta?.slotSeconds]);
+
+  /** Add time to the current timer-driven item (rest): "+10 s". */
+  const extendItem = useCallback((seconds: number) => {
+    if (deadlineRef.current !== null) deadlineRef.current += seconds * 1000;
+    else remainingRef.current += seconds;
+    setTotalItemDuration((prev) => prev + seconds);
+    setTimeLeft((prev) => prev + seconds);
+  }, []);
 
   const togglePause = useCallback(() => {
     setIsPaused((prev) => {
@@ -224,61 +236,17 @@ export function useWorkoutRoutine() {
     }
   }, [isPaused, currentIndex, step]);
 
-  useEffect(() => {
-    if (step !== 'player' || isPaused) return;
-    const current = queue[currentIndex];
-    if (!current) return;
-
-    const isTimerDriven =
-      current.kind === 'rest' ||
-      current.kind === 'summary' ||
-      current.kind === 'outro' ||
-      current.kind === 'intro';
-
-    if (!isTimerDriven) return;
-
-    const interval = setInterval(() => {
-      remainingRef.current = Math.max(0, remainingRef.current - 1);
-      setTimeLeft(remainingRef.current);
-
-      if (remainingRef.current <= 0) {
-        clearInterval(interval);
-        if (current.kind !== 'outro') {
-          nextItem();
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentIndex, queue, isPaused, step, nextItem]);
-
   const handleVideoTimeUpdate = useCallback(() => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
 
     const current = queue[currentIndex];
-    if (current?.kind === 'intro') {
-      const rawDur =
-        Number.isFinite(videoEl.duration) && videoEl.duration > 0
-          ? Math.min(INTRO_DURATION_SECONDS, Math.ceil(videoEl.duration))
-          : INTRO_DURATION_SECONDS;
-      const remaining = Math.max(
-        0,
-        Math.ceil(rawDur - videoEl.currentTime),
-      );
-      remainingRef.current = remaining;
-      setTotalItemDuration(rawDur);
-      setTimeLeft(remaining);
-      if (videoEl.currentTime >= INTRO_DURATION_SECONDS) {
-        nextItem();
-      }
-      return;
-    }
-
     if (
       current?.kind === 'workout' ||
       current?.kind === 'warmup'
     ) {
+      // The ref can still hold the previous clip for a moment after a change: only trust this item's video.
+      if (videoEl.getAttribute('src') !== current.exercise.video_url) return;
       if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
         const realDuration = Math.max(1, Math.ceil(videoEl.duration));
         const remaining = Math.max(
@@ -292,7 +260,44 @@ export function useWorkoutRoutine() {
         setTimeLeft(remaining);
       }
     }
-  }, [queue, currentIndex, nextItem]);
+  }, [queue, currentIndex]);
+
+  // One clock for every item, read 10 times a second so the seconds turn over on time:
+  // exercise clips follow their own video; intro, summary, rest and outro follow a deadline,
+  // which survives pauses and never drifts the way a 1 s setInterval does.
+  useEffect(() => {
+    if (step !== 'player' || isPaused) return;
+    const current = queue[currentIndex];
+    if (!current) return;
+
+    const fromVideo = current.kind === 'warmup' || current.kind === 'workout';
+    if (!fromVideo) {
+      deadlineRef.current = performance.now() + remainingRef.current * 1000;
+    }
+
+    const tick = () => {
+      if (fromVideo) {
+        handleVideoTimeUpdate();
+        return;
+      }
+      if (deadlineRef.current === null) return;
+      const left = Math.max(0, (deadlineRef.current - performance.now()) / 1000);
+      setTimeLeft(Math.ceil(left));
+      if (left <= 0 && current.kind !== 'outro') {
+        nextItem();
+      }
+    };
+    const interval = setInterval(tick, 100);
+
+    return () => {
+      clearInterval(interval);
+      // Paused mid-item: keep the exact time left. (Skips clear the deadline first.)
+      if (deadlineRef.current !== null) {
+        remainingRef.current = Math.max(0, (deadlineRef.current - performance.now()) / 1000);
+        deadlineRef.current = null;
+      }
+    };
+  }, [currentIndex, queue, isPaused, step, nextItem, handleVideoTimeUpdate]);
 
   return {
     step,
@@ -316,8 +321,10 @@ export function useWorkoutRoutine() {
     getRestDuration,
     generateWorkout,
     generateFromIntent,
+    startBuiltRoutine,
     nextItem,
     prevItem,
+    extendItem,
     handleVideoTimeUpdate,
   };
 }
