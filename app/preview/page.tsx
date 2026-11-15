@@ -1,37 +1,17 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-// Development only: the app at phone and computer size side by side, plus design proposals.
+// Development only: the app at phone and computer size, side by side.
 // Each frame is a real browser window of that size, so the layout and breakpoints are the real ones.
-export default async function PreviewPage({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
+export default function PreviewPage() {
   if (process.env.NODE_ENV === 'production') notFound();
-  const { ver } = await searchParams;
-  const page = ver === 'pizarras' ? '/designs/pizarra.html' : ver === 'disenos' ? '/designs/opciones.html' : null;
-
-  const tab = (active: boolean) =>
-    `rounded-full px-4 py-2 text-[15px] font-semibold ${active ? 'bg-ink text-white' : 'bg-white text-ink hover:bg-white/70'}`;
 
   return (
     <main className="min-h-dvh bg-[#d9d9d6] px-6 py-6 font-[family-name:var(--font-display)] text-ink">
-      <nav className="mb-5 flex flex-wrap items-center gap-2">
-        <Link href="/preview" className={tab(!page)}>
-          App · versión 1
-        </Link>
-        <Link href="/preview?ver=pizarras" className={tab(ver === 'pizarras')}>
-          Pizarras (nuevo)
-        </Link>
-        <Link href="/preview?ver=disenos" className={tab(ver === 'disenos')}>
-          Primeros 5 diseños
-        </Link>
-        <span className="ml-2 text-[14px] text-ink/55">
-          {page ? 'Elige una opción y la aplico a toda la app.' : 'Cada marco funciona por separado.'}
-        </span>
-      </nav>
+      <p className="mb-5 text-[15px] font-semibold text-ink/60">
+        Vista previa · cada marco funciona por separado. La versión anterior está en la rama <code>version-1</code>.
+      </p>
 
-      {page ? (
-        <iframe key={page} src={page} title="Diseños propuestos" className="h-[calc(100dvh-7rem)] w-full rounded-2xl border-0 bg-[#d9d9d6]" />
-      ) : (
-        <div className="flex flex-wrap items-start gap-8">
+      <div className="flex flex-wrap items-start gap-8">
           <section>
             <h2 className="mb-2 text-lg font-semibold">Móvil · 390 × 844</h2>
             <div className="h-[633px] w-[293px] overflow-hidden rounded-[36px] bg-black shadow-[0_30px_60px_-30px_rgba(0,0,0,0.5)] ring-[6px] ring-black">
@@ -44,8 +24,7 @@ export default async function PreviewPage({ searchParams }: { searchParams: Prom
               <iframe src="/" title="App en ordenador" className="h-[900px] w-[1440px] origin-top-left scale-[0.66] border-0" />
             </div>
           </section>
-        </div>
-      )}
+      </div>
     </main>
   );
 }
