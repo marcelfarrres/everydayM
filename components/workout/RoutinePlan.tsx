@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from 'motion/react';
-import { ExerciseFigure } from '@/components/workout/ExerciseFigure';
-import type { Exercise, RoutineItem, TimelineSegment } from '@/types/workout';
+import type { RoutineItem, TimelineSegment } from '@/types/workout';
 
-type Part = { key: string; label: string; count: number; seconds: number; color: string; exercises: Exercise[] };
+type Part = { key: string; label: string; count: number; seconds: number; color: string };
 
 const ROUND_COLORS = ['#ff3b30', '#ff6a61', '#e0261c', '#ff8f88', '#c41f14', '#ffb0aa'];
 
@@ -26,15 +25,11 @@ function partsOf(queue: RoutineItem[], timeline: TimelineSegment[]): Part[] {
         count: 0,
         seconds: 0,
         color: owner.kind === 'warmup' ? '#ff9f0a' : ROUND_COLORS[rounds % ROUND_COLORS.length],
-        exercises: [],
       };
       parts.push(part);
     }
     part.seconds += seconds;
-    if (item.kind !== 'rest') {
-      part.count += 1;
-      part.exercises.push(item.exercise);
-    }
+    if (item.kind !== 'rest') part.count += 1;
   });
   return parts;
 }
@@ -51,8 +46,7 @@ function arc(a0: number, a1: number, r0: number, r1: number): string {
 
 /**
  * The plan as a clock: the routine's parts around a ring, in order. A hand sweeps round once
- * over `seconds`; the part it is passing grows out of the ring, says what it is in the middle,
- * and its exercises pop up below as little cut-out figures.
+ * over `seconds`; the part it is passing grows out of the ring and says what it is in the middle.
  */
 export function RoutinePlan({ queue, timeline, seconds }: { queue: RoutineItem[]; timeline: TimelineSegment[]; seconds: number }) {
   const reduced = useReducedMotion();
@@ -80,7 +74,6 @@ export function RoutinePlan({ queue, timeline, seconds }: { queue: RoutineItem[]
   });
 
   const now = shapes[active];
-  const figures = now ? now.exercises.filter((e, i, all) => all.findIndex((x) => x.id === e.id) === i).slice(0, 6) : [];
 
   return (
     <div className="flex w-full flex-col items-center gap-3">
@@ -145,23 +138,6 @@ export function RoutinePlan({ queue, timeline, seconds }: { queue: RoutineItem[]
         </div>
       </div>
 
-      {/* this part's exercises, as little figures */}
-      <div className="flex h-[min(20cqw,5.5rem)] items-end justify-center gap-1">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {figures.map((exercise, i) => (
-            <motion.div
-              key={`${now?.key}-${exercise.id}`}
-              initial={reduced ? false : { opacity: 0, y: 24, scale: 0.6 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={reduced ? undefined : { opacity: 0, y: -10, scale: 0.8 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 22, delay: i * 0.06 }}
-              className="h-full"
-            >
-              <ExerciseFigure exercise={exercise} className="h-full w-auto max-w-[min(16cqw,4.5rem)]" />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
     </div>
   );
 }

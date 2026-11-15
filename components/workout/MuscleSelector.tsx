@@ -101,8 +101,8 @@ const BACK_REGIONS: MuscleRegion[] = [
 function BodyBase() {
   return (
     <g
-      fill="#303a33"
-      stroke="#89968c"
+      fill="#e2e2df"
+      stroke="#c4c4bf"
       strokeWidth="1.8"
       strokeLinejoin="round"
       pointerEvents="none"
@@ -139,7 +139,7 @@ function MuscleDetails({ side }: { side: 'Frente' | 'Espalda y glúteos' }) {
   return (
     <g
       fill="none"
-      stroke="#526056"
+      stroke="#b4b4ae"
       strokeWidth="1.5"
       strokeLinecap="round"
       pointerEvents="none"
@@ -178,8 +178,8 @@ function AnatomyView({
   };
 
   return (
-    <div className="min-w-0 rounded-2xl border border-white/15 bg-[#111713] p-2.5">
-      <p className="text-center text-[11px] font-black uppercase tracking-[0.12em] text-neutral-200">
+    <div className="min-w-0 rounded-2xl bg-white p-2.5">
+      <p className="text-center text-[12px] font-semibold text-ink/60">
         {side}
       </p>
       <svg
@@ -218,16 +218,16 @@ function AnatomyView({
                     handleRegionClick(region);
                   }
                 }}
-                className="cursor-pointer transition-colors hover:brightness-125 focus:outline-none focus:brightness-125"
+                className="cursor-pointer transition-colors hover:brightness-95 focus:outline-none focus:brightness-90"
                 fill={
                   selection?.role === 'primary'
-                    ? '#22c55e'
+                    ? '#ff3b30'
                     : selection?.role === 'secondary'
-                      ? '#facc15'
-                      : '#8b9890'
+                      ? '#ff9f0a'
+                      : '#cfcfca'
                 }
                 fillOpacity={selection ? 0.96 : 0.86}
-                stroke={selection ? '#f0fdf4' : '#d0d8d1'}
+                stroke={selection ? '#ffffff' : '#f4f4f2'}
                 strokeWidth={selection ? 1.6 : 1.2}
                 strokeLinejoin="round"
               >
@@ -257,10 +257,10 @@ export function MuscleSelector({
   return (
     <section aria-label="Selección de músculos" className="space-y-2.5">
       <div>
-        <h2 className="text-xs font-black uppercase tracking-[0.15em] text-neutral-300">
+        <h2 className="text-[13px] font-semibold text-ink/60">
           Músculos a trabajar
         </h2>
-        <p className="mt-1 text-xs text-neutral-400">
+        <p className="mt-1 text-[12px] text-ink/45">
           Toca una zona: secundario · principal · quitar
         </p>
       </div>
@@ -280,15 +280,15 @@ export function MuscleSelector({
         />
       </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-300">
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12px] font-medium text-ink/55">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" /> Participa (secundario)
+          <span className="h-2.5 w-2.5 rounded-full bg-warm" /> Participa (secundario)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> Principal
+          <span className="h-2.5 w-2.5 rounded-full bg-heat" /> Principal
         </span>
         {selectedMuscles.length > 0 && (
-          <span className="w-full text-neutral-200">
+          <span className="w-full text-ink/75">
             Seleccionados: {selectedMuscles.map((group) => {
               const isPrimary = group.ids.some((id) =>
                 value.some((entry) => entry.id === id && entry.role === 'primary'),

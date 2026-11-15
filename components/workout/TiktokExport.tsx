@@ -2,23 +2,73 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Download, Film, Sparkles, X } from 'lucide-react';
+import { Check, Copy, Download, Film, Images, Lightbulb, ListOrdered, RefreshCw, Sparkles, Timer, X } from 'lucide-react';
 import type { RoutineItem, RoutineMeta } from '@/types/workout';
 
-type Mode = 'summary' | 'full';
+type Mode = 'summary' | 'full' | 'top3' | 'challenge' | 'carousel';
+type Idea = {
+  title: string;
+  hook: string;
+  why: string;
+  shots: { seconds: number; what: string; text?: string }[];
+  filmMinutes: number;
+  caption: string;
+  pairWith: Mode;
+};
 type Phase =
   | { at: 'choose' }
   | { at: 'running'; mode: Mode; id: string; progress: number; step: string }
-  | { at: 'done'; mode: Mode; id: string }
+  | { at: 'done'; mode: Mode; id: string; slides: number }
   | { at: 'error'; message: string };
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
 const ENDPOINT = '/api/studio/tiktok';
 
+const NAMES: Record<Mode, string> = {
+  summary: 'Resumen',
+  full: 'Rutina completa',
+  top3: '3 ejercicios',
+  challenge: 'Reto 1 minuto',
+  carousel: 'Carrusel de fotos',
+};
+
+/** Copy to the clipboard, falling back to selecting the text when the browser refuses. */
+function CopyBox({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  return (
+    <div className="relative">
+      <textarea
+        ref={ref}
+        readOnly
+        value={text}
+        rows={4}
+        className="w-full resize-none rounded-2xl bg-ink/6 p-3 pr-12 text-[14px] leading-snug text-ink/80 focus:outline-none"
+      />
+      <button
+        type="button"
+        aria-label="Copiar"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            ref.current?.select();
+          }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className={`absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow ${FOCUS}`}
+      >
+        {copied ? <Check className="h-4 w-4 text-heat" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+      </button>
+    </div>
+  );
+}
+
 /**
- * Turns today's routine into a real MP4 for TikTok, rendered by the Studio (FFmpeg on this
- * computer): a 15 s teaser to post, or the whole routine to follow along.
+ * Everything for TikTok in one place: an idea for today's own clip (to film in a few minutes)
+ * and five videos the Studio renders from today's routine, each with its description ready.
  */
 export function TiktokExport({
   open,
@@ -37,6 +87,10 @@ export function TiktokExport({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [phase, setPhase] = useState<Phase>({ at: 'choose' });
   const [handle, setHandle] = useState('@everydaym');
+  const [idea, setIdea] = useState<Idea | null>(null);
+  const [ideaLoading, setIdeaLoading] = useState(false);
+  const [seen, setSeen] = useState<string[]>([]);
+  const [caption, setCaption] = useState('');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -53,8 +107,8 @@ export function TiktokExport({
     const timer = setInterval(async () => {
       try {
         const res = await fetch(`${ENDPOINT}?id=${runningId}`, { cache: 'no-store' });
-        const data = (await res.json()) as { status?: string; progress?: number; step?: string; error?: string };
-        if (data.status === 'done') setPhase({ at: 'done', mode: runningMode, id: runningId });
+        const data = (await res.json()) as { status?: string; progress?: number; step?: string; error?: string; slides?: number };
+        if (data.status === 'done') setPhase({ at: 'done', mode: runningMode, id: runningId, slides: data.slides ?? 0 });
         else if (data.status === 'error' || !res.ok) setPhase({ at: 'error', message: data.error ?? 'No se pudo crear el vídeo.' });
         else setPhase({ at: 'running', mode: runningMode, id: runningId, progress: data.progress ?? 0, step: data.step ?? '' });
       } catch {
@@ -66,9 +120,34 @@ export function TiktokExport({
 
   const minutes = meta ? Math.max(1, Math.round(meta.totalSeconds / 60)) : 0;
 
+  const askIdea = async () => {
+    if (!meta) return;
+    setIdeaLoading(true);
+    try {
+      const res = await fetch('/api/studio/idea', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meta, avoid: seen }),
+      });
+      const data = (await res.json()) as { idea?: Idea };
+      if (data.idea) {
+        setIdea(data.idea);
+        setSeen((s) => [...s, data.idea!.title].slice(-8));
+      }
+    } finally {
+      setIdeaLoading(false);
+    }
+  };
+
   const start = async (mode: Mode) => {
     if (!meta) return;
+    setCaption('');
     setPhase({ at: 'running', mode, id: '', progress: 0, step: 'Empezando' });
+    // the description is ready by the time the video is
+    fetch('/api/studio/idea', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meta, caption: mode }) })
+      .then((r) => r.json())
+      .then((d: { caption?: string }) => setCaption(d.caption ?? ''))
+      .catch(() => {});
     try {
       const res = await fetch(ENDPOINT, {
         method: 'POST',
@@ -88,23 +167,12 @@ export function TiktokExport({
     }
   };
 
-  const options: { mode: Mode; icon: typeof Film; title: string; length: string; detail: string; wait: string }[] = [
-    {
-      mode: 'summary',
-      icon: Sparkles,
-      title: 'Resumen',
-      length: '≈ 20 s',
-      detail: 'Tu frase escribiéndose, Marcel, el plan y un vistazo a cada ejercicio.',
-      wait: 'Listo en unos 20 s',
-    },
-    {
-      mode: 'full',
-      icon: Film,
-      title: 'Rutina completa',
-      length: `${minutes} min`,
-      detail: 'Entera, con cuenta atrás, rondas y descansos. Para seguirla.',
-      wait: `Listo en unos ${Math.max(1, Math.round((minutes * 10) / 60))} min`,
-    },
+  const options: { mode: Mode; icon: typeof Film; length: string; detail: string }[] = [
+    { mode: 'summary', icon: Sparkles, length: '≈ 20 s', detail: 'Tu frase escribiéndose, tú, el plan y un vistazo a cada ejercicio.' },
+    { mode: 'full', icon: Film, length: `${minutes} min`, detail: 'Entera, para seguirla: reloj, vueltas, descansos y lo siguiente.' },
+    { mode: 'top3', icon: ListOrdered, length: '≈ 16 s', detail: '«3 ejercicios para…»: número grande, nombre y tiempo. Se guarda mucho.' },
+    { mode: 'challenge', icon: Timer, length: '≈ 65 s', detail: '«Aguanta 1 minuto conmigo»: 3 ejercicios seguidos con reloj.' },
+    { mode: 'carousel', icon: Images, length: 'Fotos', detail: 'Portada, una foto por ejercicio y el plan. Para el modo foto de TikTok.' },
   ];
 
   const percent = phase.at === 'running' ? Math.round(phase.progress * 100) : 0;
@@ -114,16 +182,14 @@ export function TiktokExport({
     <dialog
       ref={dialogRef}
       onClose={onClose}
-      aria-label="Vídeo para TikTok"
-      className="m-auto w-[min(94vw,30rem)] overflow-hidden rounded-[32px] bg-paper p-0 font-[family-name:var(--font-display)] text-ink shadow-[0_40px_80px_-30px_rgba(0,0,0,0.5)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+      aria-label="Para TikTok"
+      className="m-auto max-h-[92dvh] w-[min(94vw,34rem)] overflow-y-auto rounded-[32px] bg-paper p-0 font-[family-name:var(--font-display)] text-ink shadow-[0_40px_80px_-30px_rgba(0,0,0,0.5)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
     >
       <div className="flex flex-col gap-6 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">TikTok · 9:16</p>
-            <h2 className="mt-1 text-3xl font-semibold tracking-[-0.03em]">
-              {phase.at === 'done' ? 'Tu vídeo' : 'Crear vídeo'}
-            </h2>
+            <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">TikTok · hoy</p>
+            <h2 className="mt-1 text-3xl font-semibold tracking-[-0.03em]">{phase.at === 'done' ? NAMES[phase.mode] : 'Para publicar'}</h2>
           </div>
           <button
             type="button"
@@ -143,46 +209,100 @@ export function TiktokExport({
               animate={{ opacity: 1, y: 0 }}
               exit={reducedMotion ? undefined : { opacity: 0, y: -12 }}
               transition={{ duration: 0.35, ease: EASE }}
-              className="flex flex-col gap-3"
+              className="flex flex-col gap-6"
             >
-              {options.map((option, i) => (
-                <motion.button
-                  key={option.mode}
-                  type="button"
-                  disabled={!meta}
-                  onClick={() => void start(option.mode)}
-                  initial={reducedMotion ? false : { opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.06 + i * 0.07, duration: 0.45, ease: EASE }}
-                  whileHover={reducedMotion ? undefined : { y: -2 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`group flex items-center gap-4 rounded-3xl bg-white p-4 text-left shadow-[0_16px_34px_-26px_rgba(0,0,0,0.5)] disabled:opacity-40 ${FOCUS}`}
-                >
-                  <span className="flex aspect-[9/16] w-12 shrink-0 items-center justify-center rounded-xl bg-ink text-white transition-colors group-hover:bg-heat">
-                    <option.icon className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-3">
-                      <span className="text-xl font-semibold tracking-[-0.01em]">{option.title}</span>
-                      <span className="text-lg font-bold tabular-nums">{option.length}</span>
+              {/* IDEA FOR TODAY'S OWN CLIP */}
+              <section className="rounded-3xl bg-ink p-5 text-white">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.12em] text-white/60">
+                    <Lightbulb className="h-4 w-4" aria-hidden="true" /> Tu vídeo de hoy
+                  </p>
+                  {idea && (
+                    <button type="button" onClick={() => void askIdea()} disabled={ideaLoading} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold text-white/80 hover:bg-white/10 ${FOCUS}`}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${ideaLoading ? 'animate-spin' : ''}`} aria-hidden="true" /> Otra
+                    </button>
+                  )}
+                </div>
+                {!idea ? (
+                  <>
+                    <p className="mt-2 text-[15px] leading-snug text-white/70">Una idea para grabar tú en pocos minutos, con su guion, el texto en pantalla y la descripción.</p>
+                    <button
+                      type="button"
+                      onClick={() => void askIdea()}
+                      disabled={!meta || ideaLoading}
+                      className={`mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[16px] font-semibold text-ink disabled:opacity-60 ${FOCUS}`}
+                    >
+                      {ideaLoading ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
+                      {ideaLoading ? 'Pensando…' : 'Dame una idea'}
+                    </button>
+                  </>
+                ) : (
+                  <div className="mt-3 flex flex-col gap-4">
+                    <div>
+                      <p className="text-[22px] font-semibold leading-tight tracking-[-0.02em]">«{idea.hook}»</p>
+                      <p className="mt-1 text-[14px] text-white/60">{idea.why}</p>
+                    </div>
+                    <ol className="flex flex-col gap-2">
+                      {idea.shots.map((shot, i) => (
+                        <li key={i} className="flex gap-3 rounded-2xl bg-white/8 p-3">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[13px] font-bold text-ink">{i + 1}</span>
+                          <span className="min-w-0 text-[14px] leading-snug">
+                            <span className="font-semibold">{shot.seconds} s · </span>
+                            {shot.what}
+                            {shot.text && <span className="mt-1 block text-white/60">Texto: «{shot.text}»</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                    <p className="text-[13px] font-semibold text-white/60">
+                      Lo grabas en unos {idea.filmMinutes} min · publícalo con: {NAMES[idea.pairWith]}
+                    </p>
+                    <div className="rounded-2xl bg-white text-ink">
+                      <CopyBox text={idea.caption} />
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* VIDEOS FROM THE APP */}
+              <section className="flex flex-col gap-2.5">
+                <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Vídeos de la app</p>
+                {options.map((option, i) => (
+                  <motion.button
+                    key={option.mode}
+                    type="button"
+                    disabled={!meta}
+                    onClick={() => void start(option.mode)}
+                    initial={reducedMotion ? false : { opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.04 + i * 0.05, duration: 0.4, ease: EASE }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`group flex items-center gap-4 rounded-3xl bg-white p-3.5 text-left shadow-[0_16px_34px_-28px_rgba(0,0,0,0.5)] disabled:opacity-40 ${FOCUS}`}
+                  >
+                    <span className="flex aspect-[9/16] w-11 shrink-0 items-center justify-center rounded-xl bg-ink text-white transition-colors group-hover:bg-heat">
+                      <option.icon className="h-5 w-5" aria-hidden="true" />
                     </span>
-                    <span className="mt-1 block text-[15px] leading-snug text-ink/60">{option.detail}</span>
-                    <span className="mt-1 block text-[13px] font-semibold text-ink/45">{option.wait}</span>
-                  </span>
-                </motion.button>
-              ))}
-              <label className="mt-2 flex items-center gap-3 rounded-2xl bg-ink/6 px-4">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className="flex items-center gap-2 text-[18px] font-semibold tracking-[-0.01em]">
+                          {NAMES[option.mode]}
+                          {idea?.pairWith === option.mode && (
+                            <span className="rounded-full bg-heat px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white">Hoy</span>
+                          )}
+                        </span>
+                        <span className="text-[15px] font-semibold tabular-nums text-ink/60">{option.length}</span>
+                      </span>
+                      <span className="mt-0.5 block text-[14px] leading-snug text-ink/60">{option.detail}</span>
+                    </span>
+                  </motion.button>
+                ))}
+              </section>
+
+              <label className="flex items-center gap-3 rounded-2xl bg-ink/6 px-4">
                 <span className="text-[15px] font-medium text-ink/55">Tu usuario</span>
-                <input
-                  value={handle}
-                  onChange={(e) => setHandle(e.target.value)}
-                  maxLength={30}
-                  className="min-h-12 min-w-0 flex-1 bg-transparent text-right text-[17px] font-semibold focus:outline-none"
-                />
+                <input value={handle} onChange={(e) => setHandle(e.target.value)} maxLength={30} className="min-h-12 min-w-0 flex-1 bg-transparent text-right text-[17px] font-semibold focus:outline-none" />
               </label>
-              <p className="text-[13px] leading-snug text-ink/50">
-                Sin música: añade el sonido en TikTok. Se crea en el ordenador del Estudio.
-              </p>
+              <p className="text-[13px] leading-snug text-ink/50">Sin música: añade el sonido en TikTok. Se crean en el ordenador del Estudio.</p>
             </motion.div>
           )}
 
@@ -200,86 +320,58 @@ export function TiktokExport({
               <div className="relative h-36 w-36">
                 <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-hidden="true">
                   <circle cx="60" cy="60" r="52" fill="none" strokeWidth="8" className="stroke-ink/10" />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="52"
-                    fill="none"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={ring}
-                    strokeDashoffset={ring * (1 - phase.progress)}
-                    className="stroke-heat transition-[stroke-dashoffset] duration-1000 ease-linear"
-                  />
+                  <circle cx="60" cy="60" r="52" fill="none" strokeWidth="8" strokeLinecap="round" strokeDasharray={ring} strokeDashoffset={ring * (1 - phase.progress)} className="stroke-heat transition-[stroke-dashoffset] duration-1000 ease-linear" />
                 </svg>
                 {!reducedMotion && (
-                  <motion.span
-                    aria-hidden="true"
-                    className="absolute inset-0 rounded-full border-2 border-heat/30"
-                    animate={{ scale: [1, 1.12], opacity: [0.6, 0] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
-                  />
+                  <motion.span aria-hidden="true" className="absolute inset-0 rounded-full border-2 border-heat/30" animate={{ scale: [1, 1.12], opacity: [0.6, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }} />
                 )}
-                <span className="absolute inset-0 flex items-center justify-center text-4xl font-bold tabular-nums tracking-[-0.03em]">
-                  {percent}%
-                </span>
+                <span className="absolute inset-0 flex items-center justify-center text-4xl font-bold tabular-nums tracking-[-0.03em]">{percent}%</span>
               </div>
               <div>
-                <p className="text-xl font-semibold">{phase.mode === 'full' ? 'Montando la rutina completa' : 'Montando el resumen'}</p>
+                <p className="text-xl font-semibold">Montando: {NAMES[phase.mode]}</p>
                 <p className="mt-1 text-[15px] text-ink/55">{phase.step}</p>
               </div>
             </motion.div>
           )}
 
           {phase.at === 'done' && (
-            <motion.div
-              key="done"
-              initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, ease: EASE }}
-              className="flex flex-col items-center gap-4"
-            >
-              <video
-                src={`${ENDPOINT}?id=${phase.id}&file=1`}
-                controls
-                playsInline
-                autoPlay
-                muted
-                className="aspect-[9/16] h-[min(52dvh,30rem)] rounded-3xl bg-black object-cover"
-              />
+            <motion.div key="done" initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE }} className="flex flex-col gap-4">
+              {phase.mode === 'carousel' ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {Array.from({ length: phase.slides }, (_, i) => (
+                    <a key={i} href={`${ENDPOINT}?id=${phase.id}&slide=${i}&download=1`} download className="overflow-hidden rounded-2xl bg-black">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- photos just rendered by the Studio */}
+                      <img src={`${ENDPOINT}?id=${phase.id}&slide=${i}`} alt={`Foto ${i + 1}`} className="aspect-[9/16] w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <video src={`${ENDPOINT}?id=${phase.id}&file=1`} controls playsInline autoPlay muted className="mx-auto aspect-[9/16] h-[min(50dvh,28rem)] rounded-3xl bg-black object-cover" />
+              )}
               <a
                 href={`${ENDPOINT}?id=${phase.id}&file=1&download=1`}
                 download
                 className={`flex h-14 w-full items-center justify-center gap-2 rounded-full bg-ink text-lg font-semibold text-white transition-transform hover:scale-[1.02] active:scale-[0.98] ${FOCUS}`}
               >
                 <Download className="h-5 w-5" aria-hidden="true" />
-                Descargar MP4
+                {phase.mode === 'carousel' ? 'Descargar todas (ZIP)' : 'Descargar MP4'}
               </a>
-              <button
-                type="button"
-                onClick={() => setPhase({ at: 'choose' })}
-                className={`min-h-11 rounded-full px-4 text-[15px] font-medium text-ink/60 hover:text-ink ${FOCUS}`}
-              >
+              {caption && (
+                <div>
+                  <p className="mb-2 text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Descripción para TikTok</p>
+                  <CopyBox text={caption} />
+                </div>
+              )}
+              <button type="button" onClick={() => setPhase({ at: 'choose' })} className={`min-h-11 rounded-full px-4 text-[15px] font-medium text-ink/60 hover:text-ink ${FOCUS}`}>
                 Crear otro
               </button>
             </motion.div>
           )}
 
           {phase.at === 'error' && (
-            <motion.div
-              key="error"
-              initial={reducedMotion ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col gap-4"
-            >
-              <p role="alert" className="text-[17px] leading-snug">
-                {phase.message}
-              </p>
-              <button
-                type="button"
-                onClick={() => setPhase({ at: 'choose' })}
-                className={`flex h-14 items-center justify-center rounded-full bg-ink text-lg font-semibold text-white ${FOCUS}`}
-              >
+            <motion.div key="error" initial={reducedMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+              <p role="alert" className="text-[17px] leading-snug">{phase.message}</p>
+              <button type="button" onClick={() => setPhase({ at: 'choose' })} className={`flex h-14 items-center justify-center rounded-full bg-ink text-lg font-semibold text-white ${FOCUS}`}>
                 Volver
               </button>
             </motion.div>

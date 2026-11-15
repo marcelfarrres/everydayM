@@ -28,7 +28,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Petición inválida.' }, { status: 400 });
   }
-  const mode: ExportMode = body.mode === 'full' ? 'full' : 'summary';
+  const MODES: ExportMode[] = ['summary', 'full', 'top3', 'challenge', 'carousel'];
+  const mode: ExportMode = MODES.includes(body.mode as ExportMode) ? (body.mode as ExportMode) : 'summary';
   const queue = body.queue as RoutineItem[];
   const meta = body.meta as RoutineMeta;
   const problem = validateExport(mode, queue, meta);
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ id });
 }
 
-/** GET ?id=… → progress. GET ?id=…&file=1 → the MP4. */
+/** GET ?id=… → progress. GET ?id=…&file=1 → the MP4 (or the carousel's ZIP). GET ?id=…&slide=N → one photo. */
 export async function GET(req: NextRequest) {
   const blocked = guardStudioApi(req);
   if (blocked) return blocked;
@@ -53,20 +54,35 @@ export async function GET(req: NextRequest) {
   const job = jobs.get(id);
   if (!job) return NextResponse.json({ error: 'No existe ese vídeo.' }, { status: 404 });
 
+  const slide = req.nextUrl.searchParams.get('slide');
+  if (slide !== null) {
+    const file = job.slides?.[Number(slide)];
+    if (!file) return NextResponse.json({ error: 'No existe esa foto.' }, { status: 404 });
+    return new Response(Readable.toWeb(fs.createReadStream(file)) as ReadableStream, {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'no-store',
+        ...(req.nextUrl.searchParams.get('download') === '1'
+          ? { 'Content-Disposition': `attachment; filename="everydaym-${String(Number(slide) + 1).padStart(2, '0')}.jpg"` }
+          : {}),
+      },
+    });
+  }
   if (req.nextUrl.searchParams.get('file') !== '1') {
-    return NextResponse.json({ status: job.status, progress: job.progress, step: job.step, error: job.error });
+    return NextResponse.json({ status: job.status, progress: job.progress, step: job.step, error: job.error, slides: job.slides?.length ?? 0 });
   }
   if (job.status !== 'done' || !job.file) {
     return NextResponse.json({ error: 'Todavía no está listo.' }, { status: 409 });
   }
   const size = fs.statSync(job.file).size;
+  const isZip = job.file.endsWith('.zip');
   const headers: Record<string, string> = {
-    'Content-Type': 'video/mp4',
+    'Content-Type': isZip ? 'application/zip' : 'video/mp4',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
   };
   if (req.nextUrl.searchParams.get('download') === '1') {
-    headers['Content-Disposition'] = `attachment; filename="everydaym-${new Date().toISOString().slice(0, 10)}.mp4"`;
+    headers['Content-Disposition'] = `attachment; filename="everydaym-${new Date().toISOString().slice(0, 10)}.${isZip ? 'zip' : 'mp4'}"`;
   }
   // Safari only plays a <video> when it can ask for byte ranges.
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');

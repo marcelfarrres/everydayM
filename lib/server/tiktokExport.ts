@@ -22,17 +22,20 @@ const execFileAsync = promisify(execFile);
 const W = 1080;
 const H = 1920;
 const FONT = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+// TikTok covers the left/right 120 px, the bottom 660 px and a column on the right: keep words inside.
+const L = 108;
 const C = { paper: '#e9e9e7', ink: '#131313', heat: '#ff3b30', warm: '#ff9f0a', rest: '#2f6bff' };
 // Runtime temp paths: tell the bundler not to trace them (it would ship the whole project).
 const join = (...parts: string[]) => path.join(/* turbopackIgnore: true */ ...parts);
 
-export type ExportMode = 'summary' | 'full';
+export type ExportMode = 'summary' | 'full' | 'top3' | 'challenge' | 'carousel';
 export interface ExportJob {
   status: 'running' | 'done' | 'error';
   progress: number; // 0..1
   step: string;
   error?: string;
-  file?: string;
+  file?: string; // the MP4, or the ZIP of slides for a carousel
+  slides?: string[]; // carousel images, in order
 }
 
 type Ctx = {
@@ -124,7 +127,7 @@ async function pickEncoder(mode: ExportMode): Promise<string[]> {
     .then(({ stdout }) => /h264_videotoolbox/.test(stdout))
     .catch(() => false);
   // ~2.4 MB/min for the full routine (a 30 min video ≈ 700 MB), crisper for the 15 s teaser.
-  const [rate, crf] = mode === 'summary' ? ['6M', '20'] : ['3200k', '24'];
+  const [rate, crf] = mode === 'full' ? ['3200k', '24'] : ['6M', '20'];
   return (await encoderCheck)
     ? ['-c:v', 'h264_videotoolbox', '-b:v', rate, '-profile:v', 'high']
     : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', crf];
@@ -349,9 +352,9 @@ function marcelPart(seconds: number): Part {
           W,
           H,
           `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.78"/></linearGradient></defs>
-           <rect x="0" y="${H - 900}" width="${W}" height="900" fill="url(#g)"/>
-           ${title.map((l, i) => text(64, 1380 - (title.length - 1 - i) * 118, l, 112, '#fff', { weight: 800 })).join('')}
-           ${text(64, 1470, ctx.handle, 36, '#fff', { weight: 700, opacity: 0.75 })}`,
+           <rect x="0" y="500" width="${W}" height="${H - 500}" fill="url(#g)"/>
+           ${title.map((l, i) => text(L, 1140 - (title.length - 1 - i) * 118, l, 112, '#fff', { weight: 800 })).join('')}
+           ${text(L, 1230, ctx.handle, 36, '#fff', { weight: 700, opacity: 0.75 })}`,
         ),
         overlay,
       );
@@ -363,7 +366,7 @@ function marcelPart(seconds: number): Part {
         '-i',
         overlay,
         '-filter_complex',
-        `[0:v]${COVER}[v];[1:v]format=rgba,fade=in:st=${Math.max(0, seconds - 2).toFixed(2)}:d=0.5:alpha=1[o];[v][o]overlay=0:0:shortest=1[out]`,
+        `[0:v]${COVER}[v];[1:v]format=rgba,fade=in:st=${Math.min(0.8, seconds - 1).toFixed(2)}:d=0.5:alpha=1[o];[v][o]overlay=0:0:shortest=1[out]`,
         '-map',
         '[out]',
         ...outArgs(ctx, seconds, out),
@@ -389,7 +392,7 @@ function planPart(seconds: number): Part {
         rest ? [C.rest, 'Descansos', `${Math.round(rest.kind === 'rest' ? rest.duration : 0)} s`] : null,
       ].filter((r): r is string[] => r !== null);
       const band = 300 + rows.length * 90;
-      const top = (H - band) / 2;
+      const top = 300; // rows stay above y 840, where the like/comment column starts
       await png(
         svg(
           W,
@@ -513,68 +516,63 @@ function exercisePart(index: number, seconds: number): Part {
       const item = ctx.queue[index] as Extract<RoutineItem, { kind: 'warmup' | 'workout' }>;
       const tone: Tone = item.kind === 'warmup' ? 'warm' : 'work';
       const warmups = ctx.queue.filter((q) => q.kind === 'warmup');
+      // Words a first-timer gets with the sound off: which block, which lap, how many left.
+      const left = item.kind === 'workout' ? item.totalRounds - item.round : 0;
       const where =
         item.kind === 'warmup'
-          ? `Ejercicio ${warmups.indexOf(item) + 1} de ${warmups.length}`
-          : `Ronda ${item.round} de ${item.totalRounds} · Ejercicio ${item.exerciseIndexInRound} de ${item.totalExercisesPerRound}`;
-      const title = wrap(item.exercise.title, 16);
-      const titleSize = title.some((l) => l.length > 13) ? 84 : 96;
+          ? `Calentamiento · ${warmups.indexOf(item) + 1} de ${warmups.length}`
+          : `Vuelta ${item.round} · ${left <= 0 ? 'la última' : left === 1 ? 'queda 1' : `quedan ${left}`}`;
+      const n = item.kind === 'warmup' ? warmups.indexOf(item) + 1 : item.exerciseIndexInRound;
+      const of = item.kind === 'warmup' ? warmups.length : item.totalExercisesPerRound;
+      const dots = Array.from({ length: of }, (_, d) => `<circle cx="${L + 12 + d * 34}" cy="560" r="10" fill="${d < n ? TONE_FILL[tone] : '#fff'}" fill-opacity="${d < n ? 1 : 0.35}"/>`).join('');
+      const title = wrap(item.exercise.title, 14);
+      const titleSize = title.some((l) => l.length > 12) ? 78 : 88;
 
+      // Everything sits in TikTok's safe box (x 108-900, y 240-1260): the caption and the
+      // like/comment column cover the rest.
       const header = join(ctx.dir, `ex${index}-h.png`);
       await png(
         svg(
           W,
           H,
-          `<defs>
-             <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.7"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>
-             <linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.8"/></linearGradient>
-           </defs>
-           <rect width="${W}" height="720" fill="url(#t)"/>
-           <rect y="${H - 820}" width="${W}" height="820" fill="url(#b)"/>
-           ${text(64, 215, ctx.handle, 30, '#fff', { weight: 700, opacity: 0.7 })}
-           ${pill(64, 250, item.kind === 'warmup' ? 'CALENTAMIENTO' : 'PARTE PRINCIPAL', TONE_FILL[tone], TONE_TEXT[tone])}
-           ${title.map((l, i) => text(64, 420 + i * (titleSize + 6), l, titleSize, '#fff', { weight: 800 })).join('')}
-           ${text(64, 420 + title.length * (titleSize + 6) + 10, where, 40, '#fff', { weight: 600, opacity: 0.85 })}`,
+          `<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.72"/><stop offset="0.75" stop-color="#000" stop-opacity="0.35"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+           <rect width="${W}" height="1120" fill="url(#t)"/>
+           ${pill(L, 250, item.kind === 'warmup' ? 'CALENTAMIENTO' : 'PARTE PRINCIPAL', TONE_FILL[tone], TONE_TEXT[tone])}
+           ${title.map((l, i) => text(L, 410 + i * (titleSize + 4), l, titleSize, '#fff', { weight: 800 })).join('')}
+           <g transform="translate(0 ${(title.length - 1) * (titleSize + 4)})">
+             ${text(L, 520, where, 38, '#fff', { weight: 700, opacity: 0.9 })}
+             ${dots}
+           </g>`,
         ),
         header,
       );
 
-      // One small image per second: the clock, a cheer, and the routine bar.
+      // One small image per second, under the header: the clock, the routine bar, a cheer.
       const seqDir = join(ctx.dir, `ex${index}`);
       await fs.mkdir(seqDir);
-      const n = Math.ceil(seconds);
+      const shift = (title.length - 1) * (titleSize + 4);
+      const after = ctx.queue.slice(index + 1).find((q) => q.kind === 'warmup' || q.kind === 'workout');
+      const upNext = after && (after.kind === 'warmup' || after.kind === 'workout') ? wrap(after.exercise.title, 22, 1)[0] : null;
       await Promise.all(
-        Array.from({ length: n }, (_, s) =>
-          png(
+        Array.from({ length: Math.ceil(seconds) }, (_, s) => {
+          const t = seconds - s;
+          const line = upNext && t <= 8 ? `Siguiente: ${upNext}` : (cheerFor(ctx.queue, index, s, seconds) ?? '');
+          return png(
             svg(
               W,
-              420,
-              `${text(64, 60, cheerFor(ctx.queue, index, s, seconds) ?? '', 46, TONE_FILL[tone], { weight: 800 })}
-               ${text(64, 270, clock(seconds - s), 210, '#fff', { weight: 800 })}
-               ${progressBar(ctx.queue, index, s / seconds, 64, 312, 836)}
-               ${text(64, 376, where.split(' · ')[0], 32, '#fff', { weight: 700, opacity: 0.8 })}
-               ${text(900, 376, `Quedan ${clock(remainingAfter(ctx.queue, index, s))}`, 32, '#fff', { weight: 700, anchor: 'end', opacity: 0.8 })}`,
+              440,
+              `${text(L, 170, t >= 60 ? clock(t) : String(Math.ceil(t)), 180, t <= 3 ? C.heat : '#fff', { weight: 800 })}
+               ${progressBar(ctx.queue, index, s / seconds, L, 210, 900 - L)}
+               ${text(900, 268, `Quedan ${clock(remainingAfter(ctx.queue, index, s))}`, 30, '#fff', { weight: 700, anchor: 'end', opacity: 0.8 })}
+               ${text(L, 340, line, 42, upNext && t <= 8 ? '#fff' : TONE_FILL[tone], { weight: 800 })}`,
             ),
             join(seqDir, `${String(s).padStart(4, '0')}.png`),
-          ),
-        ),
+          );
+        }),
       );
 
-      const inputs = [
-        '-stream_loop',
-        '-1',
-        '-i',
-        ctx.clips.get(item.exercise.video_url)!,
-        '-loop',
-        '1',
-        '-i',
-        header,
-        '-framerate',
-        '1',
-        '-i',
-        join(seqDir, '%04d.png'),
-      ];
-      let graph = `[0:v]${COVER}[v];[1:v]format=rgba,fade=in:st=0:d=0.4:alpha=1[h];[v][h]overlay=0:0[a];[2:v]fps=30[c];[a][c]overlay=0:${H - 420 - 340}:eof_action=repeat[b]`;
+      const inputs = ['-stream_loop', '-1', '-i', ctx.clips.get(item.exercise.video_url)!, '-loop', '1', '-i', header, '-framerate', '1', '-i', join(seqDir, '%04d.png')];
+      let graph = `[0:v]${COVER}[v];[1:v]format=rgba,fade=in:st=0:d=0.4:alpha=1[h];[v][h]overlay=0:0[a];[2:v]fps=30[c];[a][c]overlay=0:${600 + shift}:eof_action=repeat[b]`;
       const card = announcement(item, ctx.queue, index);
       if (card) {
         const cardPng = join(ctx.dir, `ex${index}-a.png`);
@@ -584,8 +582,8 @@ function exercisePart(index: number, seconds: number): Part {
             W,
             H,
             `<rect width="${W}" height="${H}" fill="${TONE_FILL[card.tone]}" fill-opacity="0.94"/>
-             ${text(W / 2, 960, card.title, card.title.length > 12 ? 118 : 150, fg, { weight: 800, anchor: 'middle' })}
-             ${text(W / 2, 1050, card.sub, 46, fg, { weight: 600, anchor: 'middle', opacity: 0.85 })}`,
+             ${text(W / 2 - 30, 800, card.title, card.title.length > 12 ? 112 : 140, fg, { weight: 800, anchor: 'middle' })}
+             ${text(W / 2 - 30, 890, card.sub, 44, fg, { weight: 600, anchor: 'middle', opacity: 0.85 })}`,
           ),
           cardPng,
         );
@@ -605,15 +603,15 @@ function restPart(index: number, seconds: number): Part {
     name: `rest${index}`,
     render: async (ctx, out) => {
       const item = ctx.queue[index] as Extract<RoutineItem, { kind: 'rest' }>;
-      const hole = { x: 388, y: 860, w: 304, h: 540, r: 34 };
+      const hole = { x: 412, y: 905, w: 256, h: 350, r: 30 };
       const seqDir = join(ctx.dir, `rest${index}`);
       await fs.mkdir(seqDir);
-      const n = Math.ceil(seconds);
-      const ring = 2 * Math.PI * 150;
+      const ring = 2 * Math.PI * 128;
       const line = REST_LINES[index % REST_LINES.length];
       const next = wrap(item.nextExercise.title, 22, 1)[0];
+      const cx = W / 2 - 30; // a little left of centre: the like/comment column is on the right
       await Promise.all(
-        Array.from({ length: n }, (_, s) => {
+        Array.from({ length: Math.ceil(seconds) }, (_, s) => {
           const left = seconds - s;
           const prep = left <= 3;
           return png(
@@ -623,39 +621,24 @@ function restPart(index: number, seconds: number): Part {
               `<defs><radialGradient id="g" cx="0.5" cy="0" r="1"><stop offset="0" stop-color="#5b8bff"/><stop offset="0.7" stop-color="${C.rest}"/></radialGradient></defs>
                <path fill-rule="evenodd" fill="url(#g)" d="M0 0H${W}V${H}H0Z M${hole.x + hole.r} ${hole.y}H${hole.x + hole.w - hole.r}A${hole.r} ${hole.r} 0 0 1 ${hole.x + hole.w} ${hole.y + hole.r}V${hole.y + hole.h - hole.r}A${hole.r} ${hole.r} 0 0 1 ${hole.x + hole.w - hole.r} ${hole.y + hole.h}H${hole.x + hole.r}A${hole.r} ${hole.r} 0 0 1 ${hole.x} ${hole.y + hole.h - hole.r}V${hole.y + hole.r}A${hole.r} ${hole.r} 0 0 1 ${hole.x + hole.r} ${hole.y}Z"/>
                <rect x="${hole.x}" y="${hole.y}" width="${hole.w}" height="${hole.h}" rx="${hole.r}" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="4"/>
-               ${text(64, 215, ctx.handle, 30, '#fff', { weight: 700, opacity: 0.7 })}
-               ${pill(64, 250, item.isEndOfRound ? `RONDA ${Math.max(1, item.nextRound - 1)} COMPLETADA` : 'DESCANSO', 'rgba(255,255,255,0.22)', '#fff')}
-               ${text(W / 2, 400, prep ? 'Prepárate' : 'Descansa', 100, '#fff', { weight: 800, anchor: 'middle' })}
-               <circle cx="${W / 2}" cy="600" r="150" fill="none" stroke="#fff" stroke-opacity="0.2" stroke-width="14"/>
-               <circle cx="${W / 2}" cy="600" r="150" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-dasharray="${ring.toFixed(1)}" stroke-dashoffset="${(ring * (1 - left / seconds)).toFixed(1)}" transform="rotate(-90 ${W / 2} 600)"/>
-               ${text(W / 2, 662, String(Math.ceil(left)), 170, prep ? C.ink : '#fff', { weight: 800, anchor: 'middle' })}
-               ${pill(hole.x + 18, hole.y + 18, 'VISTA PREVIA', 'rgba(0,0,0,0.55)', '#fff', 22)}
-               ${text(W / 2, 1458, 'SIGUIENTE', 30, '#fff', { weight: 800, anchor: 'middle', spacing: 4, opacity: 0.75 })}
-               ${text(W / 2, 1522, next, 52, '#fff', { weight: 800, anchor: 'middle' })}
-               ${text(W / 2, 816, prep ? '¡Vamos!' : line, 40, '#fff', { weight: 600, anchor: 'middle', opacity: 0.9 })}`,
+               ${pill(L, 250, item.isEndOfRound ? `VUELTA ${Math.max(1, item.nextRound - 1)} HECHA` : 'DESCANSO', 'rgba(255,255,255,0.22)', '#fff')}
+               ${text(cx, 410, prep ? 'Prepárate' : 'Descansa', 96, '#fff', { weight: 800, anchor: 'middle' })}
+               <circle cx="${cx}" cy="590" r="128" fill="none" stroke="#fff" stroke-opacity="0.2" stroke-width="12"/>
+               <circle cx="${cx}" cy="590" r="128" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-dasharray="${ring.toFixed(1)}" stroke-dashoffset="${(ring * (1 - left / seconds)).toFixed(1)}" transform="rotate(-90 ${cx} 590)"/>
+               ${text(cx, 642, String(Math.ceil(left)), 146, prep ? C.ink : '#fff', { weight: 800, anchor: 'middle' })}
+               ${text(cx, 790, prep ? '¡Vamos!' : line, 38, '#fff', { weight: 600, anchor: 'middle', opacity: 0.9 })}
+               ${text(cx, 862, `Siguiente: ${next}`, 44, '#fff', { weight: 800, anchor: 'middle' })}`,
             ),
             join(seqDir, `${String(s).padStart(4, '0')}.png`),
           );
         }),
       );
       await ff([
-        '-f',
-        'lavfi',
-        '-i',
-        `color=c=black:s=${W}x${H}:r=30`,
-        '-stream_loop',
-        '-1',
-        '-i',
-        ctx.clips.get(item.nextExercise.video_url)!,
-        '-framerate',
-        '1',
-        '-i',
-        join(seqDir, '%04d.png'),
-        '-filter_complex',
-        `[1:v]scale=${hole.w}:${hole.h}:force_original_aspect_ratio=increase,crop=${hole.w}:${hole.h},fps=30[p];[0:v][p]overlay=${hole.x}:${hole.y}[b];[2:v]fps=30[c];[b][c]overlay=0:0:eof_action=repeat[out]`,
-        '-map',
-        '[out]',
-        ...outArgs(ctx, seconds, out),
+        '-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=30`,
+        '-stream_loop', '-1', '-i', ctx.clips.get(item.nextExercise.video_url)!,
+        '-framerate', '1', '-i', join(seqDir, '%04d.png'),
+        '-filter_complex', `[1:v]scale=${hole.w}:${hole.h}:force_original_aspect_ratio=increase,crop=${hole.w}:${hole.h},fps=30[p];[0:v][p]overlay=${hole.x}:${hole.y}[b];[2:v]fps=30[c];[b][c]overlay=0:0:eof_action=repeat[out]`,
+        '-map', '[out]', ...outArgs(ctx, seconds, out),
       ]);
     },
   };
@@ -673,9 +656,9 @@ function cutPart(exercise: Exercise, k: number, of: number, seconds: number): Pa
           W,
           H,
           `<defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.8"/></linearGradient></defs>
-           <rect y="${H - 900}" width="${W}" height="900" fill="url(#b)"/>
-           ${pill(64, 1200, `${k + 1} / ${of}`, C.heat, '#fff', 34)}
-           ${title.map((l, i) => text(64, 1380 + i * 100, l, 96, '#fff', { weight: 800 })).join('')}`,
+           <rect y="600" width="${W}" height="${H - 600}" fill="url(#b)"/>
+           ${pill(L, 960, `${k + 1} / ${of}`, C.heat, '#fff', 34)}
+           ${title.map((l, i) => text(L, 1130 + i * 100, l, 96, '#fff', { weight: 800 })).join('')}`,
         ),
         overlay,
       );
@@ -702,15 +685,217 @@ function cutPart(exercise: Exercise, k: number, of: number, seconds: number): Pa
   };
 }
 
+
+/* ── short formats: hook card, numbered list, 1-minute challenge ─────────── */
+
+/** A title over one of today's clips, blurred. Used as a hook: the words are there from frame one. */
+function titlePart(name: string, seconds: number, bg: (day: Exercise[]) => Exercise, words: (ctx: Ctx) => { kicker?: string; title: string; sub?: string }): Part {
+  return {
+    name,
+    render: async (ctx, out) => {
+      const w = words(ctx);
+      const title = wrap(w.title, 12, 3);
+      const size = title.some((l) => l.length > 10) ? 116 : 136;
+      const top = 820 - (title.length * (size + 8)) / 2;
+      const card = join(ctx.dir, `${name}.png`);
+      await png(
+        svg(
+          W,
+          H,
+          `${w.kicker ? pill(64, top - 130, w.kicker, C.heat, '#fff', 30) : ''}
+           ${title.map((l, i) => text(64, top + (i + 1) * (size + 8) - 16, l, size, '#fff', { weight: 800 })).join('')}
+           ${w.sub ? text(64, top + title.length * (size + 8) + 60, w.sub, 46, '#fff', { weight: 600, opacity: 0.9 }) : ''}`,
+        ),
+        card,
+      );
+      const clip = bg(dayExercises(ctx.meta));
+      const clipSeconds = Math.max(seconds + 1, Number(clip.duration_seconds) || 30);
+      await ff([
+        '-ss', (clipSeconds * 0.4).toFixed(2), '-stream_loop', '-1', '-i', ctx.clips.get(clip.video_url)!,
+        '-loop', '1', '-i', card,
+        '-filter_complex', `[0:v]${COVER},boxblur=16:2,eq=brightness=-0.25:saturation=1.1[b];[b][1:v]overlay=0:0[out]`,
+        '-map', '[out]', ...outArgs(ctx, seconds, out),
+      ]);
+    },
+  };
+}
+
+/** "3 ejercicios para…": the clip with a big number, its name and how long to do it. */
+function listItemPart(exercise: Exercise, k: number, of: number, seconds: number): Part {
+  return {
+    name: `item${k}`,
+    render: async (ctx, out) => {
+      const overlay = join(ctx.dir, `item${k}.png`);
+      const title = wrap(exercise.title, 15);
+      const work = ctx.meta.slotSeconds || 40;
+      await png(
+        svg(
+          W,
+          H,
+          `<defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.82"/></linearGradient>
+             <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+           <rect width="${W}" height="520" fill="url(#t)"/>
+           <rect y="560" width="${W}" height="${H - 560}" fill="url(#b)"/>
+           ${text(L, 300, `${of} ejercicios para ${(ctx.meta.focusLabel || 'todo el cuerpo').toLowerCase()}`.toUpperCase(), 32, '#fff', { weight: 800, spacing: 3, opacity: 0.9 })}
+           ${text(L, 960, String(k + 1), 280, C.heat, { weight: 800 })}
+           ${title.map((l, i) => text(L, 1066 + i * 96, l, 90, '#fff', { weight: 800 })).join('')}
+           ${pill(L, 1086 + title.length * 96 - 40, `${work} S · SIN MATERIAL`, 'rgba(255,255,255,0.22)', '#fff', 28)}`,
+        ),
+        overlay,
+      );
+      const clipSeconds = Math.max(seconds + 1, Number(exercise.duration_seconds) || 30);
+      await ff([
+        '-ss', (clipSeconds * 0.3).toFixed(2), '-stream_loop', '-1', '-i', ctx.clips.get(exercise.video_url)!,
+        '-loop', '1', '-i', overlay,
+        '-filter_complex', `[0:v]${COVER}[v];[1:v]format=rgba,fade=in:st=0:d=0.25:alpha=1[o];[v][o]overlay=0:0[out]`,
+        '-map', '[out]', ...outArgs(ctx, seconds, out),
+      ]);
+    },
+  };
+}
+
+/** 1-minute challenge: three exercises back to back with a big clock and three progress bars. */
+function challengePart(exercise: Exercise, k: number, of: number, seconds: number, next?: Exercise): Part {
+  return {
+    name: `ch${k}`,
+    render: async (ctx, out) => {
+      const seqDir = join(ctx.dir, `ch${k}`);
+      await fs.mkdir(seqDir);
+      const title = wrap(exercise.title, 16, 1)[0];
+      const segW = (900 - L - (of - 1) * 16) / of;
+      await Promise.all(
+        Array.from({ length: Math.ceil(seconds) }, (_, s) => {
+          const left = Math.ceil(seconds - s);
+          const bars = Array.from({ length: of }, (_, b) => {
+            const x = L + b * (segW + 16);
+            const fill = b < k ? 1 : b === k ? s / seconds : 0;
+            return `<rect x="${x}" y="250" width="${segW}" height="12" rx="6" fill="#fff" fill-opacity="0.3"/>${fill > 0 ? `<rect x="${x}" y="250" width="${(segW * fill).toFixed(1)}" height="12" rx="6" fill="#fff"/>` : ''}`;
+          }).join('');
+          const last3 = left <= 3 && next;
+          return png(
+            svg(
+              W,
+              H,
+              `<defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.8"/></linearGradient>
+                 <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.6"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+               <rect width="${W}" height="480" fill="url(#t)"/>
+               <rect y="560" width="${W}" height="${H - 560}" fill="url(#b)"/>
+               ${bars}
+               ${text(L, 340, `RETO 1 MINUTO · ${k + 1} DE ${of}`, 30, '#fff', { weight: 800, spacing: 3, opacity: 0.9 })}
+               ${text(L, 960, title, 80, '#fff', { weight: 800 })}
+               ${text(L, 1245, String(left), 230, left <= 3 ? C.heat : '#fff', { weight: 800 })}
+               ${last3 ? text(L, 1030, `Siguiente: ${wrap(next.title, 18, 1)[0]}`, 40, '#fff', { weight: 700, opacity: 0.9 }) : ''}`,
+            ),
+            join(seqDir, `${String(s).padStart(4, '0')}.png`),
+          );
+        }),
+      );
+      const clipSeconds = Math.max(seconds + 1, Number(exercise.duration_seconds) || 30);
+      await ff([
+        '-ss', (clipSeconds * 0.25).toFixed(2), '-stream_loop', '-1', '-i', ctx.clips.get(exercise.video_url)!,
+        '-framerate', '1', '-i', join(seqDir, '%04d.png'),
+        '-filter_complex', `[0:v]${COVER}[v];[1:v]fps=30[c];[v][c]overlay=0:0:eof_action=repeat[out]`,
+        '-map', '[out]', ...outArgs(ctx, seconds, out),
+      ]);
+    },
+  };
+}
+
+/* ── photo carousel (TikTok photo mode): cover, one slide per exercise, the plan ── */
+
+async function renderCarousel(ctx: Ctx, job: ExportJob): Promise<string[]> {
+  const { minutes, shape } = plan(ctx.meta);
+  const day = dayExercises(ctx.meta).slice(0, 8);
+  const focus = ctx.meta.focusLabel || 'Full body';
+  const frame = async (e: Exercise, name: string) => {
+    const file = join(ctx.dir, `${name}.jpg`);
+    const at = Math.max(1, (Number(e.duration_seconds) || 30) * 0.4);
+    await ff(['-ss', at.toFixed(2), '-i', ctx.clips.get(e.video_url)!, '-frames:v', '1', '-vf', COVER.replace(',fps=30', ''), '-q:v', '3', file]);
+    return file;
+  };
+  const slide = async (bg: string, overlay: string, name: string, blur = false) => {
+    const out = join(ctx.dir, `${name}.jpg`);
+    let base = sharp(bg).resize(W, H, { fit: 'cover' });
+    if (blur) base = base.blur(28).modulate({ brightness: 0.72 });
+    await base.composite([{ input: Buffer.from(svg(W, H, overlay)) }]).jpeg({ quality: 86 }).toFile(out);
+    return out;
+  };
+  const gradient = `<defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.82"/></linearGradient></defs><rect y="560" width="${W}" height="${H - 560}" fill="url(#b)"/>`;
+  const slides: string[] = [];
+
+  const coverBg = await frame(day[0], 'f0');
+  const title = wrap(`Rutina de ${focus.toLowerCase()}`, 11, 3);
+  slides.push(
+    await slide(
+      coverBg,
+      `${pill(64, 560, 'EN CASA · SIN MATERIAL', C.heat, '#fff', 30)}
+       ${title.map((l, i) => text(64, 800 + i * 140, l, 136, '#fff', { weight: 800 })).join('')}
+       ${text(64, 820 + title.length * 140, `${minutes} min · ${shape}`, 48, '#fff', { weight: 600, opacity: 0.9 })}
+       ${text(64, 1240, 'Desliza para ver los ejercicios  →', 40, '#fff', { weight: 700, opacity: 0.85 })}`,
+      'slide00',
+      true,
+    ),
+  );
+  for (let k = 0; k < day.length; k++) {
+    job.step = `Preparando las fotos · ${k + 1} de ${day.length}`;
+    const bg = k === 0 ? coverBg : await frame(day[k], `f${k}`);
+    const name = wrap(day[k].title, 15);
+    slides.push(
+      await slide(
+        bg,
+        `${gradient}
+         ${pill(64, 250, `${k + 1} / ${day.length}`, C.heat, '#fff', 32)}
+         ${name.map((l, i) => text(L, 1060 + i * 100, l, 96, '#fff', { weight: 800 })).join('')}
+         ${text(L, 1080 + name.length * 100, `${ctx.meta.slotSeconds || 40} s · ${ctx.meta.rounds} vueltas`, 44, '#fff', { weight: 600, opacity: 0.9 })}`,
+        `slide${String(k + 1).padStart(2, '0')}`,
+      ),
+    );
+  }
+  const warmups = ctx.meta.warmups?.length ?? 0;
+  slides.push(
+    await slide(
+      coverBg,
+      `${text(64, 420, 'ASÍ SE HACE', 36, '#fff', { weight: 800, spacing: 6, opacity: 0.8 })}
+       ${[warmups ? [C.warm, `Calentamiento · ${warmups} ejercicios`] : null, [C.heat, `${shape}`], [C.rest, 'Descanso corto entre ejercicios']]
+         .filter((r): r is string[] => r !== null)
+         .map(([color, line], i) => `<circle cx="84" cy="${540 + i * 100}" r="20" fill="${color}"/>${text(128, 558 + i * 100, line, 50, '#fff', { weight: 700 })}`)
+         .join('')}
+       ${pill(64, 900, 'GUÁRDALA PARA HOY', '#fff', C.ink, 34)}
+       ${text(64, 1060, ctx.handle, 44, '#fff', { weight: 800 })}`,
+      `slide${String(day.length + 1).padStart(2, '0')}`,
+      true,
+    ),
+  );
+  return slides;
+}
+
 /* ── the job ──────────────────────────────────────────────────────────────── */
 
 function partsFor(mode: ExportMode, queue: RoutineItem[], meta: RoutineMeta): Part[] {
   // Every video opens the same way, but with that day's sentence: it types itself, Marcel gets
   // ready, the plan appears over the day's exercises.
   const opening = [typingPart(), marcelPart(4.7)];
+  const day = dayExercises(meta);
+  const focus = (meta.focusLabel || 'todo el cuerpo').toLowerCase();
   if (mode === 'summary') {
-    const shots = dayExercises(meta).slice(0, 5);
-    return [...opening, planPart(2.6), ...shots.map((e, k) => cutPart(e, k, shots.length, 1.1)), endPart(2.4)];
+    const shots = day.slice(0, 4);
+    return [...opening, planPart(2.6), ...shots.map((e, k) => cutPart(e, k, shots.length, 1.6)), endPart(2.4)];
+  }
+  if (mode === 'top3') {
+    const three = day.slice(0, 3);
+    return [
+      titlePart('hook', 1.8, (d) => d[0], () => ({ kicker: 'SIN MATERIAL', title: `${three.length} ejercicios para ${focus}`, sub: 'Guárdalo para tu próximo entreno' })),
+      ...three.map((e, k) => listItemPart(e, k, three.length, 4)),
+      endPart(2.4),
+    ];
+  }
+  if (mode === 'challenge') {
+    const three = day.slice(0, 3);
+    return [
+      titlePart('hook', 2, (d) => d[0], () => ({ kicker: 'RETO', title: 'Aguanta 1 minuto conmigo', sub: `${meta.focusLabel} · sin parar` })),
+      ...three.map((e, k) => challengePart(e, k, three.length, 20, three[k + 1])),
+      titlePart('end', 2.6, (d) => d[Math.min(2, d.length - 1)], (ctx) => ({ title: '¿Lo has aguantado?', sub: `Comenta «hecho» · ${ctx.handle}` })),
+    ];
   }
   return [...opening, ...queue.flatMap((item, index): Part[] => {
     const seconds = getItemDuration(item, meta.slotSeconds);
@@ -738,7 +923,7 @@ function allowedVideoUrl(url: string): boolean {
 
 export function collectVideoUrls(mode: ExportMode, queue: RoutineItem[], meta: RoutineMeta): string[] {
   const urls = new Set<string>();
-  if (mode === 'summary') dayExercises(meta).forEach((e) => urls.add(e.video_url));
+  if (mode !== 'full') dayExercises(meta).forEach((e) => urls.add(e.video_url));
   else
     queue.forEach((item) => {
       if (item.kind === 'warmup' || item.kind === 'workout') urls.add(item.exercise.video_url);
@@ -790,6 +975,25 @@ export async function runExport(
         }),
       );
       job.progress = 0.1 * Math.min(1, (i + 4) / urls.length);
+    }
+
+    if (opts.mode === 'carousel') {
+      // Photos, not a video: keep them (the work dir is deleted) and zip them for one download.
+      const made = await renderCarousel(ctx, job);
+      const keep = join(os.tmpdir(), `everydaym-carousel-${randomUUID()}`);
+      await fs.mkdir(keep);
+      const names = made.map((_, i) => `everydaym-${String(i + 1).padStart(2, '0')}.jpg`);
+      await Promise.all(made.map((f, i) => fs.copyFile(f, join(keep, names[i]))));
+      job.step = 'Comprimiendo las fotos';
+      const zip = join(keep, 'everydaym-carrusel.zip');
+      // bsdtar (macOS, Windows 10+) writes a .zip when asked with -a
+      await execFileAsync('tar', ['-a', '-cf', zip, '-C', keep, ...names], { windowsHide: true });
+      job.slides = names.map((n) => join(keep, n));
+      job.file = zip;
+      job.progress = 1;
+      job.step = 'Listo';
+      job.status = 'done';
+      return;
     }
 
     const parts = partsFor(opts.mode, opts.queue, opts.meta);

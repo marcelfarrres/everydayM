@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, Loader2, Smartphone } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export function StudioLoginForm() {
   const router = useRouter();
@@ -42,47 +42,30 @@ export function StudioLoginForm() {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="w-full max-w-sm glass-panel bg-[#101411]/95 border border-[#22c55e]/30 rounded-[28px] p-7 shadow-[0_20px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl space-y-5"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-2xl bg-[#1b251d] border border-[#22c55e]/30 flex items-center justify-center">
-          <Smartphone className="w-5 h-5 text-[#4ade80]" />
-        </div>
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-[#4ade80]">
-            EverydayM Studio
-          </p>
-          <h1 className="text-2xl font-black uppercase italic tracking-tight">Acceso móvil</h1>
-        </div>
+    <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-5">
+      <div>
+        <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">EverydayM</p>
+        <h1 className="mt-1 text-4xl font-semibold tracking-[-0.03em]">Estudio</h1>
+        <p className="mt-2 text-[16px] leading-snug text-ink/60">Escribe el PIN para subir vídeos desde el móvil.</p>
       </div>
 
-      <p className="text-sm text-neutral-300 leading-relaxed">
-        Estás conectado a tu PC por la WiFi de casa. Introduce el PIN del Studio para subir vídeos.
-      </p>
-
       <label className="block">
-        <span className="block text-[11px] font-black text-neutral-400 mb-2 uppercase tracking-[0.15em]">
-          PIN
-        </span>
-        <div className="relative">
-          <KeyRound className="w-4 h-4 text-[#4ade80] absolute left-4 top-1/2 -translate-y-1/2" />
-          <input
-            type="password"
-            inputMode="numeric"
-            autoComplete="current-password"
-            autoFocus
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            maxLength={64}
-            className="w-full bg-[#080b09] border border-[#22c55e]/25 rounded-2xl pl-11 pr-4 py-4 text-lg font-bold tracking-[0.3em] focus:outline-none focus:border-[#4ade80] transition-colors"
-          />
-        </div>
+        <span className="sr-only">PIN</span>
+        <input
+          type="password"
+          inputMode="numeric"
+          autoComplete="current-password"
+          autoFocus
+          placeholder="PIN"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          maxLength={64}
+          className="h-16 w-full rounded-2xl bg-white px-5 text-center text-2xl font-semibold tracking-[0.3em] shadow-[0_16px_34px_-26px_rgba(0,0,0,0.5)] placeholder:tracking-normal placeholder:text-ink/30 focus:outline-2 focus:outline-ink"
+        />
       </label>
 
       {error && (
-        <p role="alert" className="text-sm font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+        <p role="alert" className="rounded-2xl bg-heat/10 px-4 py-3 text-[15px] font-medium text-heat">
           {error}
         </p>
       )}
@@ -90,9 +73,9 @@ export function StudioLoginForm() {
       <button
         type="submit"
         disabled={loading || !pin.trim()}
-        className="w-full bg-[#22c55e] hover:bg-[#4ade80] text-black font-black uppercase tracking-wider py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-ink text-lg font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
       >
-        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <KeyRound className="w-5 h-5" />}
+        {loading && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
         Entrar
       </button>
     </form>

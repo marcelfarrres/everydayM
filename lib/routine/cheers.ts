@@ -49,21 +49,26 @@ export const REST_LINES = [
 const at = (list: string[], index: number, salt = 0) => list[(index * 13 + salt) % list.length];
 
 /**
- * What to say `elapsed` seconds into an exercise of `total` seconds, or null when to stay quiet.
- * Moments: just started (2-4 s), halfway (±1.5 s, only for clips of 24 s or more), last 10 s.
+ * What to say `elapsed` seconds into an exercise of `total` seconds, or null to stay quiet.
+ * Not on every clip: only at the moments that matter (a round starting, the last one, every
+ * third exercise), halfway through every fourth, and the last 10 s when a round is closing.
  */
 export function cheerFor(queue: RoutineItem[], index: number, elapsed: number, total: number): string | null {
   const item = queue[index];
   if (!item || (item.kind !== 'warmup' && item.kind !== 'workout') || total <= 0) return null;
   const left = total - elapsed;
   const last = item.kind === 'workout' && !queue.slice(index + 1).some((q) => q.kind === 'workout');
-  if (elapsed >= 2 && elapsed <= 4) {
+  const roundStart = item.kind === 'workout' && item.exerciseIndexInRound === 1;
+  const roundEnd = item.kind === 'workout' && item.exerciseIndexInRound === item.totalExercisesPerRound;
+  const firstWarmup = item.kind === 'warmup' && queue[index - 1]?.kind !== 'warmup';
+  if (elapsed >= 2 && elapsed <= 5) {
     if (last) return at(LAST_EXERCISE, index);
-    if (item.kind === 'warmup') return at(WARMUP_START, index);
-    if (item.exerciseIndexInRound === 1 && item.round > 1) return at(ROUND_START, item.round);
-    return at(WORK_START, index);
+    if (firstWarmup) return at(WARMUP_START, index);
+    if (roundStart && item.round > 1) return at(ROUND_START, item.round);
+    if (item.kind === 'workout' && index % 3 === 0) return at(WORK_START, index);
+    return null;
   }
-  if (total >= 24 && Math.abs(left - total / 2) <= 1.5) return at(HALFWAY, index, 3);
-  if (left <= 10 && left > 6) return at(LAST_SECONDS, index, 5);
+  if (total >= 30 && index % 4 === 1 && Math.abs(left - total / 2) <= 1.5) return at(HALFWAY, index, 3);
+  if ((roundEnd || last) && left <= 10 && left > 6) return at(LAST_SECONDS, index, 5);
   return null;
 }
