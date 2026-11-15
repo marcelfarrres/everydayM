@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   description: "Entrenamientos para moverte cada día, juntos.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="es"
