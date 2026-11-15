@@ -63,12 +63,6 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
 type Tone = 'warm' | 'work' | 'rest' | 'calm';
 const HEX: Record<Tone, string> = { warm: '#ff9f0a', work: '#ff3b30', rest: '#2f6bff', calm: '#131313' };
 const DOT: Record<Tone, string> = { warm: 'bg-warm', work: 'bg-heat', rest: 'bg-rest', calm: 'bg-ink' };
-const SOLID: Record<Tone, string> = {
-  warm: 'bg-warm text-ink',
-  work: 'bg-heat text-white',
-  rest: 'bg-rest text-white',
-  calm: 'bg-ink text-white',
-};
 const PHASE_NAME: Record<Tone, string> = {
   warm: 'Calentamiento',
   work: 'Parte principal',
@@ -131,25 +125,27 @@ function titleOf(item: RoutineItem | undefined, meta: RoutineMeta | null | undef
 }
 
 /** The words on the clouds between two moments of the routine. */
-function cloudLabel(queue: RoutineItem[], index: number): { title: string; sub?: string } {
+function cloudLabel(queue: RoutineItem[], index: number): { title: string; sub?: string; tone: Tone } {
   const item = queue[index];
   const prev = queue[index - 1];
   switch (item?.kind) {
     case 'warmup':
       return prev?.kind !== 'warmup'
-        ? { title: 'Calentamiento', sub: item.exercise.title }
-        : { title: item.exercise.title, sub: 'Calentamiento' };
+        ? { title: 'Calentamiento', sub: item.exercise.title, tone: 'warm' }
+        : { title: item.exercise.title, sub: 'Calentamiento', tone: 'warm' };
     case 'workout': {
       const left = item.totalRounds - item.round;
       const vuelta = `Vuelta ${item.round} · ${left <= 0 ? 'la última' : left === 1 ? 'queda 1' : `quedan ${left}`}`;
-      return item.exerciseIndexInRound === 1 ? { title: `Vuelta ${item.round}`, sub: item.exercise.title } : { title: item.exercise.title, sub: vuelta };
+      return item.exerciseIndexInRound === 1
+        ? { title: `Vuelta ${item.round}`, sub: item.exercise.title, tone: 'work' }
+        : { title: item.exercise.title, sub: vuelta, tone: 'work' };
     }
     case 'rest':
-      return { title: 'Descansa', sub: `Luego: ${item.nextExercise.title}` };
+      return { title: 'Descansa', sub: `Luego: ${item.nextExercise.title}`, tone: 'rest' };
     case 'outro':
-      return { title: '¡Hecho!' };
+      return { title: '¡Hecho!', tone: 'calm' };
     default:
-      return { title: item?.kind === 'summary' ? item.meta.focusLabel : '' };
+      return { title: item?.kind === 'summary' ? item.meta.focusLabel : '', tone: 'calm' };
   }
 }
 
@@ -278,7 +274,7 @@ export function WorkoutPlayer({
   // What the clouds say while they are closed: where you are going.
   const label = cloudLabel(queue, currentIndex);
   // The board changes only once the clouds have covered it.
-  const boardIndex = useLagged(currentIndex, 430);
+  const boardIndex = useLagged(currentIndex, 800);
 
   const handleTogglePiP = async () => {
     const videoEl = videoRef.current;
@@ -304,7 +300,7 @@ export function WorkoutPlayer({
   const itemProgress =
     totalItemDuration > 0 ? Math.min(1, Math.max(0, (totalItemDuration - timeLeft) / totalItemDuration)) : 0;
   const time = formatSeconds(timeLeft).replace(/^0(?=\d:)/, '');
-  const boardTime = useLagged(time, 430);
+  const boardTime = useLagged(time, 800);
 
   // The next clip (named in the phone bar during a rest).
   const nextUp = queue.find((q, i) => i > currentIndex && isExercise(q)) as ExerciseItem | undefined;
@@ -391,7 +387,7 @@ export function WorkoutPlayer({
     initial: reduced ? false : ({ opacity: 0 } as const),
     animate: { opacity: 1 },
     // the old moment stays visible while the clouds close over it (0.45 s), then swaps
-    exit: reduced ? undefined : { opacity: 0, transition: { delay: 0.45, duration: 0.01 } },
+    exit: reduced ? undefined : { opacity: 0, transition: { delay: 0.8, duration: 0.01 } },
     transition: { duration: 0.3, ease: EASE },
   };
 
@@ -568,18 +564,19 @@ export function WorkoutPlayer({
         )}
       </AnimatePresence>
 
-      {/* A word of encouragement */}
+      {/* A word of encouragement, now and then: a small pill at the top edge, never over the exercise */}
       <AnimatePresence>
         {cheer && !critical && (
           <motion.div
             key={cheer}
-            initial={reduced ? { opacity: 0 } : { opacity: 0, y: 30, scale: 0.8, rotate: -4 }}
-            animate={{ opacity: 1, y: 0, scale: 1, rotate: -2 }}
-            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -20, scale: 0.9 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 22 }}
-            className="pointer-events-none absolute inset-x-0 bottom-[34%] z-10 flex justify-center px-6 lg:bottom-[14%]"
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            transition={{ duration: 0.5, ease: EASE }}
+            className="pointer-events-none absolute inset-x-0 top-[6.25rem] z-10 flex justify-center px-6 lg:top-5"
           >
-            <span className={`rounded-2xl px-5 py-3 text-[min(8cqw,2.25rem)] font-bold tracking-[-0.02em] shadow-[0_18px_40px_-18px_rgba(0,0,0,0.6)] ${SOLID[tone]}`}>
+            <span className="flex items-center gap-2 rounded-full bg-black/45 py-1.5 pl-3 pr-4 text-[14px] font-semibold text-white backdrop-blur-md">
+              <span aria-hidden="true" className={`h-2 w-2 rounded-full ${tone === 'calm' ? 'bg-white' : DOT[tone]}`} />
               {cheer}
             </span>
           </motion.div>
@@ -707,7 +704,19 @@ export function WorkoutPlayer({
           )}
         </div>
       )}
-      <CloudTransition playKey={currentIndex} title={label.title} sub={label.sub} />
+      {/* warm up the next clip so it is playing by the time the clouds open */}
+      {nextExercise && (
+        <video
+          key={nextExercise.video_url}
+          src={nextExercise.video_url}
+          preload="auto"
+          muted
+          playsInline
+          aria-hidden="true"
+          className="pointer-events-none absolute h-px w-px opacity-0"
+        />
+      )}
+      <CloudTransition playKey={currentIndex} title={label.title} sub={label.sub} kicker={PHASE_NAME[label.tone]} color={HEX[label.tone]} />
     </div>
   );
 }

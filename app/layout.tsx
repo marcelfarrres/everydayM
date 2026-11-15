@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Cabin_Sketch, Geist, Geist_Mono, Kalam } from "next/font/google";
+import { Caveat, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,21 +12,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const display = Bricolage_Grotesque({
+// One clean family for the whole app (headings, numbers, buttons).
+const display = Geist({
   variable: "--font-display",
   subsets: ["latin"],
 });
 
-// Chalk on the board (computer view): sketchy titles and a handwritten list.
-const chalkTitle = Cabin_Sketch({
-  variable: "--font-chalk-title",
-  weight: "700",
-  subsets: ["latin"],
-});
-
-const chalk = Kalam({
+// Handwriting, only for what is written in chalk on the board (computer view).
+const chalk = Caveat({
   variable: "--font-chalk",
-  weight: ["400", "700"],
+  weight: ["500", "700"],
   subsets: ["latin"],
 });
 
@@ -39,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${chalkTitle.variable} ${chalk.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${chalk.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useAnimate, useReducedMotion } from 'motion/react';
+import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 
 /*
  * Between exercises the screen fills with real clouds that close in from both sides and then
@@ -9,9 +9,9 @@ import { useAnimate, useReducedMotion } from 'motion/react';
  * The clouds are photos (Unsplash) with the sky keyed out: /textures/nube-1..4.webp.
  *
  * Timing, from the moment `playKey` changes:
- *   0.00-0.45 s  clouds close in (the old exercise is still visible underneath)
- *   0.45-0.75 s  closed: the label shows; the new exercise mounts behind the clouds
- *   0.75-1.65 s  clouds part outwards with a push-in and a little motion blur
+ *   0.0-0.8 s  the banks drift in one after another (the old exercise is still underneath)
+ *   0.8-1.5 s  closed and slowly drifting: the label shows; the new exercise mounts behind
+ *   1.5-3.1 s  the banks open outwards, a gentle push-in, almost no blur
  */
 
 type Layer = { src: string; side: 'l' | 'r' | 't' | 'b'; top: string; left: string; flip?: boolean; z: number };
@@ -32,8 +32,10 @@ const LAYERS: Layer[] = [
   { src: '/textures/nube-1.webp', side: 'l', top: '18%', left: '-14%', z: 6 },
   { src: '/textures/nube-1.webp', side: 'r', top: '40%', left: '8%', flip: true, z: 6 },
 ];
-const CLOSE = { duration: 0.42, ease: [0.55, 0, 0.85, 0.35] } as const;
-const OPEN = { duration: 1, ease: [0.16, 1, 0.3, 1] } as const;
+// Slow and soft: the banks drift in one after another, rest a moment, then open like a camera
+// flying through (no hard push, very little blur).
+const CLOSE = { duration: 0.8, ease: [0.4, 0, 0.2, 1] } as const;
+const OPEN = { duration: 1.6, ease: [0.22, 1, 0.36, 1] } as const;
 const OFF: Record<Layer['side'], string> = {
   l: 'translateX(-120%) scale(1.45)',
   r: 'translateX(120%) scale(1.45)',
@@ -42,7 +44,19 @@ const OFF: Record<Layer['side'], string> = {
 };
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function CloudTransition({ playKey, title, sub }: { playKey: number; title?: string; sub?: string }) {
+export function CloudTransition({
+  playKey,
+  title,
+  sub,
+  kicker,
+  color = '#131313',
+}: {
+  playKey: number;
+  title?: string;
+  sub?: string;
+  kicker?: string;
+  color?: string;
+}) {
   const reduced = useReducedMotion();
   const [scope, animate] = useAnimate();
   const first = useRef(true);
@@ -58,26 +72,29 @@ export function CloudTransition({ playKey, title, sub }: { playKey: number; titl
     const play = async () => {
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
       await Promise.all([
-        animate('.cl-l, .cl-r', { x: '0%', scale: 1, filter: 'blur(0px)' }, CLOSE),
-        animate('.cl-t, .cl-b', { y: '0%', scale: 1, filter: 'blur(0px)' }, { ...CLOSE, delay: 0.05 }),
-        animate('.cl-fog', { opacity: 1 }, { duration: 0.3, delay: 0.12 }),
+        animate('.cl-l, .cl-r', { x: '0%', scale: 1, filter: 'blur(0px)' }, { ...CLOSE, delay: stagger(0.07) }),
+        animate('.cl-t, .cl-b', { y: '0%', scale: 1, filter: 'blur(0px)' }, { ...CLOSE, delay: 0.12 }),
+        animate('.cl-fog', { opacity: 1 }, { duration: 0.5, delay: 0.3 }),
       ]);
       if (id !== run.current) return;
-      animate('.cl-label', { opacity: 1, y: 0, scale: 1 }, { duration: 0.25, ease: [0.16, 1, 0.3, 1] });
-      await wait(380);
+      // while closed, everything keeps moving a little, like real clouds
+      animate('.cl-l', { x: '4%' }, { duration: 2, ease: 'linear' });
+      animate('.cl-r', { x: '-4%' }, { duration: 2, ease: 'linear' });
+      await animate('.cl-label', { opacity: 1, y: 0 }, { duration: 0.45, ease: [0.22, 1, 0.36, 1] });
+      await wait(450);
       if (id !== run.current) return;
-      await animate('.cl-label', { opacity: 0, scale: 1.06 }, { duration: 0.18 });
+      await animate('.cl-label', { opacity: 0, y: -6 }, { duration: 0.3 });
       if (id !== run.current) return;
       await Promise.all([
-        animate('.cl-l', { x: '-120%', scale: 1.5, filter: 'blur(6px)' }, OPEN),
-        animate('.cl-r', { x: '120%', scale: 1.5, filter: 'blur(6px)' }, OPEN),
-        animate('.cl-t', { y: '-120%', scale: 1.5, filter: 'blur(6px)' }, { ...OPEN, duration: 0.85 }),
-        animate('.cl-b', { y: '120%', scale: 1.5, filter: 'blur(6px)' }, { ...OPEN, duration: 0.85 }),
-        animate('.cl-fog', { opacity: 0 }, { duration: 0.45 }),
+        animate('.cl-l', { x: '-120%', scale: 1.2, filter: 'blur(2px)' }, { ...OPEN, delay: stagger(0.05) }),
+        animate('.cl-r', { x: '120%', scale: 1.2, filter: 'blur(2px)' }, { ...OPEN, delay: stagger(0.05) }),
+        animate('.cl-t', { y: '-120%', scale: 1.2, filter: 'blur(2px)' }, OPEN),
+        animate('.cl-b', { y: '120%', scale: 1.2, filter: 'blur(2px)' }, OPEN),
+        animate('.cl-fog', { opacity: 0 }, { duration: 0.9 }),
       ]);
       if (id !== run.current) return;
       animate(scope.current, { visibility: 'hidden' }, { duration: 0 });
-      animate('.cl-label', { y: 16, scale: 0.96 }, { duration: 0 });
+      animate('.cl-label', { y: 12 }, { duration: 0 });
     };
     void play();
   }, [playKey, reduced, animate, scope]);
@@ -108,13 +125,20 @@ export function CloudTransition({ playKey, title, sub }: { playKey: number; titl
           <img src={layer.src} alt="" draggable={false} className={`block w-full select-none ${layer.flip ? '-scale-x-100' : ''}`} />
         </div>
       ))}
-      <div className="cl-label absolute inset-0 z-10 flex flex-col items-center justify-center px-8 text-center opacity-0" style={{ transform: 'translateY(16px) scale(0.96)' }}>
+      {/* the words sit on the clouds in the app's own type: phase, then where you are going */}
+      <div className="cl-label absolute inset-0 z-10 flex flex-col items-center justify-center px-8 text-center opacity-0" style={{ transform: 'translateY(12px)' }}>
+        {kicker && (
+          <p className="mb-3 flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#1d2533] backdrop-blur-sm">
+            <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+            {kicker}
+          </p>
+        )}
         {title && (
-          <p className="font-[family-name:var(--font-display)] text-[clamp(2.5rem,9vw,5rem)] font-bold leading-[0.95] tracking-[-0.04em] text-[#24324a] [text-shadow:0_2px_24px_rgba(255,255,255,0.9)]">
+          <p className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,7vw,4.25rem)] font-semibold leading-[1] tracking-[-0.035em] text-[#1d2533] [text-shadow:0_2px_30px_rgba(255,255,255,0.95)]">
             {title}
           </p>
         )}
-        {sub && <p className="mt-2 text-lg font-semibold text-[#3d4d68]">{sub}</p>}
+        {sub && <p className="mt-2 font-[family-name:var(--font-display)] text-lg font-medium text-[#3d4a60]">{sub}</p>}
       </div>
     </div>
   );

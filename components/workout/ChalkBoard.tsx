@@ -96,7 +96,7 @@ export function ChalkBoard({
   return (
     <section aria-label="La rutina en la pizarra" className={`min-w-0 items-center gap-10 ${className}`} style={chalk}>
       <div className="flex min-w-0 flex-1 flex-col gap-1 font-[family-name:var(--font-chalk)]">
-        <p className="mb-3 text-[22px] opacity-70">
+        <p className="mb-3 text-[26px] opacity-70">
           {meta?.focusLabel} · {minutes} min
         </p>
         {/* the block being done, rewritten when the block changes */}
@@ -107,15 +107,15 @@ export function ChalkBoard({
             className="flex flex-col gap-1"
           >
             {!onWarmup && warmups.length > 0 && (
-              <ChalkLine i={0} state="todo" className="mb-1 text-[24px] opacity-60">
+              <ChalkLine i={0} state="todo" className="mb-1 text-[28px] opacity-60">
                 Calentamiento ✓
               </ChalkLine>
             )}
-            <ChalkLine i={1} className="mb-2 font-[family-name:var(--font-chalk-title)] text-[clamp(2rem,3vw,2.75rem)]" >
+            <ChalkLine i={1} className="mb-2 text-[clamp(2.5rem,3.7vw,3.4rem)] font-bold">
               <span style={{ color: YELLOW }}>{onWarmup ? 'Calentamiento' : `Vuelta ${round} · ${roundsLeftText(round, rounds)}`}</span>
             </ChalkLine>
             {list.map(({ q, i }, k) => (
-              <ChalkLine key={i} i={k + 2} state={stateOf(i)} className="text-[clamp(1.5rem,2.3vw,2.25rem)] leading-[1.35]">
+              <ChalkLine key={i} i={k + 2} state={stateOf(i)} className="text-[clamp(1.9rem,2.8vw,2.7rem)] leading-[1.3]">
                 {k + 1}. {q.kind === 'warmup' || q.kind === 'workout' ? q.exercise.title : ''}
               </ChalkLine>
             ))}
@@ -130,16 +130,16 @@ export function ChalkBoard({
           initial={critical ? { scale: 1.25, opacity: 0.4 } : false}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.35, ease: EASE }}
-          className="font-[family-name:var(--font-chalk-title)] text-[clamp(5rem,9vw,8.5rem)] leading-none tabular-nums"
+          className="font-[family-name:var(--font-chalk)] text-[clamp(6rem,11vw,10rem)] font-bold leading-none tabular-nums"
           style={{ color: critical ? '#ff8a7a' : CHALK }}
         >
           {time}
         </motion.p>
-        <p className="mt-2 font-[family-name:var(--font-chalk)] text-[24px] opacity-75">
+        <p className="mt-1 font-[family-name:var(--font-chalk)] text-[30px] opacity-75">
           {item?.kind === 'rest' ? 'descansa' : item?.kind === 'summary' ? 'empezamos en' : 'quedan'}
         </p>
         {next && (next.kind === 'warmup' || next.kind === 'workout') && (
-          <p className="mt-8 font-[family-name:var(--font-chalk)] text-[22px] opacity-80">
+          <p className="mt-8 font-[family-name:var(--font-chalk)] text-[28px] opacity-80">
             luego: <span style={{ color: YELLOW }}>{next.exercise.title}</span>
           </p>
         )}
