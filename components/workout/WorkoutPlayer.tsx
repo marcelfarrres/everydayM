@@ -160,9 +160,12 @@ function journeyOf(queue: RoutineItem[], timeline: TimelineSegment[], index: num
     if (q.kind === 'workout' && q.exerciseIndexInRound === 1) marks.push({ at: at(i), label: `Vuelta ${q.round}` });
   });
   const item = queue[index];
+  const minutes = Math.max(1, Math.round(total / 60));
+  const done = Math.min(minutes, Math.round((timeline[index]?.start ?? 0) / 60));
   return {
     progress: item?.kind === 'outro' ? 1 : at(index),
-    total: `${Math.max(1, Math.round(total / 60))} min`,
+    total: `${minutes} min`,
+    note: `Llevas ${done} de ${minutes} min`,
     marks,
   };
 }
@@ -292,7 +295,11 @@ export function WorkoutPlayer({
   // What the clouds say while they are closed: where you are going.
   const label = cloudLabel(queue, currentIndex);
   // The board changes only once the clouds have covered it.
-  const boardIndex = useLagged(currentIndex, 800);
+  const enteringRest = currentItem?.kind === 'rest';
+  const boardIndex = useLagged(currentIndex, enteringRest ? 800 : 0);
+  // The clouds play only when an exercise ends and the rest begins.
+  let cloudKey = currentIndex;
+  while (cloudKey >= 0 && queue[cloudKey]?.kind !== 'rest') cloudKey--;
 
   const handleTogglePiP = async () => {
     const videoEl = videoRef.current;
@@ -318,7 +325,7 @@ export function WorkoutPlayer({
   const itemProgress =
     totalItemDuration > 0 ? Math.min(1, Math.max(0, (totalItemDuration - timeLeft) / totalItemDuration)) : 0;
   const time = formatSeconds(timeLeft).replace(/^0(?=\d:)/, '');
-  const boardTime = useLagged(time, 800);
+  const boardTime = useLagged(time, enteringRest ? 800 : 0);
 
   // The next clip (named in the phone bar during a rest).
   const nextUp = queue.find((q, i) => i > currentIndex && isExercise(q)) as ExerciseItem | undefined;
@@ -403,9 +410,15 @@ export function WorkoutPlayer({
 
   const fade = {
     initial: reduced ? false : ({ opacity: 0 } as const),
-    animate: { opacity: 1 },
-    // the old moment stays visible while the clouds close over it (0.45 s), then swaps
-    exit: reduced ? undefined : { opacity: 0, transition: { delay: 0.8, duration: 0.01 } },
+    animate: 'show',
+    exit: 'hide',
+    variants: {
+      show: { opacity: 1 },
+      // going into a rest, the old moment stays while the clouds close over it, then swaps;
+      // anywhere else it is a quick, direct change
+      hide: (hold: boolean) =>
+        hold && !reduced ? { opacity: 0, transition: { delay: 0.8, duration: 0.01 } } : { opacity: 0, transition: { duration: 0.2 } },
+    },
     transition: { duration: 0.3, ease: EASE },
   };
 
@@ -435,7 +448,7 @@ export function WorkoutPlayer({
 
   const stage = (
     <div data-testid="workout-stage-916" className="relative h-full w-full overflow-hidden bg-black text-white @container lg:rounded-[28px]">
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence mode="wait" initial={false} custom={enteringRest}>
         {currentItem?.kind === 'summary' ? (
           /* PLAN: today's exercises moving behind, the routine as a turning pie in front */
           <motion.div
@@ -453,52 +466,34 @@ export function WorkoutPlayer({
             </div>
           </motion.div>
         ) : currentItem?.kind === 'rest' ? (
-          /* REST: its own colour, a breathing circle around the count, the next clip framed as a preview */
-          <motion.div
-            key={`rest-${currentIndex}`}
-            {...fade}
-            className="relative flex h-full w-full flex-col items-center justify-center gap-5 bg-rest p-6 pb-28 pt-32 text-center text-white lg:pb-8 lg:pt-8"
-          >
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_70%_at_50%_0%,rgba(255,255,255,0.25),transparent_60%)]" />
-            <p className="relative text-[min(13cqw,3.25rem)] font-bold leading-none tracking-[-0.03em]">{title}</p>
-            <div className="relative flex items-center justify-center">
-              {!reduced && (
-                <motion.span
-                  aria-hidden="true"
-                  className="absolute h-[min(48cqw,13rem)] w-[min(48cqw,13rem)] rounded-full bg-white/15"
-                  animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.5, 0.15, 0.5] }}
-                  transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-                />
-              )}
+          /* REST: the next exercise already playing, tinted blue so it reads as "not yet", and the count */
+          <motion.div key={`rest-${currentIndex}`} {...fade} className="relative h-full w-full">
+            <video
+              key={currentItem.nextExercise.video_url}
+              src={currentItem.nextExercise.video_url}
+              autoPlay
+              loop
+              muted
+              playsInline
+              aria-hidden="true"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="pointer-events-none absolute inset-0 bg-rest/50 mix-blend-multiply" />
+            <div className="pointer-events-none absolute inset-0 bg-black/25" />
+            <div className="relative flex h-full flex-col items-center justify-center px-6 pb-28 pt-32 text-center text-white [text-shadow:0_6px_30px_rgba(0,0,0,0.35)] lg:pb-10 lg:pt-10">
+              <p className="text-[15px] font-semibold uppercase tracking-[0.16em] text-white/90">{title}</p>
               <motion.p
                 key={critical ? timeLeft : 'steady'}
                 initial={reduced || !critical ? false : { scale: 1.3, opacity: 0.4 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.35, ease: EASE }}
-                className="relative text-[min(34cqw,9rem)] font-bold leading-none tabular-nums tracking-[-0.05em]"
+                className="mt-1 text-[min(42cqw,11rem)] font-bold leading-none tabular-nums tracking-[-0.05em]"
               >
                 {timeLeft}
               </motion.p>
+              <p className="mt-4 text-[13px] font-semibold uppercase tracking-[0.14em] text-white/75">Siguiente</p>
+              <p className="mt-1 text-[min(8cqw,1.75rem)] font-semibold leading-tight">{currentItem.nextExercise.title}</p>
             </div>
-            <figure className="relative w-[44%] max-w-48 overflow-hidden rounded-3xl bg-black/30 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/30">
-              <video
-                key={currentItem.nextExercise.video_url}
-                src={currentItem.nextExercise.video_url}
-                autoPlay
-                loop
-                muted
-                playsInline
-                aria-hidden="true"
-                className="aspect-[9/16] w-full object-cover"
-              />
-              <span className="absolute left-2 top-2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] backdrop-blur-md">
-                Vista previa
-              </span>
-              <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-8 text-left">
-                <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-white/75">Siguiente</span>
-                <span className="block truncate text-[15px] font-semibold">{currentItem.nextExercise.title}</span>
-              </figcaption>
-            </figure>
           </motion.div>
         ) : currentItem?.kind === 'outro' ? (
           <motion.div key={`outro-${currentIndex}`} {...fade} className="relative flex h-full w-full flex-col justify-between bg-black p-6 pb-10 pt-24 text-white lg:p-8">
@@ -735,7 +730,7 @@ export function WorkoutPlayer({
         />
       )}
       <CloudTransition
-        playKey={currentIndex}
+        playKey={cloudKey}
         title={label.title}
         sub={label.sub}
         kicker={PHASE_NAME[label.tone]}
