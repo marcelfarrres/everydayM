@@ -8,3 +8,7 @@ Clouds had the sky removed; boards were rotated, cropped and compressed.
 - pizarra-negra: https://unsplash.com/photos/zcx5ztIjQAM
 - pizarra-negra-b: https://unsplash.com/photos/QZX8jbK1xEw
 - pizarra-verde: https://unsplash.com/photos/h-LcVG8W1XY
+
+From NASA (public domain; no NASA endorsement implied):
+
+- cohete: Atlas V launching MAVEN, 18 Nov 2013. Photo: NASA/Bill Ingalls, https://images.nasa.gov/details/201311180006HQ (sky removed, cropped)

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { RoutinePlan } from '@/components/workout/RoutinePlan';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
-import { CloudTransition } from '@/components/workout/CloudTransition';
+import { CloudTransition, type Journey } from '@/components/workout/CloudTransition';
 import { playCountdownBeep } from '@/components/workout/CountdownRing';
 import { formatSeconds } from '@/components/workout/RoutineTimeline';
 import { cheerFor } from '@/lib/routine';
@@ -147,6 +147,24 @@ function cloudLabel(queue: RoutineItem[], index: number): { title: string; sub?:
     default:
       return { title: item?.kind === 'summary' ? item.meta.focusLabel : '', tone: 'calm' };
   }
+}
+
+/** The rocket's rail: where each section starts and where the routine is now (0..1). */
+function journeyOf(queue: RoutineItem[], timeline: TimelineSegment[], index: number, total: number): Journey | undefined {
+  if (!total || !timeline.length) return undefined;
+  const at = (i: number) => Math.min(1, (timeline[i]?.start ?? 0) / total);
+  const marks: Journey['marks'] = [];
+  const firstWarmup = queue.findIndex((q) => q.kind === 'warmup');
+  if (firstWarmup >= 0) marks.push({ at: at(firstWarmup), label: 'Calentamiento' });
+  queue.forEach((q, i) => {
+    if (q.kind === 'workout' && q.exerciseIndexInRound === 1) marks.push({ at: at(i), label: `Vuelta ${q.round}` });
+  });
+  const item = queue[index];
+  return {
+    progress: item?.kind === 'outro' ? 1 : at(index),
+    total: `${Math.max(1, Math.round(total / 60))} min`,
+    marks,
+  };
 }
 
 /** `value`, but `ms` later: lets a change happen behind the clouds instead of before them. */
@@ -716,7 +734,14 @@ export function WorkoutPlayer({
           className="pointer-events-none absolute h-px w-px opacity-0"
         />
       )}
-      <CloudTransition playKey={currentIndex} title={label.title} sub={label.sub} kicker={PHASE_NAME[label.tone]} color={HEX[label.tone]} />
+      <CloudTransition
+        playKey={currentIndex}
+        title={label.title}
+        sub={label.sub}
+        kicker={PHASE_NAME[label.tone]}
+        color={HEX[label.tone]}
+        journey={journeyOf(queue, timeline, currentIndex, total)}
+      />
     </div>
   );
 }
