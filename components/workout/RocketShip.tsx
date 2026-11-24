@@ -104,6 +104,7 @@ export function RocketFigure({
   scale = 1,
   upright = false,
   flame = 0,
+  hoverFlame = false,
   hilo,
   className = '',
   style,
@@ -113,6 +114,8 @@ export function RocketFigure({
   upright?: boolean;
   /** the engine burning: 1 in flight, a little (0.2–0.4) while it waits to go; 0 off */
   flame?: number;
+  /** a button's rocket with its engine off: a small flame, hidden, that lights when the button is hovered (.rw-lift) */
+  hoverFlame?: boolean;
   hilo?: StepState[][];
   /** its position classes (relative by default) */
   className?: string;
@@ -120,6 +123,8 @@ export function RocketFigure({
 }) {
   const k = scale;
   const transform = upright ? `scale(${k}) translateY(${g.W}px) rotate(-90deg)` : `scale(${k})`;
+  const unlit = flame <= 0 && hoverFlame;
+  const f = unlit ? 0.3 : flame;
   return (
     <div
       aria-hidden="true"
@@ -132,8 +137,13 @@ export function RocketFigure({
         className="absolute left-0 top-0"
         style={{ transform, transformOrigin: '0 0' }}
         behind={
-          flame > 0 ? (
-            <div data-rocket-flame="" className="absolute" style={{ ...flameBox(g), transform: `scale(${flame}, ${0.5 + flame / 2})` }}>
+          f > 0 ? (
+            <div
+              data-rocket-flame=""
+              data-unlit={unlit ? '' : undefined}
+              className="absolute"
+              style={{ ...flameBox(g), transform: `scale(${f}, ${0.5 + f / 2})` }}
+            >
               <FlameDrawing />
             </div>
           ) : undefined

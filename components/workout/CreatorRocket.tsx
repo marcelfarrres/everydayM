@@ -158,7 +158,7 @@ export function WaitingRocket({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className={`relative shrink-0 cursor-pointer self-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink lg:hidden ${className}`}
+      className={`rw-lift relative shrink-0 cursor-pointer self-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink lg:hidden ${className}`}
       style={box}
     >
       {drawing}
@@ -207,10 +207,10 @@ export function ChoiceRocket({
       type="button"
       onClick={onClick}
       data-choice=""
-      className={`relative shrink-0 cursor-pointer rounded-full transition-transform active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden ${className}`}
+      className={`rw-lift relative shrink-0 cursor-pointer rounded-full active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden ${className}`}
       style={{ width: g.W - AROUND.flameRoom, height: g.H }}
     >
-      <RocketFigure g={g} className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />
+      <RocketFigure g={g} hoverFlame className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />
       <span
         className="pointer-events-none absolute flex items-center text-[15px] font-semibold leading-none text-ink"
         style={{ ...scaledBox(g.content, 1), left: g.content.left - AROUND.flameRoom }}
@@ -235,7 +235,7 @@ export function RandomRocket({ px, onClick }: { px: number; onClick: (e: MouseEv
         type="button"
         onClick={onClick}
         aria-label="Random: una frase al azar"
-        className="absolute cursor-pointer rounded-full transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+        className="rw-lift absolute cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
         style={{ width: long, height: g.H, left: (g.H - long) / 2, top: (long - g.H) / 2, transform: 'rotate(-90deg)' }}
       >
         <RocketFigure g={g} flame={0.25} className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />

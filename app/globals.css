@@ -292,3 +292,52 @@ body {
     opacity: 0;
   }
 }
+
+/* a rocket that is a button (creator: suggestions, "Random", options, "Seguir", "Empezar"): hovered
+   (only with a real pointer) or focused from the keyboard, it grows a little, with some spring, and
+   lights (or feeds) its flame. With `scale` and opacity only, so it composes with the transforms it
+   already has (tilt, shake, rise, launch) and moves nothing around it. In a layer, so a press
+   (active:scale-*) still wins. */
+@layer components {
+  .rw-lift {
+    transition: scale 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .rw-lift [data-rocket-flame] {
+    transition:
+      scale 180ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      opacity 150ms ease-out;
+  }
+  [data-rocket-flame][data-unlit] {
+    opacity: 0;
+  }
+  .rw-lift:focus-visible {
+    scale: 1.05;
+  }
+  .rw-lift:focus-visible [data-rocket-flame] {
+    opacity: 1;
+    scale: 1.35;
+  }
+  @media (hover: hover) {
+    .rw-lift:hover {
+      scale: 1.05;
+    }
+    .rw-lift:hover [data-rocket-flame] {
+      opacity: 1;
+      scale: 1.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rw-lift,
+    .rw-lift:hover,
+    .rw-lift:focus-visible {
+      scale: none;
+      transition: none;
+    }
+    .rw-lift [data-rocket-flame],
+    .rw-lift:hover [data-rocket-flame],
+    .rw-lift:focus-visible [data-rocket-flame] {
+      scale: none;
+      transition: opacity 150ms ease-out;
+    }
+  }
+}

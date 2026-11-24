@@ -741,7 +741,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           <div className="-mt-2 flex items-start gap-2 lg:hidden">
             <div
               data-suggestions=""
-              className="-ml-1 max-h-[max(8.5rem,22dvh)] min-w-0 flex-1 overflow-y-auto overscroll-contain py-3 [mask-image:linear-gradient(to_bottom,transparent,black_12px,black_calc(100%-28px),transparent)] [scrollbar-width:none]"
+              className="-ml-5 max-h-[max(8.5rem,22dvh)] pl-4 min-w-0 flex-1 overflow-y-auto overscroll-contain py-3 [mask-image:linear-gradient(to_bottom,transparent,black_12px,black_calc(100%-28px),transparent)] [scrollbar-width:none]"
             >
               <div className="flex flex-col items-start gap-3">
                 {suggestions.map((example) => (
