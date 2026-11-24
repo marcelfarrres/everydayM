@@ -49,7 +49,7 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
   - `difficulty.ts`: Normalización de niveles de dificultad.
   - `server/` — Solo servidor (`server-only`), lo usa el Estudio:
     - `catalog.ts`: Lectura y escritura del catálogo (`catalog/catalog.json`) por la API de Storage, con copias en `catalog/backups/` y un único escritor a la vez.
-    - `mediaStore.ts`: Almacén de archivos: Bunny Storage, o `.media/` en desarrollo.
+    - `mediaStore.ts`: Almacén de archivos: Bunny Storage, o `.media/` en desarrollo. Cada petición a Bunny pasa por `fetchRetry.mjs` (hasta 4 intentos ante fallos de red y 429/502/503/504; también lo usa `scripts/migrate-media.mjs`).
     - `mediaPipeline.ts`, `ffmpeg.ts`, `studioUpload.ts`: Compresión, versión ligera, miniaturas y subida. `ffmpegBin.mjs` dice dónde están `ffmpeg` y `ffprobe` (también lo usa `scripts/migrate-media.mjs`).
     - `studioGate.ts`: Acceso al Estudio: siempre PIN (`STUDIO_LAN_PIN`) y cookie firmada con `STUDIO_SESSION_SECRET`, también desde localhost; sin ellos el Estudio no abre. Bloqueo global tras 5 PIN fallidos.
     - `clips/`: Generador de clips para TikTok: recetas por tipo (`recipes.ts`), partes (`parts/`), montaje y sonido con FFmpeg (`render.ts`, `run.ts`, `audio.ts`) y la cola en disco (`queue.ts`).

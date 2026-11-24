@@ -13,6 +13,12 @@ import { deleteObject, getObjectText, listObjects, putContent } from '@/lib/serv
  *  - One writer (the Studio on Marcel's computer), but concurrent requests are serialised by
  *    an in-process lock kept on globalThis, so it is shared by every route bundle in dev.
  *  - Slow work (FFmpeg, uploads) happens before calling updateCatalog, never inside it.
+ *  - Network hiccups are retried inside each storage request (mediaStore → fetchWithRetry), never
+ *    by running updateCatalog again: one save = one mutate, one backup name, one catalog body.
+ *    A retried PUT repeats the same bytes to the same path (backup or catalog), so it cannot
+ *    duplicate a backup or leave half a file (Bunny checks the Checksum header). Reads retry too.
+ *    If the catalog PUT still fails, the backup just written stays: it may be the only copy of
+ *    the previous version when the PUT did land but its answer was lost.
  *
  * The app reads ${NEXT_PUBLIC_MEDIA_BASE_URL}/catalog/catalog.json through the CDN: the pull
  * zone needs an Edge Rule so this file is not cached (see docs/MUDANZA-BUNNY.md).
@@ -175,12 +181,14 @@ export function updateCatalog<T>(mutate: (catalog: Catalog) => T | Promise<T>): 
 
     const result = await mutate(catalog);
 
+    // Name and bodies are fixed here, before any request: retries resend exactly these.
     const now = new Date();
     catalog.updatedAt = now.toISOString();
+    const nextText = JSON.stringify(catalog);
     if (previousText !== null) {
       await putContent(`${BACKUP_DIR}/${backupName(now)}`, previousText, 'application/json');
     }
-    await putContent(CATALOG_PATH, JSON.stringify(catalog), 'application/json');
+    await putContent(CATALOG_PATH, nextText, 'application/json');
     await pruneBackups().catch(() => {});
     return result;
   });

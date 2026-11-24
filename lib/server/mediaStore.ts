@@ -3,6 +3,7 @@ import { createReadStream, openAsBlob } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { fetchWithRetry } from '@/lib/server/fetchRetry.mjs';
 
 /*
  * Where the Studio keeps every file: videos, lite copies, posters, music and the catalog.
@@ -24,6 +25,11 @@ import { createHash, randomUUID } from 'node:crypto';
  *
  * In production without Bunny every call fails with a clear error. Uploads stream from disk
  * (a file-backed Blob), never a whole video in memory.
+ *
+ * Every Bunny request goes through fetchWithRetry (lib/server/fetchRetry.mjs): up to 4 attempts
+ * on a network failure or HTTP 429/502/503/504, never on 401/404 or another 4xx. Each attempt
+ * builds its request again (a fresh file Blob for uploads). A retried PUT sends the same bytes
+ * to the same path with the same Checksum, so it is idempotent; Bunny rejects a truncated body.
  */
 
 export type MediaDriver = 'bunny' | 'local';
@@ -154,22 +160,35 @@ async function sha256HexUpper(source: string | Buffer): Promise<string> {
   return hash.digest('hex').toUpperCase();
 }
 
+/** One Bunny request with retries; `buildInit` runs once per attempt. */
+function bunnyFetch(
+  url: string,
+  objectPath: string,
+  buildInit: () => RequestInit | Promise<RequestInit>,
+): Promise<Response> {
+  return fetchWithRetry(url, buildInit, {
+    onRetry: ({ attempt, delayMs, reason }) => {
+      console.warn(`[media] Bunny falló con «${objectPath}» (${reason}); intento ${attempt + 1} en ${delayMs} ms.`);
+    },
+  });
+}
+
 async function bunnyPut(
   config: StoreConfig,
   objectPath: string,
-  body: Blob | Buffer,
+  makeBody: () => Blob | Uint8Array<ArrayBuffer> | Promise<Blob>,
   checksum: string,
   contentType: string,
 ): Promise<void> {
-  const res = await fetch(bunnyUrl(config, objectPath), {
+  const res = await bunnyFetch(bunnyUrl(config, objectPath), objectPath, async () => ({
     method: 'PUT',
     headers: {
       AccessKey: config.bunny!.key,
       Checksum: checksum,
       'Content-Type': contentType,
     },
-    body: body instanceof Blob ? body : new Uint8Array(body),
-  });
+    body: await makeBody(),
+  }));
   if (res.status !== 201) {
     throw new Error(`Bunny no aceptó «${objectPath}»: ${await bunnyErrorText(res)}`);
   }
@@ -186,7 +205,8 @@ export async function putObject(
 
   if (config.driver === 'bunny') {
     const checksum = await sha256HexUpper(filePath);
-    await bunnyPut(config, cleanPath, await openAsBlob(filePath, { type: contentType }), checksum, contentType);
+    // A new file-backed Blob per attempt: streamed from disk each time, never held in memory.
+    await bunnyPut(config, cleanPath, () => openAsBlob(filePath, { type: contentType }), checksum, contentType);
   } else {
     const target = localFilePath(cleanPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -206,7 +226,7 @@ export async function putContent(
   const data = typeof content === 'string' ? Buffer.from(content, 'utf8') : content;
 
   if (config.driver === 'bunny') {
-    await bunnyPut(config, cleanPath, data, await sha256HexUpper(data), contentType);
+    await bunnyPut(config, cleanPath, () => new Uint8Array(data), await sha256HexUpper(data), contentType);
   } else {
     const target = localFilePath(cleanPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -224,10 +244,10 @@ export async function getObjectText(objectPath: string): Promise<string | null> 
   const config = getConfig();
 
   if (config.driver === 'bunny') {
-    const res = await fetch(bunnyUrl(config, cleanPath), {
+    const res = await bunnyFetch(bunnyUrl(config, cleanPath), cleanPath, () => ({
       headers: { AccessKey: config.bunny!.key },
       cache: 'no-store',
-    });
+    }));
     if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`Bunny no devolvió «${cleanPath}»: ${await bunnyErrorText(res)}`);
@@ -255,10 +275,10 @@ export async function listObjects(dirPath: string): Promise<StoredObjectInfo[]> 
   const config = getConfig();
 
   if (config.driver === 'bunny') {
-    const res = await fetch(bunnyUrl(config, cleanDir, true), {
+    const res = await bunnyFetch(bunnyUrl(config, cleanDir, true), `${cleanDir}/`, () => ({
       headers: { AccessKey: config.bunny!.key, Accept: 'application/json' },
       cache: 'no-store',
-    });
+    }));
     if (res.status === 404) return [];
     if (!res.ok) {
       throw new Error(`Bunny no listó «${cleanDir}/»: ${await bunnyErrorText(res)}`);
@@ -352,10 +372,10 @@ export async function deleteObject(urlOrPath: string | null | undefined): Promis
     const config = getConfig();
 
     if (config.driver === 'bunny') {
-      const res = await fetch(bunnyUrl(config, cleanPath), {
+      const res = await bunnyFetch(bunnyUrl(config, cleanPath), cleanPath, () => ({
         method: 'DELETE',
         headers: { AccessKey: config.bunny!.key },
-      });
+      }));
       return res.ok || res.status === 404;
     }
 

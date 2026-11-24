@@ -38,6 +38,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveFfmpegBin } from '../lib/server/ffmpegBin.mjs';
+import { fetchWithRetry } from '../lib/server/fetchRetry.mjs';
 
 const execFileAsync = promisify(execFile);
 const SUPABASE_MARKER = '/storage/v1/object/public/workout-videos/';
@@ -310,11 +311,18 @@ function makeStore(toLocal) {
     return new Error(`${what}: HTTP ${res.status}${text ? ` · ${text}` : ''}.${hint}`);
   };
 
+  // Same retry policy as the Studio (lib/server/fetchRetry.mjs): network failures and 429/5xx
+  // gateways, up to 4 attempts; buildInit runs per attempt, so a file body is opened afresh.
+  const request = (target, what, buildInit) =>
+    fetchWithRetry(target, buildInit, {
+      onRetry: ({ attempt, delayMs, reason }) => log(`  (${what}: ${reason}; intento ${attempt + 1} en ${delayMs} ms)`),
+    });
+
   return {
     label: `Bunny (${host}), URLs ${envBase}/…`,
     publicUrl: (p) => `${envBase}/${encodePath(p)}`,
     async list(dir) {
-      const res = await fetch(url(dir, true), { headers: { AccessKey: key, Accept: 'application/json' } });
+      const res = await request(url(dir, true), `${dir}/`, () => ({ headers: { AccessKey: key, Accept: 'application/json' } }));
       if (res.status === 404) return new Map();
       if (!res.ok) throw await fail(`No se pudo listar ${dir}/`, res);
       const items = await res.json();
@@ -325,22 +333,23 @@ function makeStore(toLocal) {
       const hash = createHash('sha256');
       if (isBuffer) hash.update(source);
       else for await (const chunk of createReadStream(source)) hash.update(chunk);
-      const body = isBuffer ? new Uint8Array(source) : await openAsBlob(source);
-      const res = await fetch(url(p), {
+      const checksum = hash.digest('hex').toUpperCase();
+      const res = await request(url(p), p, async () => ({
         method: 'PUT',
-        headers: { AccessKey: key, Checksum: hash.digest('hex').toUpperCase(), 'Content-Type': 'application/octet-stream' },
-        body,
-      });
+        headers: { AccessKey: key, Checksum: checksum, 'Content-Type': 'application/octet-stream' },
+        // A new body per attempt: a file is streamed from disk again, never a consumed stream.
+        body: isBuffer ? new Uint8Array(source) : await openAsBlob(source),
+      }));
       if (res.status !== 201) throw await fail(`Bunny no aceptó ${p}`, res);
     },
     async getText(p) {
-      const res = await fetch(url(p), { headers: { AccessKey: key } });
+      const res = await request(url(p), p, () => ({ headers: { AccessKey: key } }));
       if (res.status === 404) return null;
       if (!res.ok) throw await fail(`No se pudo leer ${p}`, res);
       return res.text();
     },
     async remove(p) {
-      const res = await fetch(url(p), { method: 'DELETE', headers: { AccessKey: key } });
+      const res = await request(url(p), p, () => ({ method: 'DELETE', headers: { AccessKey: key } }));
       if (!res.ok && res.status !== 404) throw await fail(`No se pudo borrar ${p}`, res);
     },
   };
