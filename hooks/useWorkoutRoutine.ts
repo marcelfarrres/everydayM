@@ -43,6 +43,9 @@ export function useWorkoutRoutine() {
   const remainingRef = useRef<number>(60);
   // When the running timer-driven item ends (performance.now() ms); null while paused or video-driven.
   const deadlineRef = useRef<number | null>(null);
+  // The item the routine is on, updated in the same call that moves it (state lags a render):
+  // a late timeupdate of the clip that was just skipped must not write its time into the next item.
+  const indexRef = useRef(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -86,6 +89,7 @@ export function useWorkoutRoutine() {
       rememberRoutine(builtMeta);
       deadlineRef.current = null;
       remainingRef.current = initialDuration;
+      indexRef.current = 0;
       setMeta(builtMeta);
       setQueue(builtQueue);
       setCurrentIndex(0);
@@ -173,6 +177,7 @@ export function useWorkoutRoutine() {
       const nextIdx = currentIndex + 1;
       const nextDuration = getItemDuration(queue[nextIdx], meta?.slotSeconds);
       remainingRef.current = nextDuration;
+      indexRef.current = nextIdx;
       setTotalItemDuration(nextDuration);
       setTimeLeft(nextDuration);
       setCurrentIndex(nextIdx);
@@ -192,6 +197,7 @@ export function useWorkoutRoutine() {
     const prevDuration = getItemDuration(queue[targetIdx], meta?.slotSeconds);
     deadlineRef.current = null;
     remainingRef.current = prevDuration;
+    indexRef.current = targetIdx;
     setTotalItemDuration(prevDuration);
     setTimeLeft(prevDuration);
     setCurrentIndex(targetIdx);
@@ -239,7 +245,7 @@ export function useWorkoutRoutine() {
 
   const handleVideoTimeUpdate = useCallback(() => {
     const videoEl = videoRef.current;
-    if (!videoEl) return;
+    if (!videoEl || indexRef.current !== currentIndex) return;
 
     const current = queue[currentIndex];
     if (
