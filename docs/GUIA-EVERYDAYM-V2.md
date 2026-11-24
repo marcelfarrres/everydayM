@@ -44,7 +44,7 @@ GEMINI_API_KEY=tu_api_key_de_google_ai_studio
 ```
 
 > **Importante de seguridad:**
-> - **Nunca** pongas `BUNNY_STORAGE_KEY`, `STUDIO_SESSION_SECRET` ni `STUDIO_ENABLED=true` en Vercel, ni con el prefijo `NEXT_PUBLIC_`. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/tiktok` devuelven **`404 Not Found`**.
+> - **Nunca** pongas `BUNNY_STORAGE_KEY`, `STUDIO_SESSION_SECRET` ni `STUDIO_ENABLED=true` en Vercel, ni con el prefijo `NEXT_PUBLIC_`. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/*` devuelven **`404 Not Found`**.
 > - Sin `STUDIO_SESSION_SECRET` (o si es más corto de 32 caracteres) el acceso con PIN desde el móvil no funciona y la pantalla del PIN explica cómo generarlo; desde `localhost` el Estudio se abre igual.
 > - `GEMINI_API_KEY` solo se lee en el servidor (`app/api/routine-intent/route.ts`), nunca llega al navegador.
 
@@ -127,4 +127,4 @@ Los vídeos se crean en el ordenador del Estudio (`STUDIO_ENABLED=true`, FFmpeg 
    - **Rutina completa**: entera, con carteles de fase, cuenta atrás, barra de progreso y descansos con vista previa. Tarda unos 10 s por minuto de rutina.
 4. Cuando termine, mira la vista previa y pulsa **Descargar MP4** (1080×1920, 30 fps, sin música: añade el sonido en TikTok).
 
-Cómo funciona: el FFmpeg de Homebrew no trae `drawtext`, así que los textos se dibujan como imágenes (SVG → PNG con `sharp`) y FFmpeg solo las superpone a los clips (`lib/server/tiktokExport.ts`, ruta `app/api/studio/tiktok`).
+Cómo funciona: el FFmpeg de Homebrew no trae `drawtext`, así que los textos se dibujan como imágenes (SVG → PNG con `sharp`) y FFmpeg solo las superpone a los clips (`lib/server/clips/`, rutas `app/api/studio/clips/*`).

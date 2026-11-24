@@ -15,7 +15,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Lenguaje**: TypeScript 5 (`strict: true`, prohibido el uso de `any` explícito).
 - **Estilos**: Tailwind CSS v4 + iconografía con `lucide-react`.
 - **Datos / Medios**: Sin base de datos. Los vídeos, versiones ligeras, miniaturas, música y el catálogo JSON (`catalog/catalog.json`: ejercicios, vídeos hablados y música) viven en Bunny (Storage + CDN). La app lee el catálogo por la CDN (`NEXT_PUBLIC_MEDIA_BASE_URL`); solo el Estudio local (`/admin`, en el ordenador de Marcel) escribe en Bunny Storage. En desarrollo sin Bunny, los archivos van a `.media/` (ignorada por Git) y se sirven en `/dev-media`.
-- **Multimedia**: Reproductor encadenado HTML5 `<video>` y `<audio>` con soporte de Picture-in-Picture (PiP); compresión, miniaturas y montaje de clips con FFmpeg en el Estudio.
+- **Multimedia**: Reproductor encadenado HTML5 `<video>` (versión ligera, original como reserva) y música con Web Audio (`<audio>` + `GainNode`); compresión, miniaturas y montaje de clips con FFmpeg en el Estudio (FFmpeg se busca en `FFMPEG_PATH`/`FFPROBE_PATH`, el PATH o la instalación de winget).
+- **Pruebas**: vitest (`npm run test`, archivos `lib/**/*.test.ts`).
 
 ## 2. Arquitectura de Carpetas
 Todo el código fuente debe respetar estrictamente la separación de responsabilidades:
@@ -25,12 +26,12 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
   - `app/admin/page.tsx`: Estudio (`/admin`, solo local o por la wifi de casa con PIN): biblioteca de ejercicios, vídeos hablados y música.
   - `app/studio-login/`: Pantalla del PIN para abrir el Estudio desde el móvil.
   - `app/dev-media/`: Solo desarrollo: sirve los archivos de `.media/` cuando no hay Bunny.
-  - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión del catálogo y la sesión del PIN, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/tiktok` (montaje de clips para TikTok con FFmpeg, vía `lib/server/tiktokExport.ts`) y `studio/idea` (ideas y descripciones para TikTok).
-- `components/studio/` — Piezas del Estudio: `LibraryView.tsx`, `TalksView.tsx`, `MusicView.tsx`, `ClipForm.tsx`, `StudioDialog.tsx`, `StudioUi.tsx` y `studioClient.ts` (llamadas a `/api/admin/*`).
+  - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión del catálogo y la sesión del PIN, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/clips/*` (cola de clips para TikTok: crear, ver, aprobar, rechazar, regenerar y descargar, vía `lib/server/clips/`) y `studio/idea` (ideas y descripciones para TikTok). Toda ruta del Estudio llama primero a `guardStudioApi`.
+- `components/studio/` — Piezas del Estudio: `LibraryView.tsx`, `TalksView.tsx`, `MusicView.tsx`, `ClipsView.tsx` y `ClipsQueue.tsx` (clips), `ClipForm.tsx`, `StudioDialog.tsx`, `StudioUi.tsx` y `studioClient.ts` (llamadas a `/api/admin/*`).
 - `components/workout/` — Componentes de dominio de entrenamiento:
   - `MuscleSelector.tsx`: Mapa anatómico SVG interactivo (vista frontal y posterior) con estados tri-estado (`secondary`, `primary`, desactivado).
   - `RoutineComposer.tsx`: Pantalla de creación (frase → preguntas → rutina lista, con el hilo por bloques).
-  - `player/`: Reproductor por piezas. `WorkoutPlayer.tsx` (orquestación), `Stage.tsx` (vídeo a pantalla completa, vídeos hablados en descansos largos), `PlayerWidget.tsx` (barra inferior: `ExerciseBar`, `RestBar`, `Hilo`, `SeriesList`), `PlayerMenu.tsx` («···»), `RestFrame.tsx`, `EndScreen.tsx` y `model.ts` (funciones puras).
+  - `player/`: Reproductor por piezas. `WorkoutPlayer.tsx` (orquestación), `Stage.tsx` (vídeo a pantalla completa) con `TalkReel.tsx` (vídeos hablados en descansos largos), `PlayerWidget.tsx` (barra inferior: `ExerciseBar`, `RestBar`, `Hilo`, `SeriesList`), `PlayerMenu.tsx` («···»), `RestFrame.tsx`, `EndScreen.tsx` y `model.ts` (funciones puras).
   - `CloudTransition.tsx` y `Rocket.tsx`: Transición de nubes y cohete al entrar en cada descanso.
   - `ChalkBoard.tsx`: Pizarra del reproductor en ordenador.
 - `components/ui/` — Componentes de interfaz reutilizables y accesibles:
@@ -41,17 +42,21 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 - `lib/` — Clientes externos y utilidades puras:
   - `routine/`: Motor de rutinas (`buildRoutine`: puntuación ponderada, bloques y series, descansos cortos y largos con vídeos hablados, historial reciente en `localStorage`), con pruebas en vitest.
   - `intent/`: Frase → intención de rutina (parser local de palabras clave y Gemini).
-  - `data/exercises.ts`: Lectura del catálogo JSON de ejercicios por la CDN (`fetchExercises()`).
-  - `media.ts`: URL de reproducción de cada vídeo (versión ligera si existe).
+  - `data/exercises.ts`: Lectura del catálogo JSON por la CDN: `fetchCatalog()` hace una sola descarga compartida (ejercicios y música); `fetchExercises()` y `fetchMusic()` leen de ella.
+  - `audio/`: Sonido del reproductor: `music.ts` (motor de música con Web Audio), `mix.ts` (niveles y bajada bajo la voz, funciones puras), `talkVideo.ts` (el único `<video>` de los vídeos hablados), `unlock.ts` (desbloqueo en el toque de «Empezar») y `useMusic.ts`.
+  - `clips/`: Lo de los clips que comparten navegador y servidor: registro de tipos (`types.ts`), forma de la cola (`queue.ts`), frase → clip por palabras clave (`intent.ts`) y plan de la música (`musicBed.ts`).
+  - `media.ts`: URL de reproducción de cada vídeo (versión ligera si existe) y paso al original si la ligera falla.
   - `difficulty.ts`: Normalización de niveles de dificultad.
   - `server/` — Solo servidor (`server-only`), lo usa el Estudio:
     - `catalog.ts`: Lectura y escritura del catálogo (`catalog/catalog.json`) por la API de Storage, con copias en `catalog/backups/` y un único escritor a la vez.
     - `mediaStore.ts`: Almacén de archivos: Bunny Storage, o `.media/` en desarrollo.
-    - `mediaPipeline.ts`, `ffmpeg.ts`, `studioUpload.ts`: Compresión, versión ligera, miniaturas y subida.
+    - `mediaPipeline.ts`, `ffmpeg.ts`, `studioUpload.ts`: Compresión, versión ligera, miniaturas y subida. `ffmpegBin.mjs` dice dónde están `ffmpeg` y `ffprobe` (también lo usa `scripts/migrate-media.mjs`).
     - `studioGate.ts`: Acceso al Estudio (localhost, o wifi con PIN y cookie firmada con `STUDIO_SESSION_SECRET`).
-    - `tiktokExport.ts`, `contentIdeas.ts`: Clips e ideas para TikTok.
+    - `clips/`: Generador de clips para TikTok: recetas por tipo (`recipes.ts`), partes (`parts/`), montaje y sonido con FFmpeg (`render.ts`, `run.ts`, `audio.ts`) y la cola en disco (`queue.ts`).
+    - `contentIdeas.ts`: Ideas y descripciones para TikTok.
 - `types/` — Contratos e interfaces de TypeScript (`Exercise`, `RoutineItem`, `MuscleSelection`, `WorkoutFilters`, `Catalog`, etc.).
-- `scripts/` — Utilidades de una vez (`migrate-media.mjs`: mudanza de Supabase a Bunny) y el lanzador del Estudio (`scripts/studio/`).
+- `scripts/` — Utilidades de una vez (`migrate-media.mjs`: mudanza de Supabase a Bunny; `optimize-textures.mjs`: nubes) y el lanzador del Estudio (`scripts/studio/`).
+- Carpetas locales ignoradas por Git: `.media/` (medios y catálogo en desarrollo sin Bunny, servidos en `/dev-media`) y `.clips/` (clips montados, su manifiesto, cómo se hizo cada uno y la caché de originales descargados).
 
 ## 3. Reglas de Seguridad (CRÍTICO)
 1. **Cero Secretos Hardcodeados**: Ninguna URL de almacenamiento, API Key, contraseña de Storage, JWT, secreto o credencial (Bunny, Gemini, Estudio) debe escribirse directamente en el código fuente. Todo acceso debe realizarse exclusivamente mediante variables de entorno: `process.env.NEXT_PUBLIC_MEDIA_BASE_URL` es la única pública; `process.env.BUNNY_STORAGE_KEY` y `process.env.STUDIO_SESSION_SECRET` son solo de servidor y nunca pueden llevar el prefijo `NEXT_PUBLIC_` (igual que el resto de claves del servidor).

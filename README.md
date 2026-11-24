@@ -6,7 +6,7 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?logo=tailwindcss)
 ![Bunny](https://img.shields.io/badge/Bunny-Storage_%2B_CDN-ff7854)
 
-**EverydayMarcel** es una aplicación web full-stack de entrenamiento físico diseñada para generar y reproducir rutinas de ejercicio dinámicas y personalizadas en tiempo real. Combina un **motor algorítmico de selección ponderada**, un **mapa anatómico SVG interactivo** de doble vista y un **reproductor multimedia HTML5 encadenado con Picture-in-Picture (PiP)**.
+**EverydayMarcel** es una aplicación web full-stack de entrenamiento físico diseñada para generar y reproducir rutinas de ejercicio dinámicas y personalizadas en tiempo real. Combina un **motor algorítmico de selección ponderada**, un **mapa anatómico SVG interactivo** de doble vista y un **reproductor HTML5 encadenado a pantalla completa** con música de fondo y vídeos hablados en los descansos.
 
 ---
 
@@ -17,18 +17,17 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 - **Priorización Muscular Multi-Rol**: Clasifica el catálogo de ejercicios en tres niveles de prioridad según la coincidencia con los músculos objetivos marcados como **principales (`primary`)** o **secundarios (`secondary`)**, alternando estratégicamente cada 4 ejercicios para equilibrar la fatiga localizada.
 - **Muestreo Aleatorio Ponderado por Dificultad**: Calcula un *score* inversamente proporcional a la distancia entre la dificultad solicitada por el usuario (`1-10`) y la dificultad de cada ejercicio (`score = 1 + (10 - |diff_ejercicio - diff_objetivo|)`), aplicando una ruleta de selección ponderada sin repetición dentro del mismo bloque.
 - **Cálculo Dinámico de Descansos**: Ajusta automáticamente la duración de los bloques de recuperación en función de la intensidad elegida, añadiendo tiempo extra en las transiciones de fin de ronda.
-- **Máquina de Estados de Cola (`RoutineItem[]`)**: Ensambla secuencialmente clips de `intro`, bloques opcionales de `warmup` y el circuito multiciclo (`workout` + `rest`).
+- **Máquina de Estados de Cola (`RoutineItem[]`)**: Ensambla el calentamiento opcional (`warmup`), los bloques de series (`workout`) con descansos cortos entre series y largos antes de cada bloque (`rest`, con 1 o 2 vídeos hablados que no se repiten en la rutina) y la pantalla final (`outro`). Sin intro: «Empezar» entra directo al calentamiento.
 
 ### 2. Mapa Anatómico SVG Interactivo (`components/workout/MuscleSelector.tsx`)
 - **Doble Vista Vectorial (Frente / Espalda y Glúteos)**: Geometrías SVG personalizadas y accesibles por teclado (`role="button"`, `aria-pressed`) sin dependencias externas pesadas.
 - **Selección Tri-Estado**: Cada región anatómica cicla entre **Sin marcar -> Participa (Secundario) -> Principal -> Quitar**, sincronizando los identificadores musculares específicos (`pectorales`, `dorsales`, `cuadriceps`, `isquiotibiales`, `gluteos`, etc.) tanto en el generador público como en el panel de catalogación `/admin`.
 
-### 3. Reproducción Encadenada HTML5 y Picture-in-Picture (`components/workout/player/WorkoutPlayer.tsx`)
-- **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Bunny (Storage + CDN), sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
-- **Doble Experiencia Picture-in-Picture (PiP)**:
-  - **In-App PiP durante descansos**: Muestra una tarjeta flotante con el vídeo en bucle del **siguiente ejercicio** mientras corre la cuenta atrás de recuperación, permitiendo al usuario anticipar la técnica.
-  - **Web API Picture-in-Picture nativa**: Permite desacoplar el reproductor de vídeo en una ventana flotante del sistema operativo (`requestPictureInPicture`).
-- **Canal de Audio Independiente**: Mezclador de música de fondo con múltiples pistas que se pausa automáticamente durante la secuencia de introducción y se reanuda en el entrenamiento.
+### 3. Reproductor Encadenado HTML5 (`components/workout/player/`)
+- **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Bunny (Storage + CDN), en su versión ligera (720 px) con el original como reserva, sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
+- **Un solo widget**: En el móvil el vídeo ocupa la pantalla y la barra inferior lleva el hilo de la rutina por bloques, la lista desplegable y, en los descansos, el agua que sube hasta la siguiente serie. Al entrar en cada descanso, nubes y un cohete dibujado a línea.
+- **Descansos largos con voz**: Antes de cada bloque suenan 1 o 2 vídeos hablados de sus ejercicios, con un mini vídeo de la primera serie en la barra.
+- **Sonido (`lib/audio/`)**: Música de fondo en aleatorio desde el catálogo, con Web Audio (`GainNode`) para el volumen en iPhone, bajada automática mientras habla un vídeo y desbloqueo en el toque de «Empezar».
 
 ---
 
@@ -39,14 +38,17 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 │   ├── admin/
 │   │   └── page.tsx               # Estudio: subida de vídeos a Bunny y catálogo JSON
 │   ├── api/
-│   │   ├── admin/                 # Route Handlers del Estudio (ingesta y gestión de ejercicios)
+│   │   ├── admin/                 # Route Handlers del Estudio: ejercicios, vídeos hablados, música, sesión del PIN
 │   │   ├── routine-intent/        # Frase → intención de rutina (Gemini)
-│   │   └── studio/                # Clips para TikTok (FFmpeg) e ideas de contenido
+│   │   └── studio/                # Cola de clips para TikTok (clips/*) e ideas de contenido (idea)
+│   ├── dev-media/                 # Solo desarrollo: sirve .media/ cuando no hay Bunny
 │   ├── preview/player/            # Solo desarrollo: el reproductor con ejercicios de prueba
+│   ├── studio-login/              # PIN para abrir el Estudio desde el móvil
 │   ├── globals.css                # Tema global y animaciones CSS (Tailwind v4)
 │   ├── layout.tsx                 # Root Layout con tipografías Geist y metadatos
 │   └── page.tsx                   # Vista principal: Configurador de rutina + Reproductor
 ├── components/
+│   ├── studio/                    # Estudio: biblioteca, vídeos hablados, música y clips
 │   ├── ui/
 │   │   ├── DifficultyScale.tsx    # Selector accesible de dificultad (1-10)
 │   │   └── NumberStepper.tsx      # Control incremental para series y bloques
@@ -60,13 +62,20 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 ├── lib/
 │   ├── routine/                   # Motor de rutinas (bloques, series, descansos, vídeos hablados) y sus pruebas
 │   ├── intent/                    # Frase → intención (parser local y Gemini)
-│   ├── data/exercises.ts          # Lectura del catálogo JSON de ejercicios
-│   ├── media.ts                   # URL de reproducción (versión ligera si existe)
+│   ├── data/exercises.ts          # fetchCatalog(): una sola descarga del catálogo (ejercicios y música)
+│   ├── audio/                     # Música (Web Audio), bajada bajo la voz, vídeo hablado compartido, desbloqueo
+│   ├── clips/                     # Tipos de clip, cola y frase → clip (compartido con el navegador)
+│   ├── media.ts                   # URL de reproducción (versión ligera si existe, original como reserva)
 │   ├── difficulty.ts              # Normalización de niveles de dificultad y retrocompatibilidad
 │   └── server/                    # Solo servidor (Estudio): catalog.ts, mediaStore.ts, studioGate.ts, FFmpeg
-└── types/
-    ├── index.ts                   # Barrel de exportación de tipos
-    └── workout.ts                 # Interfaces TypeScript (Exercise, RoutineItem, MuscleSelection...)
+│       └── clips/                 # Montaje de clips con FFmpeg y su cola en disco
+├── scripts/                       # migrate-media.mjs (mudanza a Bunny), optimize-textures.mjs, studio/ (lanzador)
+├── types/
+│   ├── index.ts                   # Barrel de exportación de tipos
+│   ├── catalog.ts                 # Catálogo: ejercicios con vídeos hablados y música
+│   └── workout.ts                 # Interfaces TypeScript (Exercise, RoutineItem, MuscleSelection...)
+├── .media/                        # (local, ignorada por Git) medios en desarrollo sin Bunny
+└── .clips/                        # (local, ignorada por Git) clips montados, su cola y la caché de originales
 ```
 
 ---
@@ -120,6 +129,8 @@ npm run dev
 
 ```bash
 npm run lint
+npm run typecheck
+npm run test      # pruebas unitarias (vitest)
 npm run build
 npm run start
 ```
