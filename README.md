@@ -12,7 +12,7 @@
 
 ## Aspectos Técnicos Destacados
 
-### 1. Motor Algorítmico de Rutinas (`hooks/useWorkoutRoutine.ts`)
+### 1. Motor Algorítmico de Rutinas (`lib/routine/`, orquestado por `hooks/useWorkoutRoutine.ts`)
 En lugar de listas estáticas, la aplicación construye cada sesión mediante un algoritmo de ensamblaje dinámico:
 - **Priorización Muscular Multi-Rol**: Clasifica el catálogo de ejercicios en tres niveles de prioridad según la coincidencia con los músculos objetivos marcados como **principales (`primary`)** o **secundarios (`secondary`)**, alternando estratégicamente cada 4 ejercicios para equilibrar la fatiga localizada.
 - **Muestreo Aleatorio Ponderado por Dificultad**: Calcula un *score* inversamente proporcional a la distancia entre la dificultad solicitada por el usuario (`1-10`) y la dificultad de cada ejercicio (`score = 1 + (10 - |diff_ejercicio - diff_objetivo|)`), aplicando una ruleta de selección ponderada sin repetición dentro del mismo bloque.
@@ -23,7 +23,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 - **Doble Vista Vectorial (Frente / Espalda y Glúteos)**: Geometrías SVG personalizadas y accesibles por teclado (`role="button"`, `aria-pressed`) sin dependencias externas pesadas.
 - **Selección Tri-Estado**: Cada región anatómica cicla entre **Sin marcar -> Participa (Secundario) -> Principal -> Quitar**, sincronizando los identificadores musculares específicos (`pectorales`, `dorsales`, `cuadriceps`, `isquiotibiales`, `gluteos`, etc.) tanto en el generador público como en el panel de catalogación `/admin`.
 
-### 3. Reproducción Encadenada HTML5 y Picture-in-Picture (`components/workout/WorkoutPlayer.tsx`)
+### 3. Reproducción Encadenada HTML5 y Picture-in-Picture (`components/workout/player/WorkoutPlayer.tsx`)
 - **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Supabase Storage, sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
 - **Doble Experiencia Picture-in-Picture (PiP)**:
   - **In-App PiP durante descansos**: Muestra una tarjeta flotante con el vídeo en bucle del **siguiente ejercicio** mientras corre la cuenta atrás de recuperación, permitiendo al usuario anticipar la técnica.
@@ -39,23 +39,31 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 │   ├── admin/
 │   │   └── page.tsx               # Panel CMS para subida de vídeos a Supabase Storage y catalogación
 │   ├── api/
-│   │   └── export-routine/
-│   │       └── route.ts           # Endpoint servidor para concatenación de vídeos vía FFmpeg
+│   │   ├── admin/                 # Route Handlers del Estudio (ingesta y gestión de ejercicios)
+│   │   ├── routine-intent/        # Frase → intención de rutina (Gemini)
+│   │   └── studio/                # Clips para TikTok (FFmpeg) e ideas de contenido
+│   ├── preview/player/            # Solo desarrollo: el reproductor con ejercicios de prueba
 │   ├── globals.css                # Tema global y animaciones CSS (Tailwind v4)
 │   ├── layout.tsx                 # Root Layout con tipografías Geist y metadatos
 │   └── page.tsx                   # Vista principal: Configurador de rutina + Reproductor
 ├── components/
 │   ├── ui/
 │   │   ├── DifficultyScale.tsx    # Selector accesible de dificultad (1-10)
-│   │   └── NumberStepper.tsx      # Control incremental para ejercicios y rondas
+│   │   └── NumberStepper.tsx      # Control incremental para series y bloques
 │   └── workout/
 │       ├── MuscleSelector.tsx     # Mapa anatómico SVG interactivo frontal y posterior
-│       └── WorkoutPlayer.tsx      # Reproductor HTML5 encadenado con soporte PiP y audio
+│       ├── RoutineComposer.tsx    # Pantalla de creación de la rutina
+│       ├── CloudTransition.tsx    # Nubes y cohete al entrar en cada descanso
+│       └── player/                # Reproductor: WorkoutPlayer, barra, hilo, lista, descansos, menú
 ├── hooks/
-│   └── useWorkoutRoutine.ts       # Custom hook con el motor algorítmico y temporizador de sesión
+│   └── useWorkoutRoutine.ts       # Estado de la sesión: cola, reloj, pausa, anterior/siguiente
 ├── lib/
+│   ├── routine/                   # Motor de rutinas (bloques, series, descansos, vídeos hablados) y sus pruebas
+│   ├── intent/                    # Frase → intención (parser local y Gemini)
+│   ├── data/exercises.ts          # Lectura del catálogo JSON de ejercicios
+│   ├── media.ts                   # URL de reproducción (versión ligera si existe)
 │   ├── difficulty.ts              # Normalización de niveles de dificultad y retrocompatibilidad
-│   └── supabase.ts                # Cliente tipado de Supabase (configurado vía variables de entorno)
+│   └── supabase.ts                # Cliente de Supabase (la app pública ya no lo usa)
 ├── supabase/
 │   └── migrations/                # Migraciones SQL para la tabla public.exercises
 └── types/

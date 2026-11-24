@@ -26,14 +26,21 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
   - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión de ejercicios, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/tiktok` (montaje de clips para TikTok con FFmpeg, vía `lib/server/tiktokExport.ts`) y `studio/idea` (ideas y descripciones para TikTok).
 - `components/workout/` — Componentes de dominio de entrenamiento:
   - `MuscleSelector.tsx`: Mapa anatómico SVG interactivo (vista frontal y posterior) con estados tri-estado (`secondary`, `primary`, desactivado).
-  - `WorkoutPlayer.tsx`: Reproductor HTML5 encadenado (intro, calentamiento, series, descanso con vista previa Picture-in-Picture del siguiente ejercicio y modo PiP nativo).
+  - `RoutineComposer.tsx`: Pantalla de creación (frase → preguntas → rutina lista, con el hilo por bloques).
+  - `player/`: Reproductor por piezas. `WorkoutPlayer.tsx` (orquestación), `Stage.tsx` (vídeo a pantalla completa, vídeos hablados en descansos largos), `PlayerWidget.tsx` (barra inferior: `ExerciseBar`, `RestBar`, `Hilo`, `SeriesList`), `PlayerMenu.tsx` («···»), `RestFrame.tsx`, `EndScreen.tsx` y `model.ts` (funciones puras).
+  - `CloudTransition.tsx` y `Rocket.tsx`: Transición de nubes y cohete al entrar en cada descanso.
+  - `ChalkBoard.tsx`: Pizarra del reproductor en ordenador.
 - `components/ui/` — Componentes de interfaz reutilizables y accesibles:
   - `DifficultyScale.tsx`: Selector de dificultad en escala del 1 al 10.
   - `NumberStepper.tsx`: Control numérico incremental accesible.
-- `hooks/` — Lógica de estado y motores algorítmicos:
-  - `useWorkoutRoutine.ts`: Motor algorítmico de puntuación ponderada, selección sin repetición inmediata, cálculo dinámico de descansos y cola de reproducción secuencial.
+- `hooks/` — Lógica de estado:
+  - `useWorkoutRoutine.ts`: Estado de la sesión (cola, reloj, pausa, anterior/siguiente); delega la construcción de la rutina en `lib/routine/`.
 - `lib/` — Clientes externos y utilidades puras:
-  - `supabase.ts`: Instancia única del cliente de Supabase.
+  - `routine/`: Motor de rutinas (`buildRoutine`: puntuación ponderada, bloques y series, descansos cortos y largos con vídeos hablados, historial reciente en `localStorage`), con pruebas en vitest.
+  - `intent/`: Frase → intención de rutina (parser local de palabras clave y Gemini).
+  - `data/exercises.ts`: Lectura del catálogo JSON de ejercicios (`fetchExercises()`).
+  - `media.ts`: URL de reproducción de cada vídeo (versión ligera si existe).
+  - `supabase.ts`: Cliente de Supabase (la app pública ya no lo usa).
   - `difficulty.ts`: Normalización de niveles de dificultad.
 - `types/` — Contratos e interfaces de TypeScript (`Exercise`, `RoutineItem`, `MuscleSelection`, `WorkoutFilters`, etc.).
 - `supabase/migrations/` — Migraciones SQL versionadas del esquema de base de datos.
