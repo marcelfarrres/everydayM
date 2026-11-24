@@ -43,7 +43,7 @@ export interface Exercise {
 }
 
 export interface RoutineMeta {
-  totalSeconds: number; // whole routine incl. intro/summary/rests/outro
+  totalSeconds: number; // whole routine incl. rests/outro
   slotSeconds: number; // standard exercise slot (e.g. 50)
   rounds: number;
   exercisesPerRound: number;
@@ -55,14 +55,8 @@ export interface RoutineMeta {
   background?: Exercise; // filler video (type 'filler'; fallback: any clip)
 }
 
+// No intro or plan step: "Empezar" goes straight to the warm-up.
 export type RoutineItem =
-  | { kind: 'intro'; exercise: Exercise } // max 10 s, logo
-  | {
-      kind: 'summary';
-      duration: number;
-      meta: RoutineMeta;
-      exercise: Exercise;
-    } // ~8 s animated overview over meta.background
   | { kind: 'warmup'; exercise: Exercise }
   | {
       kind: 'workout';

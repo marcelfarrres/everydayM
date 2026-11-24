@@ -80,13 +80,13 @@ export function Home({ studio }: { studio: boolean }) {
   useEffect(() => {
     const bgAudio = audioRef.current;
     if (!bgAudio) return;
-    if (step === 'player' && musicPlaying && !isPaused && currentItem?.kind !== 'intro') {
+    if (step === 'player' && musicPlaying && !isPaused) {
       bgAudio.play().catch(() => {});
     } else {
       bgAudio.pause();
       if (step === 'config') bgAudio.currentTime = 0;
     }
-  }, [step, musicPlaying, isPaused, currentItem?.kind, currentTrackId]);
+  }, [step, musicPlaying, isPaused, currentTrackId]);
 
   const handleStartPrepared = (builtQueue: RoutineItem[], builtMeta: RoutineMeta, intent: RoutineIntent, text: string) => {
     lastIntentRef.current = intent;

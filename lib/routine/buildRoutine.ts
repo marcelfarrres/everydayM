@@ -11,7 +11,6 @@ import type {
 import {
   MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
-  SUMMARY_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
   getRestDuration,
@@ -235,8 +234,7 @@ export function buildRoutine(
 
   const selectedWarmups =
     includeWarmup && warmups.length > 0 ? warmups.slice(0, 3) : [];
-  // No intro clip in the app: the workout starts with the plan. (TikTok exports add their own opening.)
-  const introDuration = 0;
+  // No intro or plan step in the app: the workout starts with the warm-up. (TikTok exports add their own opening.)
 
   let rounds = 3;
   let exercisesPerRound = 5;
@@ -259,8 +257,6 @@ export function buildRoutine(
         candidateExercises: sortedCandidates,
         warmups: selectedWarmups,
         includeWarmup,
-        introSeconds: introDuration,
-        summarySeconds: SUMMARY_DURATION_SECONDS,
         outroSeconds: OUTRO_DURATION_SECONDS,
       });
       rounds = solved.rounds;
@@ -331,8 +327,6 @@ export function buildRoutine(
       candidateExercises: circuitExercises,
       warmups: selectedWarmups,
       includeWarmup,
-      introSeconds: introDuration,
-      summarySeconds: SUMMARY_DURATION_SECONDS,
       outroSeconds: OUTRO_DURATION_SECONDS,
       minExercisesPerRound: circuitExercises.length,
       maxExercisesPerRound: circuitExercises.length,
@@ -372,15 +366,6 @@ export function buildRoutine(
       difficulty,
       duration_seconds: slotSeconds,
     };
-
-  if (allExercises.length > 0) {
-    queue.push({
-      kind: 'summary',
-      duration: SUMMARY_DURATION_SECONDS,
-      meta,
-      exercise: fallbackExercise,
-    });
-  }
 
   for (const w of selectedWarmups) {
     queue.push({ kind: 'warmup', exercise: w });

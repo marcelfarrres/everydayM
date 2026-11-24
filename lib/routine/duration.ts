@@ -1,7 +1,5 @@
 import type { Exercise, RoutineItem } from '@/types/workout';
 
-export const INTRO_DURATION_SECONDS = 10;
-export const SUMMARY_DURATION_SECONDS = 12; // the plan's clock needs time to go round
 export const OUTRO_DURATION_SECONDS = 8;
 export const DEFAULT_CLIP_SECONDS = 60;
 // A short clip leaves its slot unfilled; the gap goes to the next rest, but never more than this,
@@ -38,12 +36,6 @@ export function getItemDuration(
   if (!item) return clipSecondsFallback;
 
   switch (item.kind) {
-    case 'intro':
-      return Math.min(
-        INTRO_DURATION_SECONDS,
-        getClipDuration(item.exercise, INTRO_DURATION_SECONDS),
-      );
-    case 'summary':
     case 'rest':
     case 'outro':
       return Math.max(1, Math.round(item.duration));

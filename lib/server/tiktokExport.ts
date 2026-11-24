@@ -897,13 +897,10 @@ function partsFor(mode: ExportMode, queue: RoutineItem[], meta: RoutineMeta): Pa
       titlePart('end', 2.6, (d) => d[Math.min(2, d.length - 1)], (ctx) => ({ title: '¿Lo has aguantado?', sub: `Comenta «hecho» · ${ctx.handle}` })),
     ];
   }
-  return [...opening, ...queue.flatMap((item, index): Part[] => {
+  // The routine no longer has a plan step, but the full video still shows the plan after the opening.
+  return [...opening, planPart(5), ...queue.flatMap((item, index): Part[] => {
     const seconds = getItemDuration(item, meta.slotSeconds);
     switch (item.kind) {
-      case 'intro':
-        return [];
-      case 'summary':
-        return [planPart(Math.min(seconds, 5))];
       case 'warmup':
       case 'workout':
         return [exercisePart(index, seconds)];

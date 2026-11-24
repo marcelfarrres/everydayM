@@ -1,8 +1,6 @@
 export {
   DEFAULT_CLIP_SECONDS,
-  INTRO_DURATION_SECONDS,
   OUTRO_DURATION_SECONDS,
-  SUMMARY_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
   getItemDuration,

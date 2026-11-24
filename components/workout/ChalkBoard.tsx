@@ -79,7 +79,7 @@ export function ChalkBoard({
 }) {
   const item = queue[currentIndex];
   const warmups = queue.map((q, i) => ({ q, i })).filter(({ q }) => q.kind === 'warmup');
-  const onWarmup = item?.kind === 'warmup' || item?.kind === 'summary';
+  const onWarmup = item?.kind === 'warmup';
   const round = item?.kind === 'workout' ? item.round : item?.kind === 'rest' ? item.nextRound : 1;
   const rounds = meta?.rounds ?? 1;
   const roundItems = queue
@@ -136,7 +136,7 @@ export function ChalkBoard({
           {time}
         </motion.p>
         <p className="mt-1 font-[family-name:var(--font-chalk)] text-[30px] opacity-75">
-          {item?.kind === 'rest' ? 'descansa' : item?.kind === 'summary' ? 'empezamos en' : 'quedan'}
+          {item?.kind === 'rest' ? 'descansa' : 'quedan'}
         </p>
         {next && (next.kind === 'warmup' || next.kind === 'workout') && (
           <p className="mt-8 font-[family-name:var(--font-chalk)] text-[28px] opacity-80">

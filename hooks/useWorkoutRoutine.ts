@@ -263,7 +263,7 @@ export function useWorkoutRoutine() {
   }, [queue, currentIndex]);
 
   // One clock for every item, read 10 times a second so the seconds turn over on time:
-  // exercise clips follow their own video; intro, summary, rest and outro follow a deadline,
+  // exercise clips follow their own video; rest and outro follow a deadline,
   // which survives pauses and never drifts the way a 1 s setInterval does.
   useEffect(() => {
     if (step !== 'player' || isPaused) return;

@@ -3,10 +3,6 @@ import { getItemDuration } from './duration';
 
 function getItemLabel(item: RoutineItem): string {
   switch (item.kind) {
-    case 'intro':
-      return 'Intro';
-    case 'summary':
-      return 'Resumen';
     case 'warmup':
       return item.exercise.title || 'Calentamiento';
     case 'workout':

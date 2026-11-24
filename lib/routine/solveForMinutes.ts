@@ -1,9 +1,7 @@
 import type { Exercise } from '@/types/workout';
 import {
-  INTRO_DURATION_SECONDS,
   MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
-  SUMMARY_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
   getRestDuration,
@@ -17,8 +15,6 @@ export interface SolveForMinutesOptions {
   warmups?: Exercise[];
   includeWarmup?: boolean;
   warmupSeconds?: number;
-  introSeconds?: number;
-  summarySeconds?: number;
   outroSeconds?: number;
   minRounds?: number;
   maxRounds?: number;
@@ -96,11 +92,8 @@ export function solveForMinutes(
             .reduce((acc, w) => acc + getClipDuration(w, resolvedSlotSeconds), 0)
         : 0;
 
-  const introSeconds = opts.introSeconds ?? INTRO_DURATION_SECONDS;
-  const summarySeconds = opts.summarySeconds ?? SUMMARY_DURATION_SECONDS;
   const outroSeconds = opts.outroSeconds ?? OUTRO_DURATION_SECONDS;
-  const fixedOverheadSeconds =
-    introSeconds + summarySeconds + outroSeconds + warmupTotalSeconds;
+  const fixedOverheadSeconds = outroSeconds + warmupTotalSeconds;
 
   const minRounds = Math.max(1, opts.minRounds ?? 1);
   const maxRounds = Math.max(minRounds, opts.maxRounds ?? 8);

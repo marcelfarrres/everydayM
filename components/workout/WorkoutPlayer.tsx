@@ -13,7 +13,6 @@ import {
   SkipBack,
   SkipForward,
 } from 'lucide-react';
-import { RoutinePlan } from '@/components/workout/RoutinePlan';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CloudTransition, type Journey } from '@/components/workout/CloudTransition';
 import { playCountdownBeep } from '@/lib/audio';
@@ -61,7 +60,7 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
 
 /* ── Phases ────────────────────────────────────────────────────────────────────
    Every moment is one of three phases, each with a colour that is always paired with its
-   name: warm-up (amber), main part (red), rest (blue). Intro, plan and end are calm (ink). */
+   name: warm-up (amber), main part (red), rest (blue). The end is calm (ink). */
 type Tone = 'warm' | 'work' | 'rest' | 'calm';
 const HEX: Record<Tone, string> = { warm: '#ff9f0a', work: '#ff3b30', rest: '#2f6bff', calm: '#131313' };
 const DOT: Record<Tone, string> = { warm: 'bg-warm', work: 'bg-heat', rest: 'bg-rest', calm: 'bg-ink' };
@@ -110,10 +109,6 @@ function position(item: RoutineItem | undefined, queue: RoutineItem[], index: nu
 
 function titleOf(item: RoutineItem | undefined, meta: RoutineMeta | null | undefined, prep: boolean): string {
   switch (item?.kind) {
-    case 'intro':
-      return 'Everyday M';
-    case 'summary':
-      return item.meta.focusLabel || 'Entrenamiento completo';
     case 'warmup':
     case 'workout':
       return item.exercise.title;
@@ -147,7 +142,7 @@ function cloudLabel(queue: RoutineItem[], index: number): { title: string; sub?:
     case 'outro':
       return { title: '¡Hecho!', tone: 'calm' };
     default:
-      return { title: item?.kind === 'summary' ? item.meta.focusLabel : '', tone: 'calm' };
+      return { title: '', tone: 'calm' };
   }
 }
 
@@ -291,7 +286,7 @@ export function WorkoutPlayer({
   // Beep on the last 3 seconds of every block
   const kind = currentItem?.kind;
   useEffect(() => {
-    if (!beepEnabled || isPaused || kind === 'intro' || kind === 'outro') return;
+    if (!beepEnabled || isPaused || kind === 'outro') return;
     if (timeLeft > 0 && timeLeft <= 3) {
       if (lastBeepRef.current !== timeLeft) {
         lastBeepRef.current = timeLeft;
@@ -328,7 +323,7 @@ export function WorkoutPlayer({
   const tone = toneOf(currentItem);
   const title = titleOf(currentItem, meta, prep);
   const where = position(currentItem, queue, currentIndex);
-  const critical = timeLeft > 0 && timeLeft <= 3 && kind !== 'intro' && kind !== 'outro';
+  const critical = timeLeft > 0 && timeLeft <= 3 && kind !== 'outro';
   const cheer = cheerFor(queue, currentIndex, totalItemDuration - timeLeft, totalItemDuration);
 
   const total = totalSeconds ?? meta?.totalSeconds ?? 0;
@@ -434,50 +429,10 @@ export function WorkoutPlayer({
     transition: { duration: 0.3, ease: EASE },
   };
 
-  // Plan and end screens show today's own exercises, so every routine looks different.
-  const seenIds = new Set<string>();
-  const dayExercises = (meta?.circuit ?? []).filter((e) => !seenIds.has(e.id) && seenIds.add(e.id));
-  const mosaic =
-    dayExercises.length > 0 ? (
-      <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-1 bg-black">
-        {Array.from({ length: 4 }, (_, i) => dayExercises[i % dayExercises.length]).map((ex, i) => (
-          <motion.video
-            key={i}
-            src={ex.video_url}
-            autoPlay
-            loop
-            muted
-            playsInline
-            aria-hidden="true"
-            initial={reduced ? false : { opacity: 0, scale: 1.12 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.12, duration: 0.7, ease: EASE }}
-            className="h-full w-full object-cover"
-          />
-        ))}
-      </div>
-    ) : null;
-
   const stage = (
     <div data-testid="workout-stage-916" className="relative h-full w-full overflow-hidden bg-black text-white @container lg:rounded-[28px]">
       <AnimatePresence mode="wait" initial={false} custom={enteringRest}>
-        {currentItem?.kind === 'summary' ? (
-          /* PLAN: today's exercises moving behind, the routine as a turning pie in front */
-          <motion.div
-            key={`summary-${currentIndex}`}
-            {...fade}
-            className="relative flex h-full w-full flex-col items-center justify-center gap-4 bg-black px-5 pb-24 pt-28 text-white lg:p-7"
-          >
-            {mosaic}
-            <div className="pointer-events-none absolute inset-0 bg-black/70" />
-            <p className="relative text-[13px] font-semibold uppercase tracking-[0.12em] text-white/70">
-              Así será · {Math.max(1, Math.round(currentItem.meta.totalSeconds / 60))} min
-            </p>
-            <div className="relative w-full">
-              <RoutinePlan queue={queue} timeline={timeline} seconds={currentItem.duration} />
-            </div>
-          </motion.div>
-        ) : currentItem?.kind === 'rest' ? (
+        {currentItem?.kind === 'rest' ? (
           /* REST: the next exercise already playing, tinted blue so it reads as "not yet", and the count */
           <motion.div key={`rest-${currentIndex}`} {...fade} className="relative h-full w-full">
             <video
@@ -508,9 +463,8 @@ export function WorkoutPlayer({
             </div>
           </motion.div>
         ) : currentItem?.kind === 'outro' ? (
+          /* END: plain black for now (no four videos at once); its redesign uses the thumbnails */
           <motion.div key={`outro-${currentIndex}`} {...fade} className="relative flex h-full w-full flex-col justify-between bg-black p-6 pb-10 pt-24 text-white lg:p-8">
-            {mosaic}
-            <div className="pointer-events-none absolute inset-0 bg-black/55" />
             <motion.div
               initial={reduced ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -615,7 +569,7 @@ export function WorkoutPlayer({
   // while resting, a light runs round it.
   const frameClass = kind === 'rest' ? 'stage-spin' : isExercise(currentItem) ? 'stage-ring' : '';
   const frameStyle = { '--ring': HEX[tone], '--p': itemProgress } as CSSProperties;
-  const showMini = kind !== 'intro' && kind !== 'outro';
+  const showMini = kind !== 'outro';
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
@@ -694,7 +648,7 @@ export function WorkoutPlayer({
               {where.of > 0 && kind !== 'rest' && <span className="font-semibold text-white/55">· {where.n}/{where.of}</span>}
             </p>
             <p className="truncate text-[17px] font-semibold leading-tight">
-              {kind === 'rest' && nextExercise ? `Luego: ${nextExercise.title}` : kind === 'summary' ? meta?.focusLabel : title}
+              {kind === 'rest' && nextExercise ? `Luego: ${nextExercise.title}` : title}
             </p>
           </div>
           {kind !== 'rest' && (
