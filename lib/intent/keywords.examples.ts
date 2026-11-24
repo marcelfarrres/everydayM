@@ -169,6 +169,52 @@ export const KEYWORD_EXAMPLES: readonly KeywordExampleCase[] = [
       i.slotSeconds === 45 &&
       i.focusLabel === 'Full body',
   },
+  {
+    phrase: 'quiero hacer glúteo',
+    description: 'Sin bloques, series ni variación explícitos: el motor decide',
+    check: (i) =>
+      hasPrimary(i, 'gluteos') &&
+      i.rounds === null &&
+      i.exercisesPerRound === null &&
+      i.variation === undefined,
+  },
+  {
+    phrase: 'glúteo 3 bloques de 4 series, bloques distintos',
+    description: '3 bloques de 4 series, cada bloque con ejercicios distintos',
+    check: (i) =>
+      hasPrimary(i, 'gluteos') &&
+      i.rounds === 3 &&
+      i.exercisesPerRound === 4 &&
+      i.variation === 'all',
+  },
+  {
+    phrase: 'piernas 30 minutos, cuatro rondas, siempre lo mismo',
+    description: '4 bloques idénticos, 30 min',
+    check: (i) =>
+      hasPrimary(i, 'cuadriceps') &&
+      i.targetMinutes === 30 &&
+      i.rounds === 4 &&
+      i.variation === 'same',
+  },
+  {
+    phrase: 'brazos con 5 ejercicios por ronda y todas las rondas diferentes',
+    description: '5 series por bloque, bloques distintos, número de bloques libre',
+    check: (i) =>
+      hasPrimary(i, 'biceps') &&
+      i.rounds === null &&
+      i.exercisesPerRound === 5 &&
+      i.variation === 'all',
+  },
+  {
+    phrase: 'no quiero siempre lo mismo, espalda 20 minutos con series de 45 segundos',
+    description: 'La negación pide variedad; "series de 45 segundos" es la duración, no las series por bloque',
+    check: (i) =>
+      hasPrimary(i, 'dorsales') &&
+      i.variation === 'all' &&
+      i.slotSeconds === 45 &&
+      i.exercisesPerRound === null &&
+      i.targetMinutes === 20,
+  },
 ];
 
 export function validateKeywordExamples(): {

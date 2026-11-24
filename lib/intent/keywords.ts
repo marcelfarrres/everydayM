@@ -1,6 +1,7 @@
 import {
   ALL_MUSCLE_IDS,
   MUSCLE_LABELS_ES,
+  type BlockVariation,
   type MuscleId,
   type MuscleRole,
   type RoutineIntent,
@@ -367,7 +368,7 @@ function parseTargetMinutes(normalized: string): number | null {
   }
 
   // "piernas 40": a lone number that is not rounds, seconds or kilos reads as minutes.
-  const bare = /(?:^|[\s,])(\d{2})(?=$|[\s,.])(?!\s*(?:rondas?|series?|seg|s\b|kg|reps?|repeticiones))/.exec(normalized);
+  const bare = /(?:^|[\s,])(\d{2})(?=$|[\s,.])(?!\s*(?:rondas?|bloques?|vueltas?|circuitos?|series?|ejercicios?|seg|s\b|kg|reps?|repeticiones))/.exec(normalized);
   if (bare) {
     const mins = Number.parseInt(bare[1], 10);
     if (mins >= 10 && mins <= 90) return mins;
@@ -376,14 +377,80 @@ function parseTargetMinutes(normalized: string): number | null {
   return null;
 }
 
-const ROUND_WORDS: Record<string, number> = { una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 };
+// Counts said in words: "tres bloques", "cuatro series por bloque".
+const COUNT_WORDS: Record<string, number> = {
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+};
+const COUNT = String.raw`(\d{1,2}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)`;
+const BLOCK_WORD = String.raw`(?:bloques?|rondas?|vueltas?|circuitos?)`;
+const SERIES_WORD = String.raw`(?:series?|ejercicios?)`;
+export const MAX_ROUNDS = 10;
+export const MAX_EXERCISES_PER_ROUND = 20;
 
-/** "3 rondas", "tres vueltas" → 3. null when the text does not say. */
+function readCount(word: string, max: number): number | null {
+  const value = COUNT_WORDS[word] ?? Number.parseInt(word, 10);
+  return Number.isFinite(value) && value >= 1 && value <= max ? value : null;
+}
+
+/** "3 bloques", "tres rondas", "4 vueltas" → 3, 3, 4. null when the text does not say. */
 export function parseRounds(text: string): number | null {
-  const match = /\b(\d|una|un|dos|tres|cuatro|cinco|seis)\s+(?:rondas?|vueltas?|circuitos?)\b/i.exec(text);
-  if (!match) return null;
-  const value = ROUND_WORDS[match[1].toLowerCase()] ?? Number.parseInt(match[1], 10);
-  return value >= 1 && value <= 6 ? value : null;
+  const match = new RegExp(String.raw`\b${COUNT}\s+${BLOCK_WORD}\b`).exec(normalizeText(text));
+  return match ? readCount(match[1], MAX_ROUNDS) : null;
+}
+
+const SERIES_PATTERNS: RegExp[] = [
+  new RegExp(String.raw`\b${COUNT}\s+${SERIES_WORD}\s+(?:por|en\s+cada|cada|de\s+cada)\s+${BLOCK_WORD}`),
+  new RegExp(String.raw`\b${BLOCK_WORD}\s+de\s+${COUNT}\s+${SERIES_WORD}\b`),
+  new RegExp(String.raw`\b(?:cada|por)\s+${BLOCK_WORD}\s+(?:con\s+|de\s+|tiene\s+|lleva\s+)?${COUNT}\s+${SERIES_WORD}\b`),
+];
+
+/**
+ * Series per block: "4 series por bloque", "bloques de 5 ejercicios", "cada ronda con 3 series".
+ * A lone "4 series" is left alone: in a gym that often means sets, not series in a block.
+ */
+export function parseExercisesPerRound(text: string): number | null {
+  const normalized = normalizeText(text);
+  for (const pattern of SERIES_PATTERNS) {
+    const match = pattern.exec(normalized);
+    if (match) return readCount(match[1], MAX_EXERCISES_PER_ROUND);
+  }
+  return null;
+}
+
+const DIFFERENT = String.raw`(?:distint[oa]s?|diferentes?|variad[oa]s?)`;
+const VARIATION_ALL: RegExp[] = [
+  // Checked before 'same', so "no quiero siempre lo mismo" is not read as "siempre lo mismo".
+  /\bno\s+(?:\w+\s+){0,2}(?:siempre\s+)?(?:lo\s+mismo|los\s+mismos|el\s+mismo|iguales)\b/,
+  new RegExp(String.raw`\b(?:bloques|rondas|vueltas|circuitos)\s+(?:\w+\s+){0,2}${DIFFERENT}`),
+  new RegExp(String.raw`\bcada\s+(?:bloque|ronda|vuelta|circuito)\s+(?:\w+\s+){0,2}${DIFFERENT}`),
+  new RegExp(String.raw`\b${DIFFERENT}\s+(?:en\s+)?cada\s+(?:bloque|ronda|vuelta|circuito)`),
+  /\b(?:sin\s+repetir|no\s+repetir|que\s+no\s+se\s+repitan?|mucha\s+variedad|maxima\s+variedad)\b/,
+];
+const VARIATION_SAME: RegExp[] = [
+  /\bsiempre\s+(?:lo\s+mismo|los\s+mismos|el\s+mismo|igual)\b/,
+  /\b(?:bloques|rondas|vueltas|circuitos)\s+(?:\w+\s+){0,2}(?:iguales|identic[oa]s)\b/,
+  /\bmismo\s+circuito\b/,
+  /\blos\s+mismos\s+ejercicios\b/,
+  /\brepetir\s+(?:el\s+)?circuito\b/,
+];
+
+/** "bloques distintos" → 'all', "siempre lo mismo" → 'same'; undefined when the text does not say. */
+export function parseVariation(text: string): BlockVariation | undefined {
+  const normalized = normalizeText(text);
+  if (VARIATION_ALL.some((pattern) => pattern.test(normalized))) return 'all';
+  if (VARIATION_SAME.some((pattern) => pattern.test(normalized))) return 'same';
+  return undefined;
 }
 
 function parseSlotSeconds(normalized: string): number | null {
@@ -681,6 +748,7 @@ export function parseIntentKeywords(text: string): RoutineIntent {
   const targetMinutes = parseTargetMinutes(normalized);
   const slotSeconds = parseSlotSeconds(normalized);
   const includeWarmup = parseIncludeWarmup(normalized);
+  const variation = parseVariation(normalized);
 
   return {
     muscles,
@@ -689,6 +757,9 @@ export function parseIntentKeywords(text: string): RoutineIntent {
     slotSeconds,
     includeWarmup,
     focusLabel,
+    rounds: parseRounds(normalized),
+    exercisesPerRound: parseExercisesPerRound(normalized),
+    ...(variation ? { variation } : {}),
   };
 }
 
@@ -797,6 +868,22 @@ export function sanitizeRoutineIntent(
   }
   focusLabel = focusLabel.slice(0, 80);
 
+  // What the model leaves null falls back to what the local parser read in the sentence.
+  const count = (value: unknown, max: number, fallbackValue: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 1
+      ? clamp(Math.round(value), 1, max)
+      : (fallbackValue ?? null);
+  const rounds = count(record.rounds, MAX_ROUNDS, fallback.rounds);
+  const exercisesPerRound = count(
+    record.exercisesPerRound,
+    MAX_EXERCISES_PER_ROUND,
+    fallback.exercisesPerRound,
+  );
+  const variation: BlockVariation | undefined =
+    record.variation === 'same' || record.variation === 'some' || record.variation === 'all'
+      ? record.variation
+      : fallback.variation;
+
   return {
     muscles,
     difficulty,
@@ -804,5 +891,8 @@ export function sanitizeRoutineIntent(
     slotSeconds,
     includeWarmup,
     focusLabel,
+    rounds,
+    exercisesPerRound,
+    ...(variation ? { variation } : {}),
   };
 }

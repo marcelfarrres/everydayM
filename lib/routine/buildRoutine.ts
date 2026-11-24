@@ -1,5 +1,6 @@
 import { getDifficultyLevel } from '@/lib/difficulty';
 import type {
+  BuildRoutineOptions,
   Exercise,
   MuscleId,
   MuscleSelection,
@@ -13,10 +14,14 @@ import {
   OUTRO_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
+  getLongRestBase,
   getRestDuration,
 } from './duration';
+import { RECENT_PENALTY, pickWeighted, type ScoredExercise } from './select';
 import { solveForMinutes } from './solveForMinutes';
+import { expectedTalkSeconds, pickTalks, talksSeconds } from './talks';
 import { buildTimeline } from './timeline';
+import { buildBlocks, resolveVariation } from './variation';
 
 const MUSCLE_GROUP_LABELS: { label: string; ids: MuscleId[] }[] = [
   {
@@ -41,6 +46,11 @@ const LEGACY_MUSCLE_MAP: Partial<Record<string, MuscleId>> = {
   brazos: 'biceps',
   core: 'abdominales',
 };
+
+// Limits for what the user can ask for explicitly ("10 bloques de 20 series" is already a lot).
+const MAX_ROUNDS = 10;
+const MAX_EXERCISES_PER_ROUND = 20;
+const WARMUP_COUNT = 3;
 
 export function extractExerciseMuscles(
   value: unknown,
@@ -107,43 +117,31 @@ export function isRoutineIntent(
   return 'targetMinutes' in input || 'focusLabel' in input;
 }
 
-interface ScoredExercise {
-  exercise: Exercise;
-  score: number;
-  musclePriority: number;
+/** A whole number within [min, max], or null when the value is not a usable number. */
+function explicitCount(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min) return null;
+  return Math.min(max, Math.round(value));
 }
 
-function pickWeighted(
-  pool: ScoredExercise[],
-  excludedIds: Set<string>,
-  rng: () => number,
-): Exercise | null {
-  const available = pool.filter((item) => !excludedIds.has(item.exercise.id));
-  if (available.length === 0) return null;
-
-  const totalWeight = available.reduce((acc, curr) => acc + curr.score, 0);
-  if (totalWeight <= 0) {
-    return available[Math.floor(rng() * available.length)].exercise;
-  }
-
-  let randomVal = rng() * totalWeight;
-  for (const item of available) {
-    if (randomVal < item.score) return item.exercise;
-    randomVal -= item.score;
-  }
-  return available[available.length - 1].exercise;
-}
-
+/**
+ * The routine for a request: warm-up, then blocks of series with short rests between series and
+ * a long rest (with talks when there are any) before each block.
+ * `rng` is injectable so previews with a fixed seed stay stable; `options.recentExerciseIds`
+ * makes exercises from the last routines less likely, so the same request varies over time.
+ */
 export function buildRoutine(
   allExercises: Exercise[],
   input: WorkoutFilters | RoutineIntent,
   rng: () => number = Math.random,
+  options: BuildRoutineOptions = {},
 ): { queue: RoutineItem[]; meta: RoutineMeta } {
   const difficulty = Math.min(
     10,
     Math.max(1, Math.round(input.difficulty || 5)),
   );
   const includeWarmup = Boolean(input.includeWarmup);
+  const recentIds = new Set(options.recentExerciseIds ?? []);
+  const recencyWeight = (exercise: Exercise) => (recentIds.has(exercise.id) ? RECENT_PENALTY : 1);
 
   const weightedMuscles = isRoutineIntent(input)
     ? input.muscles.map((m) => ({
@@ -229,18 +227,60 @@ export function buildRoutine(
             ? 1
             : 2;
 
-    return { exercise: ex, score, musclePriority };
+    return {
+      exercise: ex,
+      score,
+      weight: score * recencyWeight(ex),
+      musclePriority,
+      primaryIds: exerciseMuscles.filter((em) => em.role === 'primary').map((em) => em.id),
+    };
   });
 
-  const selectedWarmups =
-    includeWarmup && warmups.length > 0 ? warmups.slice(0, 3) : [];
+  // Warm-ups drawn at random too (recent ones less likely), not always the first three rows.
+  const selectedWarmups: Exercise[] = [];
+  if (includeWarmup) {
+    const warmupPool: ScoredExercise[] = warmups.map((ex) => ({
+      exercise: ex,
+      score: 1,
+      weight: recencyWeight(ex),
+      musclePriority: 0,
+      primaryIds: [],
+    }));
+    const taken = new Set<string>();
+    while (selectedWarmups.length < WARMUP_COUNT) {
+      const pick = pickWeighted(warmupPool, taken, rng);
+      if (!pick) break;
+      taken.add(pick.id);
+      selectedWarmups.push(pick);
+    }
+  }
   // No intro or plan step in the app: the workout starts with the warm-up. (TikTok exports add their own opening.)
+
+  const explicitRounds = isRoutineIntent(input) ? explicitCount(input.rounds, 1, MAX_ROUNDS) : null;
+  const explicitPerRound = isRoutineIntent(input)
+    ? explicitCount(input.exercisesPerRound, 1, MAX_EXERCISES_PER_ROUND)
+    : null;
+  const roundLimits = explicitRounds ? { minRounds: explicitRounds, maxRounds: explicitRounds } : {};
+  const perRoundLimits = explicitPerRound
+    ? { minExercisesPerRound: explicitPerRound, maxExercisesPerRound: explicitPerRound }
+    : explicitRounds
+      ? { maxExercisesPerRound: MAX_EXERCISES_PER_ROUND }
+      : {};
+  const targetMinutes =
+    isRoutineIntent(input) && input.targetMinutes !== null && input.targetMinutes > 0
+      ? input.targetMinutes
+      : null;
+
+  const relevant = scored.filter((item) => item.musclePriority < 2);
+  const longRestTalkSeconds = expectedTalkSeconds(
+    (relevant.length > 0 ? relevant : scored).map((item) => item.exercise),
+  );
 
   let rounds = 3;
   let exercisesPerRound = 5;
 
   if (isRoutineIntent(input)) {
-    if (input.targetMinutes !== null && input.targetMinutes > 0) {
+    if (targetMinutes !== null) {
       const sortedCandidates = [...scored]
         .sort((a, b) =>
           a.musclePriority !== b.musclePriority
@@ -250,17 +290,22 @@ export function buildRoutine(
         .map((item) => item.exercise);
 
       const solved = solveForMinutes({
-        ...(input.rounds ? { minRounds: input.rounds, maxRounds: input.rounds, maxExercisesPerRound: 20 } : {}),
-        targetMinutes: input.targetMinutes,
+        ...roundLimits,
+        ...perRoundLimits,
+        targetMinutes,
         difficulty,
         slotSeconds,
         candidateExercises: sortedCandidates,
         warmups: selectedWarmups,
         includeWarmup,
         outroSeconds: OUTRO_DURATION_SECONDS,
+        longRestTalkSeconds,
       });
       rounds = solved.rounds;
       exercisesPerRound = solved.exercisesPerRound;
+    } else {
+      rounds = explicitRounds ?? rounds;
+      exercisesPerRound = explicitPerRound ?? exercisesPerRound;
     }
   } else {
     rounds = Math.max(1, Math.round(input.totalRounds || 3));
@@ -313,15 +358,10 @@ export function buildRoutine(
     }
   }
 
-  if (
-    isRoutineIntent(input) &&
-    input.targetMinutes !== null &&
-    input.targetMinutes > 0 &&
-    circuitExercises.length > 0
-  ) {
+  // With the real clips known, settle the number of blocks (unless the user said it).
+  if (targetMinutes !== null && explicitRounds === null && circuitExercises.length > 0) {
     const refined = solveForMinutes({
-      ...(input.rounds ? { minRounds: input.rounds, maxRounds: input.rounds } : {}),
-      targetMinutes: input.targetMinutes,
+      targetMinutes,
       difficulty,
       slotSeconds,
       candidateExercises: circuitExercises,
@@ -330,6 +370,7 @@ export function buildRoutine(
       outroSeconds: OUTRO_DURATION_SECONDS,
       minExercisesPerRound: circuitExercises.length,
       maxExercisesPerRound: circuitExercises.length,
+      longRestTalkSeconds,
     });
     rounds = refined.rounds;
   }
@@ -339,13 +380,14 @@ export function buildRoutine(
     isRoutineIntent(input) ? input.focusLabel : undefined,
   );
 
-  // One list per block. For now every block repeats the same circuit.
-  const blocks: Exercise[][] = Array.from({ length: rounds }, () => [...circuitExercises]);
+  const variation = resolveVariation(isRoutineIntent(input) ? input.variation : undefined);
+  const blocks: Exercise[][] =
+    circuitExercises.length > 0 ? buildBlocks(circuitExercises, rounds, variation, scored, rng) : [];
 
   const meta: RoutineMeta = {
     totalSeconds: 0,
     slotSeconds,
-    rounds,
+    rounds: blocks.length,
     exercisesPerRound: circuitExercises.length,
     difficulty,
     muscles,
@@ -356,6 +398,8 @@ export function buildRoutine(
   };
 
   const restSec = getRestDuration(difficulty);
+  const totalRounds = blocks.length;
+  const usedTalkIds = new Set<string>();
   const queue: RoutineItem[] = [];
   const fallbackExercise: Exercise =
     background ??
@@ -370,51 +414,67 @@ export function buildRoutine(
       duration_seconds: slotSeconds,
     };
 
+  /** The long rest before block `round` (1-based): its talks come from that block's exercises. */
+  const longRest = (round: number, prepSeconds: number, isEndOfRound: boolean): RoutineItem => {
+    const block = blocks[round - 1];
+    const talks = pickTalks(block, usedTalkIds, rng);
+    return {
+      kind: 'rest',
+      // Never shorter than a plain end-of-block rest, and long enough for every talk to finish.
+      duration: Math.max(getLongRestBase(restSec) + prepSeconds, talksSeconds(talks)),
+      prepSeconds,
+      nextExercise: block[0],
+      nextRound: round,
+      totalRounds,
+      isEndOfRound,
+      restKind: 'long',
+      talks,
+    };
+  };
+
   for (const w of selectedWarmups) {
     queue.push({ kind: 'warmup', exercise: w });
   }
+  if (selectedWarmups.length > 0 && blocks.length > 0) {
+    queue.push(longRest(1, 0, false));
+  }
 
-  for (let r = 1; r <= rounds; r++) {
-    const block = blocks[r - 1];
+  blocks.forEach((block, blockIndex) => {
+    const r = blockIndex + 1;
     block.forEach((ex, exIdx) => {
       queue.push({
         kind: 'workout',
         exercise: ex,
         round: r,
-        totalRounds: rounds,
+        totalRounds,
         exerciseIndexInRound: exIdx + 1,
         totalExercisesPerRound: block.length,
       });
 
-      const isLast =
-        r === rounds && exIdx === block.length - 1;
+      const isLast = r === totalRounds && exIdx === block.length - 1;
+      if (isLast) return;
 
-      if (!isLast) {
-        const isEndOfRound = exIdx === block.length - 1;
-        const nextRound = isEndOfRound ? r + 1 : r;
-        const nextExercise = isEndOfRound
-          ? blocks[r][0]
-          : block[exIdx + 1];
+      const clipSeconds = getClipDuration(ex, slotSeconds);
+      const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
+      const isEndOfRound = exIdx === block.length - 1;
 
-        const clipSeconds = getClipDuration(ex, slotSeconds);
-        const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
-        const baseRest = isEndOfRound ? restSec + 10 : restSec;
-
-        queue.push({
-          kind: 'rest',
-          duration: baseRest + prepSeconds,
-          prepSeconds,
-          nextExercise,
-          nextRound,
-          totalRounds: rounds,
-          isEndOfRound,
-          // The rest before a block's first exercise is the long one (talks go there later).
-          restKind: isEndOfRound ? 'long' : 'short',
-          talks: [],
-        });
+      if (isEndOfRound) {
+        queue.push(longRest(r + 1, prepSeconds, true));
+        return;
       }
+      queue.push({
+        kind: 'rest',
+        duration: restSec + prepSeconds,
+        prepSeconds,
+        nextExercise: block[exIdx + 1],
+        nextRound: r,
+        totalRounds,
+        isEndOfRound: false,
+        restKind: 'short',
+        talks: [],
+      });
     });
-  }
+  });
 
   if (allExercises.length > 0) {
     queue.push({
@@ -425,6 +485,7 @@ export function buildRoutine(
     });
   }
 
+  // The same per-item durations the player and the timeline use, so the total matches exactly.
   const timeline = buildTimeline(queue, slotSeconds);
   meta.totalSeconds = timeline.reduce((sum, seg) => sum + seg.duration, 0);
 

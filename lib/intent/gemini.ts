@@ -31,7 +31,11 @@ Reglas de mapeo:
 5. targetMinutes: duración total en minutos (ej. "40 minutos" -> 40, "media hora" -> 30, "1 hora" -> 60). Si no se menciona duración total, devuelve null.
 6. slotSeconds: duración en segundos por serie/ejercicio solo si el usuario lo especifica (ej. "series de 45 segundos" -> 45). Si no lo especifica, devuelve null.
 7. includeWarmup: true por defecto; false solo si pide "sin calentamiento" / "no warmup".
-8. focusLabel: resumen corto en español, por ejemplo "Full body · brazos", "Espalda y bíceps", "Piernas · glúteos".`;
+8. focusLabel: resumen corto en español, por ejemplo "Full body · brazos", "Espalda y bíceps", "Piernas · glúteos".
+9. Una rutina son bloques (también "rondas", "vueltas" o "circuitos") de series (cada serie es un ejercicio).
+   - rounds: número de bloques solo si el usuario lo dice ("3 bloques", "cuatro rondas"); si no, null.
+   - exercisesPerRound: series por bloque solo si lo dice ("3 bloques de 4 series" -> rounds 3 y exercisesPerRound 4; "5 ejercicios por ronda" -> 5); si no, null. "Series de 45 segundos" es slotSeconds, no exercisesPerRound.
+   - variation: "all" si pide bloques distintos entre sí ("bloques distintos", "todas las rondas diferentes", "sin repetir ejercicios"); "same" si pide repetir lo mismo ("siempre lo mismo", "el mismo circuito", "bloques iguales"); "some" solo si pide pocos cambios; null si no dice nada.`;
 
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -73,6 +77,19 @@ const RESPONSE_SCHEMA = {
     focusLabel: {
       type: 'STRING',
     },
+    rounds: {
+      type: 'INTEGER',
+      nullable: true,
+    },
+    exercisesPerRound: {
+      type: 'INTEGER',
+      nullable: true,
+    },
+    variation: {
+      type: 'STRING',
+      enum: ['same', 'some', 'all'],
+      nullable: true,
+    },
   },
   required: [
     'muscles',
@@ -81,6 +98,9 @@ const RESPONSE_SCHEMA = {
     'slotSeconds',
     'includeWarmup',
     'focusLabel',
+    'rounds',
+    'exercisesPerRound',
+    'variation',
   ],
 } as const;
 

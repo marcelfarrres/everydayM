@@ -1,9 +1,11 @@
 export {
   DEFAULT_CLIP_SECONDS,
+  LONG_REST_EXTRA_SECONDS,
   OUTRO_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
   getItemDuration,
+  getLongRestBase,
   getRestDuration,
 } from './duration';
 
@@ -25,3 +27,7 @@ export {
 export { REST_LINES, cheerFor } from './cheers';
 
 export { uniqueExercises } from './blocks';
+
+export { recentExerciseIds, rememberRoutine } from './history';
+
+export { talksSeconds } from './talks';

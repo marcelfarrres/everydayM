@@ -8,12 +8,11 @@ function getItemLabel(item: RoutineItem): string {
     case 'workout':
       return (
         item.exercise.title ||
-        `Ronda ${item.round} · Ejercicio ${item.exerciseIndexInRound}`
+        `Bloque ${item.round} · Serie ${item.exerciseIndexInRound}`
       );
     case 'rest':
-      return item.isEndOfRound
-        ? `Descanso fin de ronda ${Math.max(1, item.nextRound - 1)}`
-        : 'Descanso';
+      if (item.isEndOfRound) return `Descanso fin de bloque ${Math.max(1, item.nextRound - 1)}`;
+      return item.restKind === 'long' ? `Descanso antes del bloque ${item.nextRound}` : 'Descanso';
     case 'outro':
       return 'Completado';
   }

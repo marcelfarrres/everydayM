@@ -30,7 +30,10 @@ const WORK_START = [
   'Hoy se nota',
   'Uno más',
 ];
-const ROUND_START = ['¡Nueva ronda!', 'Otra vuelta, ¡vamos!', 'Mismo plan, más ganas', 'Ronda nueva, energía nueva'];
+const ROUND_START = ['¡Nuevo bloque!', 'Otro bloque, ¡vamos!', 'Bloque nuevo, energía nueva', 'Arranca el bloque'];
+// Only true when the block repeats the previous one exactly (blocks can now differ).
+const SAME_BLOCK_START = ['Mismo plan, más ganas', 'Ya lo conoces: ¡a por él!'];
+const CHANGED_BLOCK_START = ['Este bloque trae cambios', 'Ojo a los cambios'];
 const HALFWAY = ['Ya vas por la mitad', 'Mitad hecha', 'Sigue así', 'No pares', 'Buen ritmo', 'Mantén la forma', 'Respira y sigue'];
 const LAST_SECONDS = ['¡Queda poco!', '¡Últimos segundos!', 'Aguanta', '¡Ya casi!', 'Un poco más', '¡Termina fuerte!', 'No aflojes'];
 const LAST_EXERCISE = ['El último. ¡Dalo todo!', 'Último esfuerzo', 'Lo último, a tope'];
@@ -48,10 +51,21 @@ export const REST_LINES = [
 // 13 shares no factor with any list length, so consecutive exercises walk through the whole list.
 const at = (list: string[], index: number, salt = 0) => list[(index * 13 + salt) % list.length];
 
+/** The exercise ids of block `round`, in play order. */
+function blockIds(queue: RoutineItem[], round: number): string[] {
+  return queue.flatMap((q) => (q.kind === 'workout' && q.round === round ? [q.exercise.id] : []));
+}
+
+function blockStartLines(queue: RoutineItem[], round: number): string[] {
+  const current = blockIds(queue, round).join('|');
+  const same = current === blockIds(queue, round - 1).join('|');
+  return [...ROUND_START, ...(same ? SAME_BLOCK_START : CHANGED_BLOCK_START)];
+}
+
 /**
  * What to say `elapsed` seconds into an exercise of `total` seconds, or null to stay quiet.
- * Not on every clip: only at the moments that matter (a round starting, the last one, every
- * third exercise), halfway through every fourth, and the last 10 s when a round is closing.
+ * Not on every clip: only at the moments that matter (a block starting, the last serie, every
+ * third serie), halfway through every fourth, and the last 10 s when a block is closing.
  */
 export function cheerFor(queue: RoutineItem[], index: number, elapsed: number, total: number): string | null {
   const item = queue[index];
@@ -64,7 +78,7 @@ export function cheerFor(queue: RoutineItem[], index: number, elapsed: number, t
   if (elapsed >= 2 && elapsed <= 5) {
     if (last) return at(LAST_EXERCISE, index);
     if (firstWarmup) return at(WARMUP_START, index);
-    if (roundStart && item.round > 1) return at(ROUND_START, item.round);
+    if (roundStart && item.round > 1) return at(blockStartLines(queue, item.round), item.round);
     if (item.kind === 'workout' && index % 3 === 0) return at(WORK_START, index);
     return null;
   }
