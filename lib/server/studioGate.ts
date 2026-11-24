@@ -9,12 +9,15 @@ import { NextRequest, NextResponse } from 'next/server';
  *  - LOCAL: the request targets localhost / 127.0.0.1 / ::1 (your PC), no PIN.
  *  - LAN:   the request targets a private IPv4 address (phone on the same WiFi),
  *           STUDIO_LAN_PIN is configured (>= 6 chars) and the request carries a
- *           valid signed session cookie obtained by entering that PIN.
+ *           valid signed session cookie obtained by entering that PIN. The cookie
+ *           is signed with STUDIO_SESSION_SECRET (>= 32 chars); without it no PIN
+ *           login or LAN session is accepted (fail closed). LOCAL never needs it.
  */
 
 export const STUDIO_SESSION_COOKIE = 'everydaym_studio_session';
 export const STUDIO_SESSION_MAX_AGE_SECONDS = 12 * 60 * 60; // 12 h
 const MIN_PIN_LENGTH = 6;
+const MIN_SESSION_SECRET_LENGTH = 32;
 
 const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -75,14 +78,34 @@ export function isLanModeConfigured(): boolean {
   return getLanPin() !== null;
 }
 
-/** HMAC key derived from the PIN + service role key: rotating either invalidates sessions. */
-function getSigningKey(pin: string): Buffer {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+/**
+ * Server-only secret that signs the LAN session cookie. No fallback to any other variable:
+ * without it (or if it is too short) PIN login and LAN sessions fail closed.
+ */
+function getSessionSecret(): string | null {
+  const secretKey = ['STUDIO', 'SESSION', 'SECRET'].join('_');
+  const secret = process.env[secretKey]?.trim();
+  return secret && secret.length >= MIN_SESSION_SECRET_LENGTH ? secret : null;
+}
+
+export function isLanSessionSecretConfigured(): boolean {
+  return getSessionSecret() !== null;
+}
+
+/** Shown on the PIN screen when LAN mode is on but the session secret is missing or too short. */
+export const MISSING_SESSION_SECRET_MESSAGE =
+  `El Estudio no puede abrir sesión por la wifi: falta STUDIO_SESSION_SECRET (${MIN_SESSION_SECRET_LENGTH} caracteres o más) ` +
+  'en el .env.local del ordenador. Genera uno con ' +
+  '`node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"`, ' +
+  'ponlo en .env.local y vuelve a abrir el Estudio.';
+
+/** HMAC key derived from the PIN + session secret: rotating either invalidates sessions. */
+function getSigningKey(pin: string, secret: string): Buffer {
   return createHmac('sha256', `${secret}::everydaym-studio-lan`).update(pin).digest();
 }
 
-function sign(payload: string, pin: string): string {
-  return createHmac('sha256', getSigningKey(pin)).update(payload).digest('base64url');
+function sign(payload: string, pin: string, secret: string): string {
+  return createHmac('sha256', getSigningKey(pin, secret)).update(payload).digest('base64url');
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -94,9 +117,10 @@ function safeEqual(a: string, b: string): boolean {
 
 export function verifyLanPin(candidate: string): boolean {
   const pin = getLanPin();
-  if (!pin) return false;
+  const secret = getSessionSecret();
+  if (!pin || !secret) return false;
   // Compare HMAC digests so the comparison is constant-time regardless of length.
-  const key = getSigningKey(pin);
+  const key = getSigningKey(pin, secret);
   const expected = createHmac('sha256', key).update(pin).digest('base64url');
   const received = createHmac('sha256', key).update(candidate).digest('base64url');
   return safeEqual(expected, received);
@@ -104,15 +128,17 @@ export function verifyLanPin(candidate: string): boolean {
 
 export function createLanSessionToken(nowMs: number = Date.now()): string | null {
   const pin = getLanPin();
-  if (!pin) return null;
+  const secret = getSessionSecret();
+  if (!pin || !secret) return null;
   const expiresAt = Math.floor(nowMs / 1000) + STUDIO_SESSION_MAX_AGE_SECONDS;
   const payload = `v1.${expiresAt}`;
-  return `${payload}.${sign(payload, pin)}`;
+  return `${payload}.${sign(payload, pin, secret)}`;
 }
 
 export function isValidLanSessionToken(token: string | undefined, nowMs: number = Date.now()): boolean {
   const pin = getLanPin();
-  if (!pin || !token) return false;
+  const secret = getSessionSecret();
+  if (!pin || !secret || !token) return false;
 
   const parts = token.split('.');
   if (parts.length !== 3 || parts[0] !== 'v1') return false;
@@ -120,7 +146,7 @@ export function isValidLanSessionToken(token: string | undefined, nowMs: number 
   const expiresAt = Number(parts[1]);
   if (!Number.isInteger(expiresAt) || expiresAt * 1000 < nowMs) return false;
 
-  return safeEqual(sign(`v1.${parts[1]}`, pin), parts[2]);
+  return safeEqual(sign(`v1.${parts[1]}`, pin, secret), parts[2]);
 }
 
 export type StudioAccess = 'local' | 'lan' | 'lan-login-required' | 'denied';
