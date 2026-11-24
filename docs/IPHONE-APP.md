@@ -23,7 +23,7 @@
 | Tu ordenador, con `STUDIO_ENABLED=true` en `.env.local` | Además: Estudio, subir vídeos y TikTok. |
 | Tu móvil en la WiFi de casa | El Estudio, después de poner el PIN. |
 
-En Vercel nunca se configura `STUDIO_ENABLED` ni `SUPABASE_SERVICE_ROLE_KEY`. Sin esas dos variables, el código del Estudio está en GitHub pero no funciona.
+En Vercel nunca se configuran `STUDIO_ENABLED`, `BUNNY_STORAGE_KEY` ni `STUDIO_SESSION_SECRET`. Sin esas variables, el código del Estudio está en GitHub pero no funciona.
 
 ## Probarla ya en tu iPhone (gratis, sin App Store)
 

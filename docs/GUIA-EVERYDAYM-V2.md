@@ -1,6 +1,6 @@
 # Guía Completa de EverydayM v2 — Estudio Local, Motor IA y Suite TikTok 9:16
 
-Esta guía documenta todos los cambios de arquitectura, seguridad y diseño implementados en **EverydayM v2**, así como el paso a paso para subir tus 40 vídeos `.MOV`, endurecer la seguridad en Supabase, activar la IA con Gemini y producir tanto la **rutina completa (20–40 min)** como el **resumen vertical de 14s en MP4** para TikTok.
+Esta guía documenta todos los cambios de arquitectura, seguridad y diseño implementados en **EverydayM v2**, así como el paso a paso para subir tus 40 vídeos `.MOV`, activar la IA con Gemini y producir tanto la **rutina completa (20–40 min)** como el **resumen vertical de 14s en MP4** para TikTok.
 
 ---
 
@@ -16,42 +16,37 @@ Esta guía documenta todos los cambios de arquitectura, seguridad y diseño impl
 
 ---
 
-## 2. Configuración de Variables de Entorno y Seguridad en Supabase
+## 2. Configuración de Variables de Entorno
+
+> Desde noviembre de 2026 la app ya no usa Supabase: los vídeos, la música y el catálogo (`catalog/catalog.json`) viven en Bunny. La mudanza está explicada en [`docs/MUDANZA-BUNNY.md`](MUDANZA-BUNNY.md).
 
 ### 2.1. Variables en `.env.local` (Tu PC) vs Vercel (Producción)
 
 Abre el archivo `.env.local` en la raíz del proyecto y asegúrate de tener configuradas estas claves (puedes ver la plantilla en [`.env.example`](file:///C:/Users/marce/fitness-app/.env.example)):
 
 ```env
-# 1. Claves públicas de Supabase (en .env.local Y en Vercel)
-NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key_publica
+# 1. Pública: URL de la pull zone de Bunny (en .env.local Y en Vercel)
+NEXT_PUBLIC_MEDIA_BASE_URL=https://tu-zona.b-cdn.net
 
 # 2. Exclusivo de EverydayM Studio en tu PC (SOLO en .env.local, NUNCA en Vercel)
-SUPABASE_SERVICE_ROLE_KEY=tu_service_role_secret_key
 STUDIO_ENABLED=true
+BUNNY_STORAGE_ZONE=tu-zona
+BUNNY_STORAGE_HOST=storage.bunnycdn.com
+BUNNY_STORAGE_KEY=contraseña_de_la_zona_de_storage
 # Opcional: PIN (mín. 6 caracteres) para abrir el Studio desde el móvil en la misma WiFi
 STUDIO_LAN_PIN=tu_pin_seguro_123
+# Obligatorio si usas el PIN: secreto que firma la sesión (mín. 32 caracteres). Genéralo con:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+STUDIO_SESSION_SECRET=
 
 # 3. Clave de IA Gemini (en .env.local Y en Vercel, SIN el prefijo NEXT_PUBLIC_)
 GEMINI_API_KEY=tu_api_key_de_google_ai_studio
 ```
 
 > **Importante de seguridad:**
-> - **Nunca** pongas `SUPABASE_SERVICE_ROLE_KEY` ni `STUDIO_ENABLED=true` en Vercel. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/tiktok` devuelven **`404 Not Found`**.
+> - **Nunca** pongas `BUNNY_STORAGE_KEY`, `STUDIO_SESSION_SECRET` ni `STUDIO_ENABLED=true` en Vercel, ni con el prefijo `NEXT_PUBLIC_`. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/tiktok` devuelven **`404 Not Found`**.
+> - Sin `STUDIO_SESSION_SECRET` (o si es más corto de 32 caracteres) el acceso con PIN desde el móvil no funciona y la pantalla del PIN explica cómo generarlo; desde `localhost` el Estudio se abre igual.
 > - `GEMINI_API_KEY` solo se lee en el servidor (`app/api/routine-intent/route.ts`), nunca llega al navegador.
-
-### 2.2. Aplicar la Migración de Seguridad RLS en Supabase (Paso único)
-
-Para cerrar el acceso de escritura público y que solo tu **EverydayM Studio** (con `service_role`) pueda subir vídeos o crear/borrar ejercicios:
-
-1. Entra en tu panel de [Supabase Dashboard](https://supabase.com/dashboard) y selecciona tu proyecto.
-2. En el menú lateral izquierdo, abre **SQL Editor** → **New query**.
-3. Abre el archivo [`supabase/migrations/202611120001_harden_rls.sql`](file:///C:/Users/marce/fitness-app/supabase/migrations/202611120001_harden_rls.sql), copia todo su contenido y pégalo en el editor SQL.
-4. Pulsa **Run** (o `Ctrl + Enter`).
-5. **Qué queda configurado:**
-   - La tabla `public.exercises` permite `SELECT` público (para que la web genere rutinas), pero bloquea `INSERT`, `UPDATE` y `DELETE` salvo para `service_role`.
-   - El bucket `workout-videos` permite reproducir vídeos públicamente, pero solo permite subir o borrar archivos desde `service_role`.
 
 ---
 
@@ -71,11 +66,11 @@ Con la prueba real sobre tus clips `.MOV` de iPhone (HEVC HDR HLG `1920×1080` v
 1. Con `STUDIO_ENABLED=true` en tu `.env.local`, ejecuta `npm run dev` y abre `http://localhost:3000/admin`.
 
 ### Opción C: Subir vídeos nuevos directamente desde el móvil (misma WiFi)
-1. Añade `STUDIO_LAN_PIN=tu_pin_min_6_caracteres` a tu `.env.local` (nunca en Vercel).
+1. Añade `STUDIO_LAN_PIN=tu_pin_min_6_caracteres` y `STUDIO_SESSION_SECRET` (mín. 32 caracteres, ver §2.1) a tu `.env.local` (nunca en Vercel).
 2. Abre **EverydayM Studio** en tu PC (icono del escritorio o `powershell -ExecutionPolicy Bypass -File .\scripts\studio\EverydayM-Studio.ps1`).
    - Al detectar el PIN, el lanzador escucha en la red local (`-H 0.0.0.0`) e imprime en amarillo la dirección exacta, por ejemplo `http://192.168.1.25:3000/admin`.
    - Si Windows pregunta por el Firewall la primera vez, permite Node.js **solo en Redes privadas**.
-3. Abre esa dirección en el navegador de tu iPhone o Android (conectado al mismo WiFi), introduce tu PIN en `/studio-login` y selecciona los vídeos directamente de tu galería. Tu PC los recibirá, los comprimirá con FFmpeg y los subirá a Supabase.
+3. Abre esa dirección en el navegador de tu iPhone o Android (conectado al mismo WiFi), introduce tu PIN en `/studio-login` y selecciona los vídeos directamente de tu galería. Tu PC los recibirá, los comprimirá con FFmpeg y los subirá a Bunny.
 
 ### Flujo de subida por lotes (40 vídeos):
 1. **Arrastra tus archivos `.MOV` o `.MP4`** al recuadro de **"1. Cola de Subida por Lotes"** (puedes arrastrarlos de 10 en 10 o los 40 de golpe).

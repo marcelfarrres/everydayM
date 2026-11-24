@@ -4,7 +4,7 @@
 ![React](https://img.shields.io/badge/React-19.2-149eca?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6?logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?logo=tailwindcss)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL_%2B_Storage-3ecf8e?logo=supabase)
+![Bunny](https://img.shields.io/badge/Bunny-Storage_%2B_CDN-ff7854)
 
 **EverydayMarcel** es una aplicación web full-stack de entrenamiento físico diseñada para generar y reproducir rutinas de ejercicio dinámicas y personalizadas en tiempo real. Combina un **motor algorítmico de selección ponderada**, un **mapa anatómico SVG interactivo** de doble vista y un **reproductor multimedia HTML5 encadenado con Picture-in-Picture (PiP)**.
 
@@ -24,7 +24,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 - **Selección Tri-Estado**: Cada región anatómica cicla entre **Sin marcar -> Participa (Secundario) -> Principal -> Quitar**, sincronizando los identificadores musculares específicos (`pectorales`, `dorsales`, `cuadriceps`, `isquiotibiales`, `gluteos`, etc.) tanto en el generador público como en el panel de catalogación `/admin`.
 
 ### 3. Reproducción Encadenada HTML5 y Picture-in-Picture (`components/workout/player/WorkoutPlayer.tsx`)
-- **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Supabase Storage, sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
+- **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Bunny (Storage + CDN), sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
 - **Doble Experiencia Picture-in-Picture (PiP)**:
   - **In-App PiP durante descansos**: Muestra una tarjeta flotante con el vídeo en bucle del **siguiente ejercicio** mientras corre la cuenta atrás de recuperación, permitiendo al usuario anticipar la técnica.
   - **Web API Picture-in-Picture nativa**: Permite desacoplar el reproductor de vídeo en una ventana flotante del sistema operativo (`requestPictureInPicture`).
@@ -37,7 +37,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 ```text
 ├── app/
 │   ├── admin/
-│   │   └── page.tsx               # Panel CMS para subida de vídeos a Supabase Storage y catalogación
+│   │   └── page.tsx               # Estudio: subida de vídeos a Bunny y catálogo JSON
 │   ├── api/
 │   │   ├── admin/                 # Route Handlers del Estudio (ingesta y gestión de ejercicios)
 │   │   ├── routine-intent/        # Frase → intención de rutina (Gemini)
@@ -63,9 +63,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 │   ├── data/exercises.ts          # Lectura del catálogo JSON de ejercicios
 │   ├── media.ts                   # URL de reproducción (versión ligera si existe)
 │   ├── difficulty.ts              # Normalización de niveles de dificultad y retrocompatibilidad
-│   └── supabase.ts                # Cliente de Supabase (la app pública ya no lo usa)
-├── supabase/
-│   └── migrations/                # Migraciones SQL para la tabla public.exercises
+│   └── server/                    # Solo servidor (Estudio): catalog.ts, mediaStore.ts, studioGate.ts, FFmpeg
 └── types/
     ├── index.ts                   # Barrel de exportación de tipos
     └── workout.ts                 # Interfaces TypeScript (Exercise, RoutineItem, MuscleSelection...)
@@ -77,9 +75,8 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 
 ### 1. Requisitos Previos
 - **Node.js** `>= 20.x` y `npm`
-- Un proyecto en [Supabase](https://supabase.com/) con:
-  - Tabla `public.exercises` (puedes aplicar los scripts de `supabase/migrations/`).
-  - Bucket público de Storage llamado `workout-videos`.
+- `ffmpeg` y `ffprobe` en el PATH (solo para el Estudio).
+- Opcional: una zona de [Bunny Storage](https://bunny.net/) con su pull zone (ver `docs/MUDANZA-BUNNY.md`). Sin Bunny, en desarrollo los archivos se guardan en `.media/` y se sirven en `/dev-media`.
 
 ### 2. Clonar el Repositorio e Instalar Dependencias
 
@@ -90,15 +87,24 @@ npm install
 ```
 
 ### 3. Configurar Variables de Entorno
-Copia el archivo de plantilla `.env.example` a `.env.local` y rellena las credenciales públicas de tu proyecto de Supabase:
+Copia el archivo de plantilla `.env.example` a `.env.local` y rellena lo que necesites (cada variable está explicada en la plantilla):
 
 ```bash
 cp .env.example .env.local
 ```
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-anon-publica
+# Pública: URL de la pull zone de Bunny (vacía en desarrollo = /dev-media)
+NEXT_PUBLIC_MEDIA_BASE_URL=https://tu-zona.b-cdn.net
+
+# Solo servidor (Estudio en tu ordenador; nunca en Vercel ni con prefijo NEXT_PUBLIC_)
+STUDIO_ENABLED=true
+BUNNY_STORAGE_ZONE=tu-zona
+BUNNY_STORAGE_HOST=storage.bunnycdn.com
+BUNNY_STORAGE_KEY=contraseña-de-la-zona
+# Solo si abres el Estudio desde el móvil por la wifi:
+STUDIO_LAN_PIN=
+STUDIO_SESSION_SECRET=
 ```
 
 ### 4. Iniciar el Servidor de Desarrollo

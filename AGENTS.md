@@ -14,16 +14,19 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Framework**: Next.js 16 (App Router) con React 19.
 - **Lenguaje**: TypeScript 5 (`strict: true`, prohibido el uso de `any` explícito).
 - **Estilos**: Tailwind CSS v4 + iconografía con `lucide-react`.
-- **Backend / Persistencia**: Supabase (`@supabase/supabase-js`) con PostgreSQL (`public.exercises`) y Supabase Storage (`workout-videos`).
-- **Multimedia**: Reproductor encadenado HTML5 `<video>` y `<audio>` con soporte de Picture-in-Picture (PiP) y exportación mediante FFmpeg.
+- **Datos / Medios**: Sin base de datos. Los vídeos, versiones ligeras, miniaturas, música y el catálogo JSON (`catalog/catalog.json`: ejercicios, vídeos hablados y música) viven en Bunny (Storage + CDN). La app lee el catálogo por la CDN (`NEXT_PUBLIC_MEDIA_BASE_URL`); solo el Estudio local (`/admin`, en el ordenador de Marcel) escribe en Bunny Storage. En desarrollo sin Bunny, los archivos van a `.media/` (ignorada por Git) y se sirven en `/dev-media`.
+- **Multimedia**: Reproductor encadenado HTML5 `<video>` y `<audio>` con soporte de Picture-in-Picture (PiP); compresión, miniaturas y montaje de clips con FFmpeg en el Estudio.
 
 ## 2. Arquitectura de Carpetas
 Todo el código fuente debe respetar estrictamente la separación de responsabilidades:
 
 - `app/` — Rutas del App Router de Next.js:
   - `app/page.tsx`: Vista pública principal (configurador de entrenamiento y orquestación del reproductor).
-  - `app/admin/page.tsx`: Panel de administración (`/admin`) para ingesta de clips de vídeo y metadatos musculares.
-  - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión de ejercicios, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/tiktok` (montaje de clips para TikTok con FFmpeg, vía `lib/server/tiktokExport.ts`) y `studio/idea` (ideas y descripciones para TikTok).
+  - `app/admin/page.tsx`: Estudio (`/admin`, solo local o por la wifi de casa con PIN): biblioteca de ejercicios, vídeos hablados y música.
+  - `app/studio-login/`: Pantalla del PIN para abrir el Estudio desde el móvil.
+  - `app/dev-media/`: Solo desarrollo: sirve los archivos de `.media/` cuando no hay Bunny.
+  - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión del catálogo y la sesión del PIN, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/tiktok` (montaje de clips para TikTok con FFmpeg, vía `lib/server/tiktokExport.ts`) y `studio/idea` (ideas y descripciones para TikTok).
+- `components/studio/` — Piezas del Estudio: `LibraryView.tsx`, `TalksView.tsx`, `MusicView.tsx`, `ClipForm.tsx`, `StudioDialog.tsx`, `StudioUi.tsx` y `studioClient.ts` (llamadas a `/api/admin/*`).
 - `components/workout/` — Componentes de dominio de entrenamiento:
   - `MuscleSelector.tsx`: Mapa anatómico SVG interactivo (vista frontal y posterior) con estados tri-estado (`secondary`, `primary`, desactivado).
   - `RoutineComposer.tsx`: Pantalla de creación (frase → preguntas → rutina lista, con el hilo por bloques).
@@ -38,17 +41,22 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 - `lib/` — Clientes externos y utilidades puras:
   - `routine/`: Motor de rutinas (`buildRoutine`: puntuación ponderada, bloques y series, descansos cortos y largos con vídeos hablados, historial reciente en `localStorage`), con pruebas en vitest.
   - `intent/`: Frase → intención de rutina (parser local de palabras clave y Gemini).
-  - `data/exercises.ts`: Lectura del catálogo JSON de ejercicios (`fetchExercises()`).
+  - `data/exercises.ts`: Lectura del catálogo JSON de ejercicios por la CDN (`fetchExercises()`).
   - `media.ts`: URL de reproducción de cada vídeo (versión ligera si existe).
-  - `supabase.ts`: Cliente de Supabase (la app pública ya no lo usa).
   - `difficulty.ts`: Normalización de niveles de dificultad.
-- `types/` — Contratos e interfaces de TypeScript (`Exercise`, `RoutineItem`, `MuscleSelection`, `WorkoutFilters`, etc.).
-- `supabase/migrations/` — Migraciones SQL versionadas del esquema de base de datos.
+  - `server/` — Solo servidor (`server-only`), lo usa el Estudio:
+    - `catalog.ts`: Lectura y escritura del catálogo (`catalog/catalog.json`) por la API de Storage, con copias en `catalog/backups/` y un único escritor a la vez.
+    - `mediaStore.ts`: Almacén de archivos: Bunny Storage, o `.media/` en desarrollo.
+    - `mediaPipeline.ts`, `ffmpeg.ts`, `studioUpload.ts`: Compresión, versión ligera, miniaturas y subida.
+    - `studioGate.ts`: Acceso al Estudio (localhost, o wifi con PIN y cookie firmada con `STUDIO_SESSION_SECRET`).
+    - `tiktokExport.ts`, `contentIdeas.ts`: Clips e ideas para TikTok.
+- `types/` — Contratos e interfaces de TypeScript (`Exercise`, `RoutineItem`, `MuscleSelection`, `WorkoutFilters`, `Catalog`, etc.).
+- `scripts/` — Utilidades de una vez (`migrate-media.mjs`: mudanza de Supabase a Bunny) y el lanzador del Estudio (`scripts/studio/`).
 
 ## 3. Reglas de Seguridad (CRÍTICO)
-1. **Cero Secretos Hardcodeados**: Ninguna URL de proyecto, API Key, JWT o credencial de Supabase debe escribirse directamente en el código fuente. Todo acceso debe realizarse exclusivamente mediante `process.env.NEXT_PUBLIC_SUPABASE_URL` y `process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+1. **Cero Secretos Hardcodeados**: Ninguna URL de almacenamiento, API Key, contraseña de Storage, JWT, secreto o credencial (Bunny, Gemini, Estudio) debe escribirse directamente en el código fuente. Todo acceso debe realizarse exclusivamente mediante variables de entorno: `process.env.NEXT_PUBLIC_MEDIA_BASE_URL` es la única pública; `process.env.BUNNY_STORAGE_KEY` y `process.env.STUDIO_SESSION_SECRET` son solo de servidor y nunca pueden llevar el prefijo `NEXT_PUBLIC_` (igual que el resto de claves del servidor).
 2. **Protección de Entorno**: Los archivos `.env` y `.env*.local` están estrictamente bloqueados en `.gitignore`. Solo `.env.example` (con claves vacías) puede versionarse en Git.
-3. **Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mov`, `.pem` o `.key` al repositorio Git. Los `.mp4` solo se permiten dentro de `public/` (vídeos propios de la app, ligeros: menos de 10 MB cada uno); los clips de ejercicios se almacenan únicamente en el bucket `workout-videos` de Supabase Storage.
+3. **Exclusión de Binarios Pesados**: Queda prohibido subir archivos `.mov`, `.pem` o `.key` al repositorio Git. Los `.mp4` solo se permiten dentro de `public/` (vídeos propios de la app, ligeros: menos de 10 MB cada uno); los clips de ejercicios se almacenan únicamente en la zona de Bunny Storage (servida por `NEXT_PUBLIC_MEDIA_BASE_URL`; en desarrollo sin Bunny, en `.media/`, ignorada por Git).
 4. **Calidad antes de Commit**: Todo cambio debe superar `npm run lint`, `npm run typecheck` y `npm run build` sin errores antes de integrarse en las ramas `dev` o `main`.
 
 ## 4. Flujo de Trabajo Git Obligatorio
