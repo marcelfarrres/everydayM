@@ -19,3 +19,6 @@ tsconfig.tsbuildinfo
 .DS_Store
 *.pem
 *.key
+
+# Copias de trabajo temporales de los agentes
+.claude/worktrees/
