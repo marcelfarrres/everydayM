@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
-import { TALK_LEAD_MS } from '@/lib/routine/duration';
+import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -22,6 +22,9 @@ import { TALK_LEAD_MS } from '@/lib/routine/duration';
  *   0.0-0.9 s  the banks drift in (the old moment is still underneath) and the rocket rises
  *   0.9-2.5 s  everything holds; the rest screen mounts behind
  *   2.5-4.1 s  the rocket shoots off the top while the banks open outwards
+ * On a phone the rocket of the widget (RocketWidget) takes off first: this one comes up only once
+ * that one has gone, and leaves with an S-curve, shrinking into the distance, before it comes back
+ * (`phone`, timing in rocketFlight.ts). On a computer it plays as it always has.
  */
 
 export type Journey = {
@@ -31,22 +34,13 @@ export type Journey = {
   marks: { at: number; label: string }[]; // where each section starts (0..1)
 };
 
-const CLOSE_MS = 800;
-const STAGGER_S = 0.07;
-// The clouds open TALK_LEAD_MS after a rest begins: the engine sizes long rests with the same
-// constant (a talk starts as they open), so the hold is whatever is left after closing.
-const HOLD_MS = TALK_LEAD_MS - CLOSE_MS - STAGGER_S * 1000;
-const OPEN_S = 1.6;
-
-/**
- * When the screen is fully covered, when the clouds start to open, and when the layer is gone
- * again (rocket and clouds off screen), in ms after `playKey` changes.
- */
-export const CLOUDS = {
-  coveredMs: CLOSE_MS + 100,
-  openingMs: TALK_LEAD_MS,
-  clearMs: TALK_LEAD_MS + OPEN_S * 1000 + 100,
-} as const;
+// The timing lives in rocketFlight.ts, shared with the phone's rocket widget and the engine.
+export { CLOUDS };
+const CLOSE_MS = CLOUD_TIMING.closeMs;
+const STAGGER_S = CLOUD_TIMING.staggerMs / 1000;
+const HOLD_MS = CLOUD_TIMING.holdMs;
+const OPEN_S = CLOUD_TIMING.openMs / 1000;
+const LIFT_LEAD_MS = CLOUD_TIMING.liftLeadMs;
 
 type Layer = { src: string; side: 'l' | 'r'; top: string; left: string; flip?: boolean };
 
@@ -76,6 +70,7 @@ export function CloudTransition({
   kicker,
   color = INK,
   journey,
+  phone = false,
 }: {
   playKey: number;
   title?: string;
@@ -83,6 +78,8 @@ export function CloudTransition({
   kicker?: string;
   color?: string;
   journey?: Journey;
+  /** Phone: the widget rocket hands over to this one (see the comment at the top). */
+  phone?: boolean;
 }) {
   const reduced = useReducedMotion();
   const [scope, animate] = useAnimate();
@@ -102,12 +99,58 @@ export function CloudTransition({
     // start with the nose just under the bottom edge
     const below = `translateY(${(100 - top + 1).toFixed(2)}%)`;
 
+    // Phone: the rocket waits below the screen while the widget rocket takes off, comes up, and
+    // leaves with a gentle S, shrinking as if it went away into the sky. Its whole path is put on
+    // the animation timeline now (native Web Animations with delays, not timers), so a throttled
+    // background tab can't make it late for the hand-over with the widget rocket. Written before
+    // the layer shows, so not even one frame has two rockets.
+    const root = scope.current as HTMLElement;
+    const ship = root.querySelector<HTMLElement>('.cl-ship');
+    const rocket = root.querySelector<HTMLElement>('.cl-rocket');
+    // (the ship only ever moves on a phone; a window resized from phone to computer gets it back)
+    ship?.getAnimations().forEach((a) => a.cancel());
+    if (ship) ship.style.transform = '';
+    if (phone && ship && rocket) {
+      const now = performance.now();
+      rocket.getAnimations().forEach((a) => a.cancel());
+      const belowPhone = `translate(0vw, ${(100 - top + 1).toFixed(2)}%)`;
+      rocket.style.transform = belowPhone;
+      const anchored = (animation: Animation) => {
+        animation.startTime = now; // on the clock, even if the page is in the background
+      };
+      anchored(rocket.animate([{ transform: belowPhone }, { transform: 'translate(0vw, 0%)' }], {
+        duration: FLIGHT.bigRiseEndMs - FLIGHT.bigRiseStartMs,
+        delay: FLIGHT.bigRiseStartMs,
+        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        fill: 'both',
+      }));
+      const exit = { duration: FLIGHT.bigExitMs, delay: CLOUD_TIMING.liftMs, easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)', fill: 'forwards' as const };
+      anchored(rocket.animate(
+        [
+          { transform: 'translate(0vw, 0%)' },
+          { transform: 'translate(5vw, -30%)', offset: 0.35 },
+          { transform: 'translate(-3vw, -78%)', offset: 0.7 },
+          { transform: 'translate(1vw, -140%)' },
+        ],
+        exit,
+      ));
+      anchored(ship.animate(
+        [
+          { transform: 'scale(1) rotate(0deg)' },
+          { transform: 'scale(0.84) rotate(6deg)', offset: 0.35 },
+          { transform: 'scale(0.6) rotate(-5deg)', offset: 0.7 },
+          { transform: 'scale(0.4) rotate(1deg)' },
+        ],
+        exit,
+      ));
+    }
+
     const play = async () => {
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
       // the flame flickers while it flies
       const flame = animate('.rocket-flame', { transform: ['scale(0.94, 0.9)', 'scale(1.03, 1.06)'] }, { duration: 0.12, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' });
       animate('.cl-flight', { opacity: [1, 1] }, { duration: 0 });
-      animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
+      if (!phone) animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
       animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
       animate('.cl-words', { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: 0.5, delay: 1.2, ease: [0.22, 1, 0.36, 1] });
       await Promise.all([
@@ -119,12 +162,13 @@ export function CloudTransition({
       // while closed, the clouds keep drifting a little
       animate('.cl-l', { transform: [SHUT, DRIFT.l] }, { duration: HOLD_MS / 1000, ease: 'linear' });
       animate('.cl-r', { transform: [SHUT, DRIFT.r] }, { duration: HOLD_MS / 1000, ease: 'linear' });
-      await wait(HOLD_MS - 150);
+      await wait(HOLD_MS - LIFT_LEAD_MS);
       if (id !== run.current) return;
       // lift-off: the words go, the rocket shoots off the top, the clouds part
       animate('.cl-words', { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-8px)'] }, { duration: 0.25 });
-      animate('.cl-rocket', { transform: ['translateY(0%)', 'translateY(-130%)'] }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
-      await wait(150);
+      // (on a phone the rocket's exit is already on the timeline, see above)
+      if (!phone) animate('.cl-rocket', { transform: ['translateY(0%)', 'translateY(-130%)'] }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
+      await wait(LIFT_LEAD_MS);
       if (id !== run.current) return;
       await Promise.all([
         animate('.cl-l', { transform: [DRIFT.l, GONE.l] }, { duration: OPEN_S, ease: [0.22, 1, 0.36, 1], delay: stagger(0.05) }),
@@ -137,7 +181,7 @@ export function CloudTransition({
       animate(scope.current, { visibility: 'hidden' }, { duration: 0 });
     };
     void play();
-  }, [playKey, reduced, animate, scope, top]);
+  }, [playKey, reduced, animate, scope, top, phone]);
 
   return (
     <div ref={scope} aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60] overflow-hidden" style={{ visibility: 'hidden' }}>
@@ -186,7 +230,7 @@ export function CloudTransition({
           )}
           {/* the rocket: its nose is where you are. Its box is the screen's height (see `below`). */}
           <div className="cl-rocket absolute left-0 top-0 h-full w-0">
-            <Rocket className="absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />
+            <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />
           </div>
           {/* the words, beside the nose */}
           <div
