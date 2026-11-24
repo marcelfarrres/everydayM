@@ -4,11 +4,28 @@ Investigado en noviembre de 2026. Cada dato lleva su fuente: **[TikTok]** es doc
 
 ## Tu rutina diaria (unos 10 minutos)
 
-1. Crea la rutina del día en la app, dale a **Empezar** y abre **⋯ → TikTok: idea y vídeos de hoy**.
-2. Pulsa **Dame una idea**. Graba las tomas del guion con el móvil en el trípode (2 a 5 min).
-3. Exporta los vídeos de la app que toquen hoy: **Resumen** (≈20 s) y **Rutina completa**. La idea del día marca con «HOY» cuál combina mejor.
-4. En TikTok, sube cada vídeo, añade un sonido de la biblioteca y pega la descripción con **Copiar**.
+1. Pide los clips del día. Dos caminos, y los dos acaban en la misma **cola** (Estudio → **Clips**):
+   - En el Estudio, escribe una frase («un clip de un ejercicio de glúteo donde salgo explicando») o elige el tipo a mano.
+   - En la app, con la rutina del día: **Empezar** → **⋯ → TikTok: idea y vídeos de hoy** → el vídeo que quieras.
+2. El ordenador los monta de uno en uno, sin esperar con la página abierta. Si hace falta, pulsa **Dame una idea** y graba las tomas del guion con el móvil en el trípode (2 a 5 min).
+3. Desde el móvil (wifi de casa, con el PIN) abre **Clips**, mira cada vídeo y **Apruébalo**, o **Recházalo** con un comentario y pide **Otra versión**: usa otros ejercicios y otras frases, y si el comentario nombra un músculo, un ejercicio o un tipo de clip («mejor de hombro», «mejor un reto»), lo cambia.
+4. **Descargar** guarda el MP4 en el móvil. En TikTok súbelo, añade un sonido de la biblioteca (en los cortos) y pega la descripción con **Descripción → Copiar**.
 5. Publica a la hora en la que más seguidores tengas conectados (ver «Cuándo publicar»).
+
+La app no sube nada a TikTok: la cuenta es personal y el sonido de moda se pone allí.
+
+## La cola de clips
+
+- Vive en el disco del ordenador del Estudio, en `.clips/` (fuera de git): `manifest.json` con cada clip (tipo, frase, ejercicios, estado, comentario, fechas, archivo, duración y tamaño), los vídeos y miniaturas en `files/`, cómo se hizo cada uno en `specs/` y una caché de originales en `cache/`.
+- Estados: **Montando** (en cola o en marcha) → **Por revisar** → **Aprobado** o **Rechazado**. **Ha fallado** dice por qué. Si cierras el Estudio a mitad, ese clip queda como fallado y se rehace con **Otra versión**.
+- Otra versión no borra la anterior: queda debajo como historial. **Borrar** quita el clip y sus archivos.
+- Se monta desde el vídeo original (1080 de ancho), no la copia ligera. Con Bunny, cada original se descarga una vez y se guarda en la caché (hasta 6 GB, se van los menos usados).
+
+## El sonido
+
+- **Cortos** (resumen, 3 ejercicios, reto, mezcla al azar): sin música. Llevan una pista de audio en silencio para que TikTok no se queje; el sonido lo pones tú.
+- **Vídeo hablado** e **Intro + vídeo hablado**: tu voz, a unos −14 LUFS (el nivel de TikTok).
+- **Rutina completa**: música de la sección **Música** del Estudio (las pistas activas, en orden aleatorio, encadenadas y repetidas hasta el final). Baja sola (unos 12 dB) cuando hablas en los descansos largos y todo queda a unos −14 LUFS. Si no hay pistas activas, sale sin música y el clip lo avisa.
 
 Para ahorrar aún más, un día a la semana deja programados los vídeos de la app. TikTok permite programar hasta 30 días desde la web o desde TikTok Studio ([Buffer](https://buffer.com/resources/how-to-schedule-tiktok-posts/)). Antes, prueba con un vídeo si puedes añadir un sonido de la biblioteca al programarlo; no está confirmado.
 
@@ -21,15 +38,20 @@ Para ahorrar aún más, un día a la semana deja programados los vídeos de la a
   - La **rutina completa** está hecha para guardarse.
   - El **reto** está hecho para comentar.
 
-## Los 5 formatos de la app
+## Los 8 formatos de la app
 
 | Formato | Duración | Para qué sirve |
 |---|---|---|
 | Resumen | ≈20 s | Se ve entero. Tu frase se escribe sola, apareces tú y se ve el plan y 4 ejercicios. |
-| Rutina completa | 20–40 min | Se guarda para hacerla. Los vídeos de 1 a 10 min son los que más alcance tienen ([Buffer, 1,1 M de vídeos](https://buffer.com/resources/longer-tiktoks-get-more-views-data/)). |
+| Rutina completa | 20–40 min | Se guarda para hacerla. Con música, y en los descansos largos salen tus vídeos hablados con tu voz. Los vídeos de 1 a 10 min son los que más alcance tienen ([Buffer, 1,1 M de vídeos](https://buffer.com/resources/longer-tiktoks-get-more-views-data/)). |
 | 3 ejercicios | ≈16 s | Se guarda: el «X ejercicios para…» de siempre. |
 | Reto 1 minuto | ≈65 s | Genera comentarios. Además pasa de 1 minuto, el mínimo para cobrar en Creator Rewards ([TikTok](https://newsroom.tiktok.com/introducing-the-new-creator-rewards-program)). |
 | Carrusel de fotos | 7–10 fotos | Para variar. Los datos no se ponen de acuerdo: más interacción según [Fanpage Karma](https://www.fanpagekarma.com/insights/carousel-vs-video-performance-tiktok-instagram/) y menos alcance que el vídeo según [Metricool](https://metricool.com/press-release-tiktok-study-2026/). Úsalo 1 o 2 veces por semana como mucho. |
+| Vídeo hablado | ≈15 s | Uno de tus vídeos hablados, con tu voz y el nombre del ejercicio al principio. Sale tu cara: es lo que más conecta. |
+| Intro + vídeo hablado | ≈25 s | La entrada de siempre (frase y tú preparado) y después el vídeo hablado. |
+| Mezcla al azar | ≈16 s | 5 ejercicios sueltos de la biblioteca, sin rutina, del músculo que digas. Para los días sin rutina nueva. |
+
+Resumen, rutina completa, 3 ejercicios, reto y carrusel salen de una rutina: la del reproductor o, desde el Estudio, una que monta el propio Estudio con los músculos que pidas. Los otros tres no necesitan rutina. Para los dos con vídeo hablado hace falta que el ejercicio (o algún ejercicio del músculo pedido) tenga uno; si no, la cola te dice cuál falta.
 
 **Prueba pendiente:** nadie ha medido si una rutina de 20–40 min funciona mejor entera o partida en «Parte 1/2/3». Prueba las dos formas durante dos semanas y compara la retención en tus estadísticas.
 
