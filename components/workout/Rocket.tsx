@@ -10,19 +10,11 @@ import type { CSSProperties } from 'react';
 const INK = '#131313';
 const RED = '#ff3b30';
 
-/*
- * `blunt` (the phone's clouds): the same rocket with the short, rounded nose of the phone's widget
- * (RocketWidget), so both read as one character. The nose section runs from the band at 132 to the
- * tip: a short stretch of body and a dome 0.6 of the body's width long (rocketShape's DOME_CURVE).
- * Its drawing starts 78 units lower, so a box of the same height shows it 16 % larger: callers
- * scale the box by BLUNT_HEIGHT_RATIO to keep its size.
- */
-export const BLUNT_HEIGHT_RATIO = 482 / 560;
-
-export function Rocket({ className = '', style, blunt = false }: { className?: string; style?: CSSProperties; blunt?: boolean }) {
+// (Computer only: on a phone the clouds carry RocketShip, the same drawing as the widget.)
+export function Rocket({ className = '', style }: { className?: string; style?: CSSProperties }) {
   return (
     <svg
-      viewBox={blunt ? '0 78 120 482' : '0 0 120 560'}
+      viewBox="0 0 120 560"
       aria-hidden="true"
       className={className}
       style={style}
@@ -46,16 +38,12 @@ export function Rocket({ className = '', style, blunt = false }: { className?: s
       <path d="M48 434 L72 434 L77 452 L43 452 Z" />
       <path d="M45.5 443 L74.5 443" strokeWidth={1.25} />
 
-      {/* body (with its rounded nose, when blunt) */}
-      {blunt ? (
-        <path d="M41 436 L41 109 C41 95.4 49 86 60 86 C71 86 79 95.4 79 109 L79 436 Z" />
-      ) : (
-        <rect x="41" y="118" width="38" height="318" rx="2.5" />
-      )}
+      {/* body */}
+      <rect x="41" y="118" width="38" height="318" rx="2.5" />
       {/* a thin line down one side gives it volume */}
       <path d="M72.5 140 L72.5 424" strokeWidth={1.1} strokeOpacity={0.35} />
-      {/* bands: under the fairing (the seam of the blunt nose section) and at the interstage */}
-      <path d="M41 132 L79 132" strokeWidth={blunt ? 2.25 : 1.4} />
+      {/* bands: under the fairing and at the interstage */}
+      <path d="M41 132 L79 132" strokeWidth={1.4} />
       <path d="M41 284 L79 284" strokeWidth={1.4} />
       <path d="M41 294 L79 294" strokeWidth={1.4} />
       {/* porthole */}
@@ -63,7 +51,7 @@ export function Rocket({ className = '', style, blunt = false }: { className?: s
       <path d="M55.6 173.4 A5 5 0 0 1 61.4 171" fill="none" strokeWidth={1.2} />
 
       {/* nose cone (payload fairing) */}
-      {!blunt && <path d="M41 118 C41 72 50 34 60 8 C70 34 79 72 79 118 Z" />}
+      <path d="M41 118 C41 72 50 34 60 8 C70 34 79 72 79 118 Z" />
 
       {/* the front fin, seen edge-on */}
       <path d="M58.3 390 L61.7 390 L62.8 454 L57.2 454 Z" />

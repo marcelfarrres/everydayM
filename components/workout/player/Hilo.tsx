@@ -13,11 +13,12 @@ const COLOR: Record<'dark' | 'light', Record<StepState, string>> = {
   light: { done: 'bg-ink', now: 'bg-heat', todo: 'bg-ink/20' },
 };
 
-// `lg` (the phone's rocket): thick lines across the whole body, wide gaps between blocks, and the
-// serie in progress a step thicker than the rest, so done / now / pending read at a glance.
+// `lg` (the phone's rocket, RocketShip): thick lines across nearly the whole body, clear gaps
+// between blocks, and the serie in progress almost twice as thick, so done / now / pending read
+// at a glance.
 const SIZE = {
   sm: { row: 'gap-2.5', block: 'gap-[3px]', line: { done: 'h-[3px]', now: 'h-[3px]', todo: 'h-[3px]' } },
-  lg: { row: 'gap-3', block: 'gap-[3px]', line: { done: 'h-[6px]', now: 'h-[10px]', todo: 'h-[6px]' } },
+  lg: { row: 'gap-2.5', block: 'gap-[3px]', line: { done: 'h-[7px]', now: 'h-[13px]', todo: 'h-[7px]' } },
 } as const;
 
 export function Hilo({

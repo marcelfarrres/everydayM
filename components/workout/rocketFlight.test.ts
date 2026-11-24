@@ -7,6 +7,7 @@ import {
   CLOUDS,
   CLOUD_TIMING,
   FLIGHT,
+  FOLD_AT,
   PARKED,
   PARKED_AFTER_CLOUDS_MS,
   PARKED_POSE,
@@ -19,6 +20,7 @@ import {
   TAKEOFF_KEYFRAMES,
   TAKEOFF_OFFSCREEN_AT,
   UPRIGHT,
+  UPRIGHT_AT,
   arrival,
   bigRocketVisibleAt,
   controlsLiveAt,
@@ -26,6 +28,7 @@ import {
   ignitionLevel,
   launchesAfter,
   nextFlight,
+  nudge,
   parkedFrom,
   phaseAt,
   podOutFrom,
@@ -52,7 +55,7 @@ describe('cloud timing', () => {
 describe('hand-over between the two rockets (phone)', () => {
   it('lets the big rocket rise only after the widget rocket has gone, and the widget come back only after the big one has gone', () => {
     expect(FLIGHT.bigRiseStartMs).toBeGreaterThan(FLIGHT.takeoffMs);
-    expect(FLIGHT.bigRiseEndMs - FLIGHT.bigRiseStartMs).toBeGreaterThanOrEqual(600);
+    expect(FLIGHT.bigRiseEndMs - FLIGHT.bigRiseStartMs).toBeGreaterThanOrEqual(400);
     expect(FLIGHT.bigRiseEndMs).toBeLessThan(CLOUD_TIMING.liftMs);
     expect(FLIGHT.returnStartMs).toBeGreaterThan(FLIGHT.bigGoneMs);
   });
@@ -75,9 +78,28 @@ describe('hand-over between the two rockets (phone)', () => {
     expect(PARKED_AFTER_CLOUDS_MS).toBeLessThan(6000); // the shortest rest is 10 s
   });
 
-  it('starts its content fade with the takeoff and settles within the return', () => {
-    expect(FLIGHT.contentOutMs).toBeLessThanOrEqual(FLIGHT.anticipationMs);
+  it('folds the banner in before it moves, and settles within the return', () => {
+    expect(POD.outMs).toBe(FLIGHT.foldMs);
+    expect(TAKEOFF_KEYFRAMES.find((k) => k.offset === FOLD_AT)?.transform).toBe(PARKED_POSE);
+    expect(FLIGHT.foldMs).toBeLessThan(FLIGHT.anticipationMs);
     expect(FLIGHT.settleMs).toBeLessThan(FLIGHT.returnMs);
+  });
+
+  it('climbs straight out of the top, nose up, at full size and opaque', () => {
+    const climbing = TAKEOFF_KEYFRAMES.filter((k) => k.offset >= UPRIGHT_AT);
+    expect(climbing.length).toBeGreaterThanOrEqual(3);
+    climbing.forEach((k) => {
+      expect(k.transform).toContain('rotateZ(-90deg)');
+      // straight up: no sideways offset
+      expect(k.transform).toContain('translate3d(calc((0px) / 1)');
+    });
+    TAKEOFF_KEYFRAMES.forEach((k) => {
+      // never into the depth, never smaller: no translateZ, size 1
+      expect(k.transform).toMatch(/, 0px\) rotateZ/);
+      if (k.offset <= TAKEOFF_OFFSCREEN_AT) expect(k.opacity).toBe(1);
+    });
+    // a little slower than it was: about a second of climbing once it has crouched
+    expect(FLIGHT.takeoffMs * TAKEOFF_OFFSCREEN_AT - FLIGHT.anticipationMs).toBeGreaterThanOrEqual(900);
   });
 
   // Walk a sequence of events and sample every 10 ms: the widget rocket and the big rocket of the
@@ -220,12 +242,19 @@ describe('the control pod and the controls', () => {
     expect(podOutFrom(end)).toBe(Infinity);
   });
 
-  it('lets the controls work exactly while it is parked, with a moment to hand back control', () => {
+  it('springs the banner out half a second after it lands', () => {
+    expect(POD.inDelayMs).toBeGreaterThanOrEqual(400);
+    expect(POD.inDelayMs).toBeLessThanOrEqual(700);
+  });
+
+  it('lets the controls work only once it is parked and its banner is coming out', () => {
     const f = arrival(500);
+    const parked = 500 + FLIGHT.returnMs;
     expect(controlsLiveAt(f, 600)).toBe(false);
-    expect(controlsLiveFrom(f, 600)).toBe(500 + FLIGHT.returnMs);
-    expect(controlsLiveAt(f, 500 + FLIGHT.returnMs)).toBe(true);
-    expect(controlsLiveFrom(f, 500 + FLIGHT.returnMs)).toBeNull();
+    expect(controlsLiveFrom(f, 600)).toBe(parked + POD.inDelayMs);
+    expect(controlsLiveAt(f, parked)).toBe(false); // landed, no banner yet
+    expect(controlsLiveAt(f, parked + POD.inDelayMs)).toBe(true);
+    expect(controlsLiveFrom(f, parked + POD.inDelayMs)).toBeNull();
     expect(controlsLiveFrom(nextFlight(PARKED, 'end', 0), 10)).toBeNull(); // away for good: no timer
     expect(controlsLiveAt(PARKED, 0)).toBe(true);
   });
@@ -276,7 +305,8 @@ describe('the warm-up sputter', () => {
     expect(SPUTTER.ms).toBeGreaterThanOrEqual(800);
     expect(SPUTTER.ms).toBeLessThanOrEqual(1200);
     expect(SPUTTER_KEYFRAMES[0].transform).toBe(SPUTTER_KEYFRAMES.at(-1)?.transform);
-    expect(SPUTTER_KEYFRAMES.at(-1)?.transform).toBe('translate(0px, 0px) scale(1, 1)');
+    expect(SPUTTER_KEYFRAMES.at(-1)?.transform).toBe(nudge({}));
+    expect(nudge({})).toBe('translate(0px, 0px) rotate(0deg) scale(1, 1)');
     expect(SPUTTER_FLAME_KEYFRAMES.at(-1)?.opacity).toBe(0);
   });
 
@@ -308,7 +338,9 @@ describe('the rest: it sinks as it fills', () => {
     expect(sinkAt(-3)).toEqual(UPRIGHT);
     expect(sinkAt(7)).toEqual(sinkAt(1));
     expect(sinkAt(Number.NaN)).toEqual(UPRIGHT);
-    expect(Math.abs(SINK.maxTilt)).toBeLessThanOrEqual(3);
+    // it really tilts now (the tail dips off the screen: see rocketShape.test), but not over
+    expect(Math.abs(SINK.maxTilt)).toBeGreaterThanOrEqual(5);
+    expect(Math.abs(SINK.maxTilt)).toBeLessThanOrEqual(8);
   });
 
   it('springs back upright from wherever it had sunk ("¡pam!")', () => {
@@ -374,7 +406,7 @@ describe('poses', () => {
   });
 
   it('turns the apparent size into depth', () => {
-    expect(pose({ s: 0.5 })).toContain('translate3d(calc(0px / 0.5), calc(0px / 0.5), -900px)');
+    expect(pose({ s: 0.5 })).toContain('translate3d(calc((0px) / 0.5), calc((0px) / 0.5), -900px)');
     expect(PARKED_POSE).toContain(', 0px) rotateZ(0deg) rotateY(0deg) scale(1, 1)');
   });
 });

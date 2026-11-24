@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
+import { RocketFigure } from '@/components/workout/RocketShip';
 import { FLIGHT } from '@/components/workout/rocketFlight';
+import { widgetLayout } from '@/components/workout/rocketShape';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -16,12 +18,12 @@ import { PlayerWidget } from './PlayerWidget';
 import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
-import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
-import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged, useRocketWidth, useWindowHeight } from './hooks';
+import { blocksOf, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf, serieState } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
- * bottom, the rocket (RocketWidget), plus the "···" menu at the top right and, quietly at the top
+ * bottom, the rocket (RocketWidget), plus the "Â·Â·Â·" menu at the top right and, quietly at the top
  * left, how much of the routine is done. During a rest a blue frame runs round
  * the screen. Now and then, during a serie, a comic "golpe" of encouragement bursts onto the
  * video (CheerHits). On a computer the same pieces sit on the chalkboard: the video centred and
@@ -253,15 +255,15 @@ export function WorkoutPlayer({
         onExit={onExit}
       />
 
-      {/* Phone: how far you are, small and quiet. It steps aside for "Activar sonido" of a talk. */}
+      {/* Phone: how far you are. The twin of "Â·Â·Â·" across the top: the same 44 px pill, fill,
+          margins and line, so the two read as a pair. It steps aside for "Activar sonido" of a talk. */}
       {displayItem?.kind !== 'outro' && (
         <p
+          data-rw="percent"
           aria-label={`${percent} % de la rutina`}
-          className="pointer-events-none fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex h-11 items-center group-has-[[data-unmute]]/player:invisible lg:hidden"
+          className="pointer-events-none fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex h-11 min-w-11 items-center justify-center rounded-full bg-[rgb(14_14_14/0.6)] px-3 text-[14px] font-semibold leading-none tabular-nums text-white group-has-[[data-unmute]]/player:invisible lg:hidden"
         >
-          <span data-rw="percent" className="rounded-full bg-[rgb(14_14_14/0.45)] px-2.5 py-1 text-[13px] font-semibold leading-none tabular-nums text-white/90">
-            {percent}&#8239;%
-          </span>
+          {percent}&#8239;%
         </p>
       )}
 
@@ -323,7 +325,18 @@ export function WorkoutPlayer({
         color={REST_BLUE}
         journey={journeyOf(queue, timeline, currentIndex, total)}
         phone={!desktop}
+        phoneShip={desktop ? undefined : <CloudShip queue={queue} currentIndex={currentIndex} />}
       />
     </div>
   );
+}
+
+/** Phone: the rocket of the clouds. The widget's own drawing (same width, same proportions, its
+ * hilo in the body), stood on its tail and scaled up to about half the screen's height. */
+function CloudShip({ queue, currentIndex }: { queue: RoutineItem[]; currentIndex: number }) {
+  const width = useRocketWidth();
+  const height = useWindowHeight();
+  const g = useMemo(() => widgetLayout(width).g, [width]);
+  const hilo = blocksOf(queue).map((block) => block.series.map((serie) => serieState(serie.queueIndex, currentIndex)));
+  return <RocketFigure g={g} scale={Math.min(0.52 * height, 544) / g.W} upright flame hilo={hilo} />;
 }

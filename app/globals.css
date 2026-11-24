@@ -142,23 +142,59 @@ body {
   }
 }
 
-/* the engine is lit: the whole rocket trembles a little */
+/* the engine is lit: the whole rocket shakes, harder and faster each second (--rw-amp, --rw-shake-s) */
 .rw-shake {
-  animation: rw-shake 0.18s linear infinite;
+  animation: rw-shake var(--rw-shake-s, 0.16s) linear infinite;
 }
 @keyframes rw-shake {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translate(0, 0) rotate(0deg);
   }
   25% {
-    transform: translate(calc(-0.8px * var(--rw-amp, 1)), calc(0.5px * var(--rw-amp, 1)));
+    transform: translate(calc(-1px * var(--rw-amp, 1)), calc(0.6px * var(--rw-amp, 1))) rotate(calc(-0.22deg * var(--rw-amp, 1)));
   }
   50% {
-    transform: translate(calc(0.6px * var(--rw-amp, 1)), calc(-0.6px * var(--rw-amp, 1)));
+    transform: translate(calc(0.8px * var(--rw-amp, 1)), calc(-0.7px * var(--rw-amp, 1))) rotate(calc(0.18deg * var(--rw-amp, 1)));
   }
   75% {
-    transform: translate(calc(-0.5px * var(--rw-amp, 1)), calc(-0.4px * var(--rw-amp, 1)));
+    transform: translate(calc(-0.6px * var(--rw-amp, 1)), calc(-0.5px * var(--rw-amp, 1))) rotate(calc(-0.12deg * var(--rw-amp, 1)));
+  }
+}
+/* ...and the banner's text trembles with it (still readable) */
+.rw-jitter {
+  animation: rw-jitter var(--rw-shake-s, 0.16s) linear infinite;
+}
+@keyframes rw-jitter {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate(calc(0.9px * var(--rw-amp, 1)), calc(-0.5px * var(--rw-amp, 1))) rotate(calc(0.35deg * var(--rw-amp, 1)));
+  }
+  50% {
+    transform: translate(calc(-0.7px * var(--rw-amp, 1)), calc(0.6px * var(--rw-amp, 1))) rotate(calc(-0.3deg * var(--rw-amp, 1)));
+  }
+  75% {
+    transform: translate(calc(0.5px * var(--rw-amp, 1)), calc(0.4px * var(--rw-amp, 1))) rotate(calc(0.2deg * var(--rw-amp, 1)));
+  }
+}
+
+/* rest: full of water, it bobs and pitches as it sinks */
+.rw-bob {
+  animation: rw-bob 2.6s ease-in-out infinite;
+}
+@keyframes rw-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(2px) rotate(1.4deg);
+  }
+  65% {
+    transform: translateY(-1px) rotate(-1deg);
   }
 }
 
@@ -221,6 +257,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .rw-flicker,
   .rw-shake,
+  .rw-jitter,
+  .rw-bob,
   .rw-wave-front,
   .rw-wave-back {
     animation: none;

@@ -80,3 +80,22 @@ const subscribeDesktop = (onChange: () => void) => {
 export function useIsDesktop(): boolean {
   return useSyncExternalStore(subscribeDesktop, () => window.matchMedia(DESKTOP).matches, () => false);
 }
+
+const subscribeResize = (onChange: () => void) => {
+  window.addEventListener('resize', onChange);
+  return () => window.removeEventListener('resize', onChange);
+};
+
+/**
+ * The width of the phone's rocket widget: the screen less 6 px each side, at most 36rem (as the
+ * widget's own CSS). The big rocket of the clouds is drawn from the same width, so it is the same
+ * drawing at another scale.
+ */
+export function useRocketWidth(): number {
+  return useSyncExternalStore(subscribeResize, () => Math.min(576, window.innerWidth - 12), () => 378);
+}
+
+/** The window's height (the big rocket of the clouds is sized from it). */
+export function useWindowHeight(): number {
+  return useSyncExternalStore(subscribeResize, () => window.innerHeight, () => 844);
+}

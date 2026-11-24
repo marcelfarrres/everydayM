@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
-import { BLUNT_HEIGHT_RATIO, Rocket } from '@/components/workout/Rocket';
+import { Rocket } from '@/components/workout/Rocket';
 import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight';
 
 /*
@@ -22,9 +22,11 @@ import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight'
  *   0.0-0.9 s  the banks drift in (the old moment is still underneath) and the rocket rises
  *   0.9-2.5 s  everything holds; the rest screen mounts behind
  *   2.5-4.1 s  the rocket shoots off the top while the banks open outwards
- * On a phone the rocket of the widget (RocketWidget) takes off first: this one comes up only once
- * that one has gone, and leaves with an S-curve, shrinking into the distance, before it comes back
- * (`phone`, timing in rocketFlight.ts). On a computer it plays as it always has.
+ * On a phone the rocket of the widget (RocketWidget) takes off first, straight out of the top: this
+ * one is the same drawing (RocketShip, with its hilo), bigger, and comes up from below standing on
+ * its tail only once that one has gone; it leaves with an S-curve out of the top before the small
+ * one comes back (`phone`, `phoneShip`, timing in rocketFlight.ts). On a computer it plays as it
+ * always has.
  */
 
 export type Journey = {
@@ -71,6 +73,7 @@ export function CloudTransition({
   color = INK,
   journey,
   phone = false,
+  phoneShip,
 }: {
   playKey: number;
   title?: string;
@@ -80,6 +83,8 @@ export function CloudTransition({
   journey?: Journey;
   /** Phone: the widget rocket hands over to this one (see the comment at the top). */
   phone?: boolean;
+  /** Phone: the rocket to fly, nose up with the nose at the top of its box (RocketFigure). */
+  phoneShip?: ReactNode;
 }) {
   const reduced = useReducedMotion();
   const [scope, animate] = useAnimate();
@@ -134,12 +139,13 @@ export function CloudTransition({
         ],
         exit,
       ));
+      // (it sways with the S, at its full size: it climbs out of the top as the small one did)
       anchored(ship.animate(
         [
-          { transform: 'scale(1) rotate(0deg)' },
-          { transform: 'scale(0.84) rotate(6deg)', offset: 0.35 },
-          { transform: 'scale(0.6) rotate(-5deg)', offset: 0.7 },
-          { transform: 'scale(0.4) rotate(1deg)' },
+          { transform: 'rotate(0deg)' },
+          { transform: 'rotate(6deg)', offset: 0.35 },
+          { transform: 'rotate(-5deg)', offset: 0.7 },
+          { transform: 'rotate(1deg)' },
         ],
         exit,
       ));
@@ -147,8 +153,10 @@ export function CloudTransition({
 
     const play = async () => {
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
-      // the flame flickers while it flies
-      const flame = animate('.rocket-flame', { transform: ['scale(0.94, 0.9)', 'scale(1.03, 1.06)'] }, { duration: 0.12, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' });
+      // the flame flickers while it flies (the phone's RocketShip flickers on its own, in CSS)
+      const flame = root.querySelector('.rocket-flame')
+        ? animate('.rocket-flame', { transform: ['scale(0.94, 0.9)', 'scale(1.03, 1.06)'] }, { duration: 0.12, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' })
+        : null;
       animate('.cl-flight', { opacity: [1, 1] }, { duration: 0 });
       if (!phone) animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
       animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
@@ -176,7 +184,7 @@ export function CloudTransition({
         animate('.cl-fog', { opacity: [1, 0] }, { duration: 0.9 }),
         animate('.cl-flight', { opacity: [1, 0] }, { duration: 0.4, delay: 0.7 }),
       ]);
-      flame.stop();
+      flame?.stop();
       if (id !== run.current) return;
       animate(scope.current, { visibility: 'hidden' }, { duration: 0 });
     };
@@ -230,12 +238,14 @@ export function CloudTransition({
           )}
           {/* the rocket: its nose is where you are. Its box is the screen's height (see `below`). */}
           <div className="cl-rocket absolute left-0 top-0 h-full w-0">
-            {/* on a phone, with the blunt nose of the widget rocket (the same size on screen) */}
-            <Rocket
-              blunt={phone}
-              className={`cl-ship absolute w-auto max-w-none -translate-x-1/2 ${phone ? '' : 'h-[min(58vh,36rem)]'}`}
-              style={{ top: `${top}%`, height: phone ? `min(${58 * BLUNT_HEIGHT_RATIO}vh, ${36 * BLUNT_HEIGHT_RATIO}rem)` : undefined }}
-            />
+            {/* on a phone, the widget's own rocket (RocketShip), bigger and standing on its tail */}
+            {phone && phoneShip ? (
+              <div className="cl-ship absolute -translate-x-1/2" style={{ top: `${top}%` }}>
+                {phoneShip}
+              </div>
+            ) : (
+              <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />
+            )}
           </div>
           {/* the words, beside the nose */}
           <div
