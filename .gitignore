@@ -19,3 +19,7 @@ tsconfig.tsbuildinfo
 .DS_Store
 *.pem
 *.key
+
+# Medios locales del Estudio en desarrollo (sin Bunny) y salidas del script de mudanza
+/.media/
+/scripts/migrate-media.out/
