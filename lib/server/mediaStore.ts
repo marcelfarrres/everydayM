@@ -139,7 +139,7 @@ async function bunnyErrorText(res: Response): Promise<string> {
   const text = (await res.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 200);
   const hint =
     res.status === 401
-      ? ' Revisa BUNNY_STORAGE_KEY (contraseña de la zona) y BUNNY_STORAGE_HOST (región de la zona).'
+      ? ' Revisa BUNNY_STORAGE_KEY (la «Password» de lectura y escritura de la storage zone, no la API key de la cuenta) y BUNNY_STORAGE_HOST (el «API Endpoint» de Storage → zona → Access; depende de la región, Frankfurt = storage.bunnycdn.com, y si no coincide Bunny responde 401).'
       : '';
   return `HTTP ${res.status}${text ? ` · ${text}` : ''}.${hint}`;
 }
