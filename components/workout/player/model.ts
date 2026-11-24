@@ -56,6 +56,28 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
   return currentIndex > last ? 'done' : currentIndex >= first ? 'now' : 'todo';
 }
 
+/**
+ * What a rest shows full screen: its talks (a long rest that has them, until they have played)
+ * or the next exercise looping behind a dark veil with the giant countdown. Null if not a rest.
+ * `talksDone` is the rest whose talks have finished.
+ */
+export type RestScreen = 'talks' | 'countdown';
+export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null): RestScreen | null {
+  if (item?.kind !== 'rest') return null;
+  return item.restKind === 'long' && item.talks.length > 0 && talksDone !== item ? 'talks' : 'countdown';
+}
+
+/*
+ * Computer layout: the 9:16 video at the full height of the window, centred, with the widget
+ * column right beside it (gap 24 + widget 352 + margin 16 px). Used when the window has that
+ * room and is not too short; otherwise the phone layout (widget over the video).
+ */
+export const SIDE_COLUMN_PX = 392;
+export const WIDE_MIN_HEIGHT_PX = 480;
+export function isWideLayout(width: number, height: number): boolean {
+  return height >= WIDE_MIN_HEIGHT_PX && width - (height * 9) / 16 >= SIDE_COLUMN_PX;
+}
+
 /** The next clip to play after `index` (the one a rest leads to). */
 export function nextExerciseAfter(queue: RoutineItem[], index: number): Exercise | undefined {
   const next = queue.find((q, i) => i > index && isExercise(q));

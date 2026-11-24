@@ -1,27 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useState, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
-import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
 import { CheerHits, type CheerDemo } from './CheerHits';
-import { DesktopBackdrop } from './DesktopBackdrop';
 import { PlayerMenu } from './PlayerMenu';
 import { PlayerWidget } from './PlayerWidget';
 import { RestFrame } from './RestFrame';
 import { Stage } from './Stage';
-import { useBusyAfter, useCountdownBeep, useLagged } from './hooks';
-import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter } from './model';
+import { useBusyAfter, useCountdownBeep, useLagged, useWideLayout } from './hooks';
+import { cloudLabel, journeyOf, nextExerciseAfter, restScreenOf } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
  * bottom (PlayerWidget) plus the "···" menu at the top. During a rest a blue frame runs round
- * the screen. Now and then, during a serie, a comic "golpe" of encouragement bursts onto the
- * video (CheerHits). On a computer the same pieces sit beside the chalkboard.
+ * the video. Now and then, during a serie, a comic "golpe" of encouragement bursts onto the
+ * video (CheerHits).
+ *
+ * On a computer (a window with room for it, see isWideLayout) the 9:16 video takes the full
+ * height of the window, centred, on a plain dark background; the same widget and "···" sit in a
+ * column right beside it (widget at the bottom, menu at the top). The `wide:` variant styles it.
  */
 
 export interface WorkoutPlayerProps {
@@ -47,8 +49,6 @@ export interface WorkoutPlayerProps {
   cheerDemo?: CheerDemo;
 }
 
-// Desktop ring round the video: warm-up in chalk white, a serie in red, a rest in blue.
-const RING = { warmup: '#f3f0e7', workout: '#ff3b30', rest: '#2f6bff' } as const;
 const REST_BLUE = '#2f6bff';
 
 export function WorkoutPlayer({
@@ -72,6 +72,7 @@ export function WorkoutPlayer({
   cheerDemo,
 }: WorkoutPlayerProps) {
   const reduced = Boolean(useReducedMotion());
+  const wide = useWideLayout();
   const [beepOn, setBeepOn] = useState(true);
   const kind = currentItem?.kind;
 
@@ -124,9 +125,12 @@ export function WorkoutPlayer({
   const enteringRest = kind === 'rest' && !reduced;
   const displayIndex = useLagged(currentIndex, enteringRest ? CLOUDS.coveredMs : 0);
   const displayItem = queue[displayIndex];
-  const time = clock(timeLeft);
-  const boardTime = useLagged(time, enteringRest ? CLOUDS.coveredMs : 0);
-  const critical = timeLeft > 0 && timeLeft <= 3 && kind !== 'outro';
+
+  // The rest whose talks have finished: from then on it shows the countdown, like a short rest.
+  // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
+  const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
+  const shownRest = restScreenOf(displayItem, talksDone);
+  const currentRest = restScreenOf(currentItem, talksDone);
 
   // The clouds play each time a rest begins.
   let cloudKey = currentIndex;
@@ -144,100 +148,85 @@ export function WorkoutPlayer({
   const label = cloudLabel(currentItem);
   const total = totalSeconds ?? meta?.totalSeconds ?? 0;
 
-  // Desktop: the frame round the video is the clock of the moment.
-  const itemProgress = totalItemDuration > 0 ? Math.min(1, Math.max(0, (totalItemDuration - timeLeft) / totalItemDuration)) : 0;
-  const frameClass = displayItem?.kind === 'rest' ? 'stage-spin' : isExercise(displayItem) ? 'stage-ring' : '';
-  const ring = displayItem && displayItem.kind !== 'outro' ? RING[displayItem.kind] : RING.workout;
-  const frameStyle = { '--ring': ring, '--p': itemProgress } as CSSProperties;
-
   // Warm up the next clip so it is ready by the time it plays. Not during a rest: the rest
   // already plays that clip (full screen or in the bar), and a phone should decode two videos
   // at most (a talk plus the bar's preview).
   const upNext = kind === 'rest' ? undefined : nextExerciseAfter(queue, currentIndex);
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
-      <DesktopBackdrop reduced={reduced} />
+    <div
+      data-wide={wide ? '' : undefined}
+      className="fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink wide:bg-[#0c0c0c]"
+    >
+      <div className="h-full wide:grid wide:grid-cols-[minmax(0,1fr)_auto_minmax(24.5rem,1fr)]">
+        <div aria-hidden="true" className="hidden wide:block" />
 
-      <div className="h-full lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:gap-16 lg:px-14 lg:pb-32 lg:pt-20 xl:gap-24 xl:px-20">
-        {/* THE VIDEO */}
-        <div className="relative h-full lg:min-h-0">
-          <div className="relative h-full lg:aspect-[9/16] lg:rounded-[34px] lg:p-[6px] lg:shadow-[0_40px_80px_-30px_rgba(0,0,0,0.8)]">
-            <div
-              key={frameClass === 'stage-ring' ? `ring-${displayIndex}` : frameClass}
-              aria-hidden="true"
-              className={`absolute inset-0 hidden rounded-[34px] lg:block ${frameClass}`}
-              style={frameStyle}
-            />
-            <div className="relative h-full">
-              <Stage
-                queue={queue}
-                displayIndex={displayIndex}
-                currentIndex={currentIndex}
-                videoRef={videoRef}
-                onVideoTimeUpdate={onVideoTimeUpdate}
-                onClipEnded={handleNext}
-                isPaused={isPaused}
-                reduced={reduced}
-                onRepeat={onRepeat}
-                onExit={onExit}
-                onTap={() => setListOpen(false)}
-              />
-              <CheerHits
-                queue={queue}
-                currentIndex={currentIndex}
-                displayIndex={displayIndex}
-                timeLeft={timeLeft}
-                totalItemDuration={totalItemDuration}
-                isPaused={isPaused}
-                hidden={clouding || listOpen}
-                reduced={reduced}
-                demo={cheerDemo}
-              />
-            </div>
-          </div>
+        {/* THE VIDEO: the whole screen on a phone; 9:16 at the window's full height on a computer */}
+        <div className="relative h-full wide:w-[calc(100dvh*9/16)]">
+          <Stage
+            queue={queue}
+            displayIndex={displayIndex}
+            currentIndex={currentIndex}
+            videoRef={videoRef}
+            onVideoTimeUpdate={onVideoTimeUpdate}
+            onClipEnded={handleNext}
+            isPaused={isPaused}
+            reduced={reduced}
+            restScreen={shownRest}
+            onTalksDone={setTalksDone}
+            timeLeft={timeLeft}
+            countdownShown={!clouding}
+            onRepeat={onRepeat}
+            onExit={onExit}
+            onTap={() => setListOpen(false)}
+          />
+          <CheerHits
+            queue={queue}
+            currentIndex={currentIndex}
+            displayIndex={displayIndex}
+            timeLeft={timeLeft}
+            totalItemDuration={totalItemDuration}
+            isPaused={isPaused}
+            hidden={clouding || listOpen}
+            reduced={reduced}
+            demo={cheerDemo}
+          />
+          <RestFrame show={displayItem?.kind === 'rest'} reduced={reduced} />
         </div>
 
-        {/* THE BOARD (computer only) */}
-        <ChalkBoard
-          queue={queue}
-          currentIndex={displayIndex}
-          meta={meta}
-          time={boardTime}
-          critical={critical}
-          className="relative z-10 hidden lg:flex"
-        />
+        {/* THE CONTROLS: over the video on a phone; a column right beside it on a computer */}
+        <div className="wide:flex wide:h-full wide:flex-col wide:justify-between wide:pl-6 wide:pr-4 wide:pt-4">
+          <PlayerMenu
+            beepOn={beepOn}
+            onToggleBeep={() => setBeepOn((on) => !on)}
+            musicAvailable={music.available}
+            musicOn={!music.muted}
+            onToggleMusic={() => setMuted(!music.muted)}
+            musicVolume={music.volume}
+            onMusicVolume={setVolume}
+            onCreateClip={onOpenTiktok}
+            onExit={onExit}
+          />
+
+          <PlayerWidget
+            queue={queue}
+            currentIndex={currentIndex}
+            displayIndex={displayIndex}
+            timeLeft={timeLeft}
+            totalItemDuration={totalItemDuration}
+            isPaused={isPaused}
+            onTogglePause={onTogglePause}
+            onPrev={handlePrev}
+            canPrev={Boolean(onPrev) && currentIndex > 0}
+            onNext={handleNext}
+            listOpen={listOpen}
+            onListOpenChange={setListOpen}
+            restCountdown={currentRest === 'countdown'}
+            talkPreview={shownRest === 'talks'}
+            reduced={reduced}
+          />
+        </div>
       </div>
-
-      <RestFrame show={displayItem?.kind === 'rest'} reduced={reduced} />
-
-      <PlayerMenu
-        beepOn={beepOn}
-        onToggleBeep={() => setBeepOn((on) => !on)}
-        musicAvailable={music.available}
-        musicOn={!music.muted}
-        onToggleMusic={() => setMuted(!music.muted)}
-        musicVolume={music.volume}
-        onMusicVolume={setVolume}
-        onCreateClip={onOpenTiktok}
-        onExit={onExit}
-      />
-
-      <PlayerWidget
-        queue={queue}
-        currentIndex={currentIndex}
-        displayIndex={displayIndex}
-        timeLeft={timeLeft}
-        totalItemDuration={totalItemDuration}
-        isPaused={isPaused}
-        onTogglePause={onTogglePause}
-        onPrev={handlePrev}
-        canPrev={Boolean(onPrev) && currentIndex > 0}
-        onNext={handleNext}
-        listOpen={listOpen}
-        onListOpenChange={setListOpen}
-        reduced={reduced}
-      />
 
       {upNext && (
         <video

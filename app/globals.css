@@ -63,34 +63,17 @@ body {
   }
 }
 
-/* Player: the video's frame is the clock. --p (0..1) fills it clockwise; --spin turns the
-   light that runs around it while resting. Registered so both can animate. */
-@property --p {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: 0;
-}
-@property --spin {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-.stage-ring {
-  background: conic-gradient(from 0deg, var(--ring) calc(var(--p) * 1turn), rgb(19 19 19 / 0.08) 0);
-  transition: --p 1s linear;
-}
-.stage-spin {
-  background: conic-gradient(from var(--spin), rgb(47 107 255 / 0.12) 0 55%, var(--ring) 80%, #fff 90%, rgb(47 107 255 / 0.12) 100%);
-  animation: stage-spin 2.6s linear infinite;
-}
-@keyframes stage-spin {
-  to {
-    --spin: 360deg;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .stage-spin {
-    animation: none;
+/* Player, computer layout (video at full height in the middle, the widget beside it). Chosen by
+   WorkoutPlayer from the window's size, not by a breakpoint: it sets data-wide on its root. */
+@custom-variant wide (&:where([data-wide], [data-wide] *));
+
+/* The player's bar opens the list when clicked anywhere except its own buttons (data-own): it
+   lights up on hover only then, so the pause button doesn't look like it opens the list. */
+@custom-variant bar-hover {
+  @media (hover: hover) {
+    &:where([data-bar]:hover:not(:has([data-own]:hover)), [data-bar]:hover:not(:has([data-own]:hover)) *) {
+      @slot;
+    }
   }
 }
 

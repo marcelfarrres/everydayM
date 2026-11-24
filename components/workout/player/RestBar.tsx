@@ -1,12 +1,15 @@
 'use client';
 
 import { motion } from 'motion/react';
-import { FOCUS, own } from './ui';
+import { FOCUS, HOVER_ON_DARK, PRESSABLE, own } from './ui';
 
 /*
  * The bar during a rest: same size as while exercising, no hilo. It fills with blue water from
  * the bottom up, with a wave on the surface; full = the serie starts. "Descanso", the time,
- * "Luego: <ejercicio>" small, and "Saltar". No pause button. On the narrowest phones (320 px, with\r\n * the mini preview at the left) the time and "Saltar" tighten their padding so "Descanso" fits whole.
+ * "Luego: <ejercicio>" small, and "Saltar". No pause button. When the video already shows the
+ * giant countdown and "Luego" (RestCountdown), the bar leaves out both: "Descanso" and "Saltar".
+ * On the narrowest phones (320 px, with the mini preview at the left) the time and "Saltar"
+ * tighten their padding so "Descanso" fits whole.
  */
 
 // Water sits on the bar's dark fill; white text keeps >= 4.5:1 on both.
@@ -21,8 +24,8 @@ export function RestBar({
   reduced,
   onSkip,
 }: {
-  next: string;
-  time: string;
+  next?: string; // left out while the video shows it
+  time?: string; // left out while the video shows the giant countdown
   fill: number; // 0..1, where the water should be one second from now
   reduced: boolean;
   onSkip: () => void;
@@ -52,19 +55,23 @@ export function RestBar({
         )}
       </motion.div>
 
-      <div className="relative flex h-full flex-col justify-between">
-        <p className="flex h-6 min-w-0 items-center truncate text-[13px] font-medium text-white">
-          <span className="truncate">Luego: {next}</span>
-        </p>
+      <div className={`relative flex h-full flex-col ${next ? 'justify-between' : 'justify-center'}`}>
+        {next && (
+          <p className="flex h-6 min-w-0 items-center truncate text-[13px] font-medium text-white">
+            <span className="truncate">Luego: {next}</span>
+          </p>
+        )}
         <div className="flex h-11 items-center gap-0.5">
           <p className="min-w-0 flex-1 truncate text-[16px] font-semibold leading-tight">Descanso</p>
-          <span role="timer" className="shrink-0 px-1 text-[21px] min-[360px]:px-1.5 font-bold leading-none tabular-nums tracking-[-0.02em]">
-            {time}
-          </span>
+          {time && (
+            <span role="timer" className="shrink-0 px-1 text-[21px] min-[360px]:px-1.5 font-bold leading-none tabular-nums tracking-[-0.02em]">
+              {time}
+            </span>
+          )}
           <button
             type="button"
             onClick={own(onSkip)}
-            className={`flex h-11 shrink-0 items-center rounded-full px-3 text-[15px] min-[360px]:px-4 font-semibold ring-1 ring-white/80 ring-inset ${FOCUS}`}
+            className={`flex h-11 shrink-0 items-center rounded-full px-3 text-[15px] min-[360px]:px-4 font-semibold ring-1 ring-white/80 ring-inset ${PRESSABLE} ${HOVER_ON_DARK} ${FOCUS}`}
           >
             Saltar
           </button>

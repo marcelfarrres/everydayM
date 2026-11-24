@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Bangers, Caveat, Geist, Geist_Mono } from "next/font/google";
+import { Bangers, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,13 +15,6 @@ const geistMono = Geist_Mono({
 // One clean family for the whole app (headings, numbers, buttons).
 const display = Geist({
   variable: "--font-display",
-  subsets: ["latin"],
-});
-
-// Handwriting, only for what is written in chalk on the board (computer view).
-const chalk = Caveat({
-  variable: "--font-chalk",
-  weight: ["500", "700"],
   subsets: ["latin"],
 });
 
@@ -48,7 +41,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${chalk.variable} ${comic.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${comic.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

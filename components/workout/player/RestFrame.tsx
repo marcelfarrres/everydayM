@@ -2,7 +2,10 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 
-/** Phone: a blue frame round the screen during every rest. (The computer has its ring round the video.) */
+/**
+ * The blue frame of every rest, drawn round the video: the whole screen on a phone, the 9:16
+ * picture on a computer. It lives in the video's box, above the picture and below the widget.
+ */
 export function RestFrame({ show, reduced }: { show: boolean; reduced: boolean }) {
   return (
     <AnimatePresence>
@@ -14,7 +17,7 @@ export function RestFrame({ show, reduced }: { show: boolean; reduced: boolean }
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: reduced ? 0 : 0.4 }}
-          className="pointer-events-none fixed inset-0 z-20 shadow-[inset_0_0_0_6px_#2f6bff] lg:hidden"
+          className="pointer-events-none absolute inset-0 z-20 shadow-[inset_0_0_0_6px_#2f6bff]"
         />
       )}
     </AnimatePresence>

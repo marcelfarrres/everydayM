@@ -1,22 +1,25 @@
 'use client';
 
-import { useState, type RefObject } from 'react';
+import type { RefObject } from 'react';
 import { motion } from 'motion/react';
 import { CLOUDS } from '@/components/workout/CloudTransition';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { Exercise, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
+import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
-import { isExercise } from './model';
+import { isExercise, type RestScreen } from './model';
 
 /*
  * The full-screen picture. It shows `displayIndex`, which follows the routine but changes behind
  * the clouds when a rest begins (the old clip stays under them until the screen is covered).
  *   serie / warm-up   the clip, untouched (it drives the clock)
- *   short rest        the next exercise, looping, muted
+ *   short rest        the next exercise, looping, muted, behind a dark veil with the giant
+ *                     countdown (RestCountdown)
  *   long rest         its talks with sound, one after another, from when the clouds open;
  *                     then (or with no talks) like a short rest
  *   end               EndScreen
+ * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  */
 export function Stage({
   queue,
@@ -27,6 +30,10 @@ export function Stage({
   onClipEnded,
   isPaused,
   reduced,
+  restScreen,
+  onTalksDone,
+  timeLeft,
+  countdownShown,
   onRepeat,
   onExit,
   onTap,
@@ -39,15 +46,16 @@ export function Stage({
   onClipEnded: () => void;
   isPaused: boolean;
   reduced: boolean;
+  restScreen: RestScreen | null; // what the rest on screen shows (null: not a rest)
+  onTalksDone: (rest: RoutineItem) => void;
+  timeLeft: number;
+  countdownShown: boolean; // false while the clouds are on screen
   onRepeat?: () => void;
   onExit: () => void;
   onTap: () => void;
 }) {
   const item = queue[displayIndex];
   const live = displayIndex === currentIndex;
-  // The rest whose talks have finished (so it falls back to the looping exercise after them).
-  // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
-  const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
 
   const fadeIn = reduced
     ? {}
@@ -93,19 +101,26 @@ export function Stage({
       </motion.div>
     );
   } else if (item?.kind === 'rest') {
-    const talking = item.restKind === 'long' && item.talks.length > 0 && talksDone !== item;
     content = (
       <div key={`rest-${displayIndex}`} className="absolute inset-0">
-        {talking ? (
+        {restScreen === 'talks' ? (
           <TalkReel
             talks={item.talks}
             // mounted once the clouds cover the screen; it speaks when they open
             delayMs={reduced ? 0 : CLOUDS.openingMs - CLOUDS.coveredMs}
             paused={isPaused}
-            onFinished={() => setTalksDone(item)}
+            onFinished={() => onTalksDone(item)}
           />
         ) : (
-          <LoopingExercise exercise={item.nextExercise} />
+          <>
+            <LoopingExercise exercise={item.nextExercise} />
+            <RestCountdown
+              seconds={live ? timeLeft : 0}
+              next={item.nextExercise.title}
+              show={countdownShown && live}
+              reduced={reduced}
+            />
+          </>
         )}
       </div>
     );
@@ -121,7 +136,7 @@ export function Stage({
     <div
       data-testid="workout-stage-916"
       onPointerDown={onTap}
-      className="relative h-full w-full overflow-hidden bg-black text-white @container lg:rounded-[28px]"
+      className="relative h-full w-full overflow-hidden bg-black text-white @container"
     >
       {content}
     </div>

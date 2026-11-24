@@ -13,7 +13,7 @@ import { CheerBurst, loadComicFace } from './CheerBurst';
  * with the list open. It covers the video and never takes a tap.
  *
  * The safe zone: the whole picture minus the "···" band at the top and the bar at the bottom on a
- * phone (a small margin on a computer, where both sit outside the video).
+ * phone (a small margin on a computer, where both sit beside the video).
  */
 
 /** Development only (/preview/player): a hit fired on demand at the current serie. */
@@ -27,7 +27,7 @@ const ZONE =
   '[--side:max(12px,env(safe-area-inset-left),env(safe-area-inset-right))] ' +
   // "···" is 44 px tall at max(12px, safe area) from the top; the bar 86 px at the same from the bottom
   '[--top:calc(max(12px,env(safe-area-inset-top))_+_56px)] [--bottom:calc(max(12px,env(safe-area-inset-bottom))_+_98px)] ' +
-  'lg:[--side:16px] lg:[--top:16px] lg:[--bottom:16px]';
+  'wide:[--side:16px] wide:[--top:16px] wide:[--bottom:16px]';
 
 // The burst: about half the width on a phone, capped on big screens, and always small enough
 // to fit the zone with room to grow on its way out (x1.36).

@@ -5,7 +5,8 @@ import { Ellipsis } from 'lucide-react';
 
 /*
  * The only control at the top: "···". Inside: the beep of the last 3 s, music (mute and volume),
- * "Crear clip" when the Studio is on, and Salir.
+ * "Crear clip" when the Studio is on, and Salir. On a phone it sits at the top right of the screen;
+ * on a computer (`wide:`) at the top of the column beside the video, off the picture.
  */
 
 const ITEM_FOCUS = 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink';
@@ -67,12 +68,12 @@ export function PlayerMenu({
     };
   }, [open]);
 
-  const row = `flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-3 text-left hover:bg-ink/6 ${ITEM_FOCUS}`;
+  const row = `flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 text-left transition-colors duration-150 hover:bg-ink/8 disabled:cursor-default ${ITEM_FOCUS}`;
 
   return (
     <div
       ref={root}
-      className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 font-[family-name:var(--font-display)] lg:right-8 lg:top-6"
+      className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 font-[family-name:var(--font-display)] wide:relative wide:right-auto wide:top-auto wide:self-start"
     >
       <button
         ref={button}
@@ -81,7 +82,7 @@ export function PlayerMenu({
         aria-label="Más opciones"
         aria-expanded={open}
         aria-controls={panelId}
-        className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(14_14_14/0.6)] text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-[rgb(14_14_14/0.6)] text-white transition-colors duration-150 hover:bg-[rgb(44_44_44/0.86)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white wide:bg-white/10 wide:hover:bg-white/20"
       >
         <Ellipsis className="h-5 w-5" aria-hidden="true" />
       </button>
@@ -89,7 +90,7 @@ export function PlayerMenu({
       {open && (
         <div
           id={panelId}
-          className="absolute right-0 top-full mt-2 w-[min(17rem,calc(100vw-1.5rem))] rounded-2xl bg-white p-1.5 text-[15px] font-medium text-ink shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]"
+          className="absolute right-0 top-full mt-2 w-[min(17rem,calc(100vw-1.5rem))] wide:left-0 wide:right-auto rounded-2xl bg-white p-1.5 text-[15px] font-medium text-ink shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]"
         >
           <button type="button" role="switch" aria-checked={beepOn} onClick={onToggleBeep} className={row}>
             Pitido en los últimos 3 s
@@ -123,7 +124,7 @@ export function PlayerMenu({
               disabled={!musicAvailable || !musicOn}
               onChange={(e) => onMusicVolume(Number(e.target.value))}
               aria-label="Volumen de la música"
-              className="h-11 min-w-0 flex-1 accent-ink"
+              className="h-11 min-w-0 flex-1 cursor-pointer accent-ink disabled:cursor-default"
             />
           </label>
           {onCreateClip && (

@@ -5,7 +5,7 @@ import { RotateCcw } from 'lucide-react';
 import { uniqueExercises } from '@/lib/routine';
 import type { RoutineItem, RoutineMeta } from '@/types/workout';
 import { plural } from './model';
-import { FOCUS } from './ui';
+import { FOCUS, PRESSABLE } from './ui';
 
 /*
  * The end: "Hecho", the totals and the two ways on. No videos: when the day's exercises have a
@@ -37,7 +37,7 @@ export function EndScreen({
         };
 
   return (
-    <div className="relative flex h-full w-full flex-col justify-between bg-ink px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[calc(max(0.75rem,env(safe-area-inset-top))+4.5rem)] text-white lg:px-8 lg:pb-8 lg:pt-20">
+    <div className="relative flex h-full w-full flex-col justify-between bg-ink px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[calc(max(0.75rem,env(safe-area-inset-top))+4.5rem)] text-white wide:px-8 wide:pb-8 wide:pt-12">
       <div>
         <motion.h2 {...rise(0)} className="text-[min(18cqw,4.5rem)] font-bold leading-none tracking-[-0.04em]">
           Hecho
@@ -70,7 +70,7 @@ export function EndScreen({
           <button
             type="button"
             onClick={onRepeat}
-            className={`flex h-14 items-center justify-center gap-2 rounded-full bg-white text-lg font-semibold text-ink ${FOCUS}`}
+            className={`flex h-14 items-center justify-center gap-2 rounded-full bg-white text-lg font-semibold text-ink hover:bg-white/85 ${PRESSABLE} ${FOCUS}`}
           >
             <RotateCcw className="h-5 w-5" aria-hidden="true" /> Repetir
           </button>
@@ -78,7 +78,7 @@ export function EndScreen({
         <button
           type="button"
           onClick={onExit}
-          className={`flex h-14 items-center justify-center rounded-full text-lg font-semibold text-white ring-1 ring-white/70 ring-inset ${onRepeat ? '' : 'col-span-2'} ${FOCUS}`}
+          className={`flex h-14 items-center justify-center rounded-full text-lg font-semibold text-white ring-1 ring-white/70 ring-inset hover:bg-white/15 ${onRepeat ? '' : 'col-span-2'} ${PRESSABLE} ${FOCUS}`}
         >
           Otra rutina
         </button>

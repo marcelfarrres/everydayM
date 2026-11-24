@@ -33,7 +33,6 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
   - `RoutineComposer.tsx`: Pantalla de creación (frase → preguntas → rutina lista, con el hilo por bloques).
   - `player/`: Reproductor por piezas. `WorkoutPlayer.tsx` (orquestación), `Stage.tsx` (vídeo a pantalla completa) con `TalkReel.tsx` (vídeos hablados en descansos largos), `PlayerWidget.tsx` (barra inferior: `ExerciseBar`, `RestBar`, `Hilo`, `SeriesList`), `PlayerMenu.tsx` («···»), `RestFrame.tsx`, `EndScreen.tsx` y `model.ts` (funciones puras).
   - `CloudTransition.tsx` y `Rocket.tsx`: Transición de nubes y cohete al entrar en cada descanso.
-  - `ChalkBoard.tsx`: Pizarra del reproductor en ordenador.
 - `components/ui/` — Componentes de interfaz reutilizables y accesibles:
   - `DifficultyScale.tsx`: Selector de dificultad en escala del 1 al 10.
   - `NumberStepper.tsx`: Control numérico incremental accesible.
