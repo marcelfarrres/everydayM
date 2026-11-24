@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exercisesFromCatalog, fetchExercises } from './exercises';
+import { clearCatalogCache, exercisesFromCatalog, fetchCatalog, fetchExercises, fetchMusic, musicFromCatalog } from './exercises';
 
 const catalog = {
   version: 1,
   updatedAt: '2026-11-24T10:00:00Z',
-  music: [{ id: 'm1' }],
+  music: [
+    { id: 'm1', title: 'Uno', audio_url: 'https://media.example.test/music/m1.m4a', duration_seconds: 120, enabled: true },
+    { id: 'm2', title: 'Dos', audio_url: 'https://media.example.test/music/m2.m4a', enabled: false }, // off: dropped
+    { id: 'm3', audio_url: '' }, // no file: dropped
+    { id: 'm4', audio_url: '/dev-media/music/m4.m4a' }, // enabled unless it says otherwise
+  ],
   exercises: [
     { id: 'a', title: 'Puente', video_url: 'a.mp4', type: 'workout', muscle: '', difficulty: 5, duration_seconds: 40 },
     {
@@ -22,7 +27,10 @@ const catalog = {
   ],
 };
 
+const ok = () => vi.fn(async () => new Response(JSON.stringify(catalog), { status: 200 }));
+
 afterEach(() => {
+  clearCatalogCache();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -40,23 +48,55 @@ describe('exercise catalogue', () => {
     expect(() => exercisesFromCatalog({ version: 1 })).toThrow(/catálogo/);
   });
 
-  it('fails clearly without the media base URL', async () => {
+  it('keeps only enabled tracks with a file', () => {
+    const music = musicFromCatalog(catalog);
+    expect(music.map((m) => m.id)).toEqual(['m1', 'm4']);
+    expect(music[0]).toMatchObject({ title: 'Uno', duration_seconds: 120, enabled: true, artist: null });
+    expect(musicFromCatalog({ exercises: [] })).toEqual([]);
+  });
+
+  it('fails clearly without the media base URL in production', async () => {
     vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', '');
+    vi.stubEnv('NODE_ENV', 'production');
     await expect(fetchExercises()).rejects.toThrow(/NEXT_PUBLIC_MEDIA_BASE_URL/);
+  });
+
+  it('reads the local media folder in development when no base URL is set', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', '');
+    vi.stubEnv('NODE_ENV', 'development');
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchExercises();
+    expect(fetchMock).toHaveBeenCalledWith('/dev-media/catalog/catalog.json', { cache: 'no-store' });
   });
 
   it('reads the catalogue from the media host', async () => {
     vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', 'https://media.example.test/');
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(catalog), { status: 200 }));
+    const fetchMock = ok();
     vi.stubGlobal('fetch', fetchMock);
     const list = await fetchExercises();
     expect(list).toHaveLength(2);
-    expect(fetchMock).toHaveBeenCalledWith('https://media.example.test/catalog/catalog.json', { cache: 'no-cache' });
+    expect(fetchMock).toHaveBeenCalledWith('https://media.example.test/catalog/catalog.json', { cache: 'no-store' });
   });
 
-  it('turns HTTP errors into a clear message', async () => {
+  it('serves exercises and music from one download', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', 'https://media.example.test');
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    const [exercises, music, whole] = await Promise.all([fetchExercises(), fetchMusic(), fetchCatalog()]);
+    expect(exercises).toHaveLength(2);
+    expect(music).toHaveLength(2);
+    expect(whole.music).toBe(music);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns HTTP errors into a clear message and retries next time', async () => {
     vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', 'https://media.example.test');
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
     await expect(fetchExercises()).rejects.toThrow(/404/);
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchMusic()).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
