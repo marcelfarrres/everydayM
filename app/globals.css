@@ -27,22 +27,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle architectural neon grid background */
-.bg-neon-grid {
-  background-image:
-    linear-gradient(to right, rgba(34, 197, 94, 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(34, 197, 94, 0.045) 1px, transparent 1px);
-  background-size: 44px 44px;
-}
-
-/* Glassmorphic surface with subtle top rim highlight */
-.glass-panel {
-  background: linear-gradient(165deg, rgba(20, 28, 22, 0.92) 0%, rgba(11, 16, 13, 0.96) 100%);
-  box-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.85),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-}
-
 /* Sleek dark scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -61,11 +45,6 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(74, 222, 128, 0.65);
-}
-
-@keyframes progress {
-  from { width: 0%; }
-  to { width: 100%; }
 }
 
 /* Marcel's photo and video melt into the page instead of ending in a hard edge */

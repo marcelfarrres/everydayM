@@ -16,8 +16,8 @@ import {
 import { RoutinePlan } from '@/components/workout/RoutinePlan';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CloudTransition, type Journey } from '@/components/workout/CloudTransition';
-import { playCountdownBeep } from '@/components/workout/CountdownRing';
-import { formatSeconds } from '@/components/workout/RoutineTimeline';
+import { playCountdownBeep } from '@/lib/audio';
+import { formatSeconds } from '@/lib/time';
 import { cheerFor } from '@/lib/routine';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';

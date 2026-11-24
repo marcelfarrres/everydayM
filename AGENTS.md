@@ -23,7 +23,7 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 - `app/` — Rutas del App Router de Next.js:
   - `app/page.tsx`: Vista pública principal (configurador de entrenamiento y orquestación del reproductor).
   - `app/admin/page.tsx`: Panel de administración (`/admin`) para ingesta de clips de vídeo y metadatos musculares.
-  - `app/api/export-routine/route.ts`: Endpoint API para concatenación de clips mediante FFmpeg.
+  - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión de ejercicios, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/tiktok` (montaje de clips para TikTok con FFmpeg, vía `lib/server/tiktokExport.ts`) y `studio/idea` (ideas y descripciones para TikTok).
 - `components/workout/` — Componentes de dominio de entrenamiento:
   - `MuscleSelector.tsx`: Mapa anatómico SVG interactivo (vista frontal y posterior) con estados tri-estado (`secondary`, `primary`, desactivado).
   - `WorkoutPlayer.tsx`: Reproductor HTML5 encadenado (intro, calentamiento, series, descanso con vista previa Picture-in-Picture del siguiente ejercicio y modo PiP nativo).
