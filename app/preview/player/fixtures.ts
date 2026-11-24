@@ -1,8 +1,9 @@
-import type { Exercise, ExerciseTalk, MuscleSelection, RoutineItem } from '@/types/workout';
+import type { Exercise, ExerciseTalk, MuscleSelection } from '@/types/workout';
 
 /*
  * Development fixture for /preview/player: a handful of exercises whose clips all point at the
- * app's own /marcel-ready.mp4, so the player can be seen with no database.
+ * app's own /marcel-ready.mp4, so the player can be seen with no catalogue and no media host.
+ * Two exercises carry a talk each, as in the real catalogue; the engine places them.
  */
 
 const CLIP = '/marcel-ready.mp4';
@@ -41,7 +42,7 @@ function exercise(
   };
 }
 
-export const FIXTURE_TALKS: ExerciseTalk[] = [
+const FIXTURE_TALKS: ExerciseTalk[] = [
   talk('talk-sentadilla', 'fx-sentadilla', 'Técnica: rodillas hacia fuera'),
   talk('talk-flexion', 'fx-flexion', 'Curiosidad: por qué cuesta tanto la última'),
 ];
@@ -67,17 +68,6 @@ export const FIXTURE_MUSCLES: MuscleSelection[] = [
   { id: 'dorsales', role: 'primary' },
   { id: 'gluteos', role: 'secondary' },
 ];
-
-/**
- * Until the engine fills `talks` itself, the first long rest borrows the fixture talks, so both
- * "long rest with talks" and "long rest without talks" can be seen. If the engine already filled
- * any rest, its choice is kept.
- */
-export function withFixtureTalks(queue: RoutineItem[]): RoutineItem[] {
-  if (queue.some((item) => item.kind === 'rest' && item.talks.length > 0)) return queue;
-  const first = queue.findIndex((item) => item.kind === 'rest' && item.restKind === 'long');
-  return queue.map((item, index) => (index === first && item.kind === 'rest' ? { ...item, talks: FIXTURE_TALKS } : item));
-}
 
 /** A small seeded random generator, so the same routine is built on every load. */
 export function seeded(seed: number): () => number {

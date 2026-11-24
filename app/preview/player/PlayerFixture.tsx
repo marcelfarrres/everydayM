@@ -6,7 +6,7 @@ import { useWorkoutRoutine } from '@/hooks/useWorkoutRoutine';
 import { WorkoutPlayer } from '@/components/workout/player/WorkoutPlayer';
 import { buildRoutine } from '@/lib/routine';
 import type { RoutineItem, RoutineMeta, WorkoutFilters } from '@/types/workout';
-import { FIXTURE_EXERCISES, FIXTURE_MUSCLES, seeded, withFixtureTalks } from './fixtures';
+import { FIXTURE_EXERCISES, FIXTURE_MUSCLES, seeded } from './fixtures';
 
 /*
  * Development only: the real engine and the real player on fixture exercises. A small "Estados"
@@ -21,9 +21,9 @@ const FILTERS: WorkoutFilters = {
   includeWarmup: true,
 };
 
+// The engine picks the talks itself: two talks for three long rests, so one always goes without.
 function build(seed: number): { queue: RoutineItem[]; meta: RoutineMeta } {
-  const { queue, meta } = buildRoutine(FIXTURE_EXERCISES, FILTERS, seeded(seed));
-  return { queue: withFixtureTalks(queue), meta };
+  return buildRoutine(FIXTURE_EXERCISES, FILTERS, seeded(seed));
 }
 
 type Jump = { label: string; find: (item: RoutineItem) => boolean };
