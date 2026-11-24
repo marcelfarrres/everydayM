@@ -338,5 +338,5 @@ function CloudShip({ queue, currentIndex }: { queue: RoutineItem[]; currentIndex
   const height = useWindowHeight();
   const g = useMemo(() => widgetLayout(width).g, [width]);
   const hilo = blocksOf(queue).map((block) => block.series.map((serie) => serieState(serie.queueIndex, currentIndex)));
-  return <RocketFigure g={g} scale={Math.min(0.52 * height, 544) / g.W} upright flame hilo={hilo} />;
+  return <RocketFigure g={g} scale={Math.min(0.52 * height, 544) / g.W} upright flame={1} hilo={hilo} />;
 }

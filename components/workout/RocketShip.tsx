@@ -102,7 +102,7 @@ export function RocketFigure({
   g,
   scale = 1,
   upright = false,
-  flame = false,
+  flame = 0,
   hilo,
   className = '',
   style,
@@ -110,9 +110,10 @@ export function RocketFigure({
   g: ShipGeometry;
   scale?: number;
   upright?: boolean;
-  /** the engine burning (in flight) */
-  flame?: boolean;
+  /** the engine burning: 1 in flight, a little (0.2–0.4) while it waits to go; 0 off */
+  flame?: number;
   hilo?: StepState[][];
+  /** its position classes (relative by default) */
   className?: string;
   style?: CSSProperties;
 }) {
@@ -121,7 +122,7 @@ export function RocketFigure({
   return (
     <div
       aria-hidden="true"
-      className={`relative ${className}`}
+      className={className || 'relative'}
       style={{ width: (upright ? g.H : g.W) * k, height: (upright ? g.W : g.H) * k, ...style }}
     >
       <RocketShip
@@ -130,8 +131,8 @@ export function RocketFigure({
         className="absolute left-0 top-0"
         style={{ transform, transformOrigin: '0 0' }}
         behind={
-          flame ? (
-            <div className="absolute" style={flameBox(g)}>
+          flame > 0 ? (
+            <div data-rocket-flame="" className="absolute" style={{ ...flameBox(g), transform: `scale(${flame}, ${0.5 + flame / 2})` }}>
               <FlameDrawing />
             </div>
           ) : undefined
@@ -140,3 +141,6 @@ export function RocketFigure({
     </div>
   );
 }
+
+/** A box of the lying rocket's drawing (its hilo's room, say) in the pixels of a figure `k` times its size. */
+export const scaledBox = (b: Box, k: number): CSSProperties => ({ left: b.left * k, top: b.top * k, width: (b.right - b.left) * k, height: (b.bottom - b.top) * k });

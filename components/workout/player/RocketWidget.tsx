@@ -41,6 +41,7 @@ import {
   type Flight,
   type Sink,
 } from '@/components/workout/rocketFlight';
+import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { RoutineItem } from '@/types/workout';
 import { SeriesList } from './SeriesList';
@@ -448,7 +449,8 @@ function useRocketFlight({
     if (!el.flight || !el.sink || !el.squash || !el.flame || !el.pod || !el.puffs || !el.water) return;
 
     let next: Flight;
-    if (!prev) next = arrival(now);
+    // (coming from "Empezar", it arrives once the creator's rocket has gone: see rocketHandoff)
+    if (!prev) next = arrival(now + arrivalDelay(now));
     else if (ending && !prev.ending) next = nextFlight(flight.current, 'end', now);
     else if (!ending && cloudKey !== prev.cloudKey && !reduced) next = nextFlight(flight.current, 'clouds', now);
     else if (!ending && (prev.ending || queue !== prev.queue)) next = nextFlight(flight.current, 'show', now);

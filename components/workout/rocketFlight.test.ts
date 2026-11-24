@@ -8,6 +8,10 @@ import {
   CLOUD_TIMING,
   FLIGHT,
   FOLD_AT,
+  HOP,
+  LAUNCH_OFFSCREEN_AT,
+  launchKeyframes,
+  riseKeyframes,
   PARKED,
   PARKED_AFTER_CLOUDS_MS,
   PARKED_POSE,
@@ -386,6 +390,9 @@ describe('ignition', () => {
   });
 });
 
+// (the routine creator's tilt, as CreatorRocket's CREATOR.tilt: a client module, not imported here)
+const CREATOR_TILT = -12;
+
 describe('poses', () => {
   const fns = (transform: string) => transform.match(/[a-zA-Z0-9]+(?=\()/g)?.filter((f) => f !== 'calc');
 
@@ -403,6 +410,22 @@ describe('poses', () => {
       const offsets = keys.map((k) => k.offset);
       expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
     });
+  });
+
+  it("launch the routine creator's rocket the same way, from its tilt, straight out of the top", () => {
+    const keys = launchKeyframes(CREATOR_TILT);
+    keys.forEach((k) => expect(fns(k.transform)).toEqual(fns(PARKED_POSE)));
+    expect(keys[0]).toMatchObject({ offset: 0, opacity: 1 });
+    expect(keys[0].transform).toContain(`rotateZ(${CREATOR_TILT}deg)`);
+    expect(keys.at(-1)).toMatchObject({ offset: 1, opacity: 0 });
+    // nose up from the turn on, and out of the top at LAUNCH_OFFSCREEN_AT, still opaque
+    keys.filter((k) => k.offset >= LAUNCH_OFFSCREEN_AT - 0.3).forEach((k) => expect(k.transform).toContain('rotateZ(-90deg)'));
+    expect(keys.find((k) => Math.abs(k.offset - LAUNCH_OFFSCREEN_AT) < 0.002)).toMatchObject({ opacity: 1 });
+    expect(keys.find((k) => Math.abs(k.offset - LAUNCH_OFFSCREEN_AT) < 0.002)?.transform).toContain('-100vh');
+    // a hop between two questions, out and back up, stays within about 0.7 s
+    expect(HOP.hopMs * LAUNCH_OFFSCREEN_AT + HOP.riseMs).toBeLessThanOrEqual(750);
+    // and the next rocket rises from below into its tilt
+    expect(riseKeyframes(CREATOR_TILT).at(-1)?.transform).toBe(`translateY(0px) rotate(${CREATOR_TILT}deg)`);
   });
 
   it('turns the apparent size into depth', () => {

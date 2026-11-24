@@ -486,15 +486,52 @@ export const TAKEOFF_OFFSCREEN_AT = 0.92;
  * stretched, never smaller and never fading on screen. (Its middle is parked about 35 px above
  * the bottom; "100vh + 400px" up takes even a tablet's rocket and its flame out of the top.)
  */
-export const TAKEOFF_KEYFRAMES: FlightKeyframe[] = [
-  { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'linear' },
-  { offset: FOLD_AT, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.33, 0, 0.3, 1)' },
-  { offset: ANTICIPATION_AT, transform: pose({ x: '-6px', y: '4px', rz: 4, sx: 0.9, sy: 1.16 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.4, 1)' },
-  { offset: UPRIGHT_AT, transform: pose({ y: '-150px', rz: -90, sx: 1.05, sy: 0.95 }), opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.85, 0.5)' },
-  { offset: 0.74, transform: pose({ y: '-35vh - 160px', rz: -90, sx: 1.1, sy: 0.9 }), opacity: 1, easing: 'linear' },
-  { offset: TAKEOFF_OFFSCREEN_AT, transform: pose({ y: '-100vh - 400px', rz: -90, sx: 1.1, sy: 0.9 }), opacity: 1, easing: 'linear' },
-  { offset: 1, transform: pose({ y: '-100vh - 560px', rz: -90, sx: 1.1, sy: 0.9 }), opacity: 0 },
+const TAKEOFF_POSES: { offset: number; pose: Pose; opacity: number; easing?: string }[] = [
+  { offset: 0, pose: {}, opacity: 1, easing: 'linear' },
+  { offset: FOLD_AT, pose: {}, opacity: 1, easing: 'cubic-bezier(0.33, 0, 0.3, 1)' },
+  { offset: ANTICIPATION_AT, pose: { x: '-6px', y: '4px', rz: 4, sx: 0.9, sy: 1.16 }, opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.4, 1)' },
+  { offset: UPRIGHT_AT, pose: { y: '-150px', rz: -90, sx: 1.05, sy: 0.95 }, opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.85, 0.5)' },
+  { offset: 0.74, pose: { y: '-35vh - 160px', rz: -90, sx: 1.1, sy: 0.9 }, opacity: 1, easing: 'linear' },
+  { offset: TAKEOFF_OFFSCREEN_AT, pose: { y: '-100vh - 400px', rz: -90, sx: 1.1, sy: 0.9 }, opacity: 1, easing: 'linear' },
+  { offset: 1, pose: { y: '-100vh - 560px', rz: -90, sx: 1.1, sy: 0.9 }, opacity: 0 },
 ];
+
+export const TAKEOFF_KEYFRAMES: FlightKeyframe[] = TAKEOFF_POSES.map(({ pose: p, ...k }) => ({ ...k, transform: pose(p) }));
+
+/**
+ * The same takeoff for a rocket with nothing to fold (the routine creator's): it starts with the
+ * crouch, from a rocket tilted `tilt` degrees (negative: nose up), and climbs out of the top the
+ * same way. Play it as fast as the moment needs: its shape doesn't change.
+ */
+export function launchKeyframes(tilt = 0): FlightKeyframe[] {
+  const span = 1 - FOLD_AT;
+  return TAKEOFF_POSES.filter((k) => k.offset >= FOLD_AT).map(({ pose: p, offset, ...k }) => ({
+    ...k,
+    offset: Math.round(((offset - FOLD_AT) / span) * 1000) / 1000,
+    transform: pose({ ...p, rz: (p.rz ?? 0) + (offset < UPRIGHT_AT ? tilt : 0) }),
+  }));
+}
+
+/** The routine creator's rocket comes (back) up from below the screen into its place, tilted `tilt` degrees. */
+export function riseKeyframes(tilt = 0) {
+  return [
+    { offset: 0, transform: `translateY(70vh) rotate(${num(tilt - 8)}deg)`, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
+    { offset: 0.72, transform: `translateY(-8px) rotate(${num(tilt + 1.5)}deg)`, easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
+    { offset: 1, transform: `translateY(0px) rotate(${num(tilt)}deg)` },
+  ];
+}
+
+/** The routine creator's hops: one rocket leaves (LAUNCH) and the next comes up (RISE) once it is out of sight. */
+export const HOP = {
+  /** sending the sentence, and "Empezar": the full climb */
+  launchMs: TAKEOFF_MS - FLIGHT.foldMs,
+  /** from one question to the next: the same climb, faster (the tap has already acted) */
+  hopMs: 480,
+  riseMs: 300,
+} as const;
+
+/** The part of `launchKeyframes` after which the rocket is out of the top of the screen. */
+export const LAUNCH_OFFSCREEN_AT = (TAKEOFF_OFFSCREEN_AT - FOLD_AT) / (1 - FOLD_AT);
 
 export const AWAY_POSE = TAKEOFF_KEYFRAMES[TAKEOFF_KEYFRAMES.length - 1];
 

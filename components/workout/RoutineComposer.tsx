@@ -4,9 +4,11 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from 'react';
 import { AnimatePresence, animate, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, ChevronLeft, Mic, Play, SlidersHorizontal } from 'lucide-react';
@@ -17,6 +19,12 @@ import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types
 import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import { Hilo } from '@/components/workout/player/Hilo';
+import { useRocketWidth } from '@/components/workout/player/hooks';
+import { CREATOR, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
+import { RocketFigure } from '@/components/workout/RocketShip';
+import { HOP, riseKeyframes } from '@/components/workout/rocketFlight';
+import { launchedUntil } from '@/components/workout/rocketHandoff';
+import { SHIP } from '@/components/workout/rocketShape';
 import type {
   Exercise,
   MuscleId,
@@ -209,6 +217,21 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const minutesRef = useRef<HTMLSpanElement>(null);
   const intentRef = useRef<Promise<RoutineIntent> | null>(null);
 
+  // Phone: the rocket (CreatorRocket). The bar of the sentence is its body; at each question and
+  // at "Empezar" it waits to be tapped. `hop`: how long the next one waits to come up (the last
+  // one is still flying out).
+  const barRef = useRef<HTMLDivElement>(null);
+  const waitRef = useRef<HTMLElement | null>(null);
+  const startRef = useRef<HTMLElement | null>(null);
+  const [hop, setHop] = useState(0);
+  const [barRises, setBarRises] = useState(false);
+  const rocketWidth = useRocketWidth();
+  const barK = CREATOR.barScale;
+  // the bar bleeds 8 px into the side margins, and its flame room a little further to the left
+  const barPx = rocketWidth - 12;
+  const hang = (SHIP.FLAME_ROOM - 4) * barK;
+  const barShip = useCreatorShip(barPx + hang, barK);
+
   const speechSupported = useSyncExternalStore(
     subscribeNoop,
     () => Boolean(getSpeechRecognition()),
@@ -269,9 +292,21 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     return () => controls.stop();
   }, [counting, minutes, reducedMotion]);
 
+  // Back to the sentence ("Cambiar"): the bar comes back up from below.
+  useLayoutEffect(() => {
+    const node = barRef.current;
+    if (view !== 'ask' || !barRises || !node || window.matchMedia('(min-width: 64rem)').matches) return;
+    const rise = reducedMotion
+      ? node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200 })
+      : node.animate(riseKeyframes(0), { duration: HOP.riseMs });
+    return () => rise.cancel();
+  }, [view, barRises, reducedMotion]);
+
   const submit = (raw: string) => {
     const prompt = raw.trim();
     if (!prompt) return;
+    // the bar takes off with the sentence (phone); the next step is already here
+    setHop(launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }));
     recognitionRef.current?.stop();
     setError('');
     setText(prompt);
@@ -292,7 +327,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     void build({});
   };
 
+  /** The waiting rocket of a question flies off: a short hop to the next one, the full climb at the last. */
+  const launchQuestion = (last: boolean) =>
+    setHop(launchRocket(waitRef.current, { ms: last ? HOP.launchMs : HOP.hopMs, tilt: CREATOR.tilt }));
+
   const answer = (patch: Partial<RoutineIntent>) => {
+    launchQuestion(asked + 1 >= questions.length);
     const next = { ...answers, ...patch };
     setAnswers(next);
     setAsked(asked + 1);
@@ -353,7 +393,16 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       clip.currentTime = 0; // back to the still first frame
     }
     setClipDone(false);
+    setBarRises(true);
     setView('ask');
+  };
+
+  // "Empezar": the rocket takes off, and the player's rocket arrives for the warm-up once it has gone.
+  const start = () => {
+    if (!built || !intent) return;
+    const gone = launchRocket(startRef.current, { ms: HOP.launchMs, tilt: CREATOR.tilt });
+    if (gone > 0) launchedUntil(performance.now() + gone);
+    onStart(built.queue, built.meta, intent, text);
   };
 
   /** The routine these minutes would give, as "3 bloques de 5 series" (fixed seed: no reshuffle while dragging). */
@@ -439,6 +488,20 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // The clip ends on the very photo the muscles are painted on, so the laser only adds colour.
   const scanned = view === 'result' && stage >= 1 && clipDone;
   const scanning = scanned && stage === 1;
+
+  // Phone: where the field, the microphone and "send" sit on the rocket (its hilo's room, and the
+  // base of its nose for "send"), as CSS variables the bar's `max-lg:` classes read.
+  const textLeft = barShip.content.left * barK - hang;
+  const micLeft = barShip.content.right * barK - hang - (speechSupported ? 44 : 0);
+  const barVars = {
+    '--bar-h': `${barShip.H * barK}px`,
+    '--fig-l': `${-hang}px`,
+    '--txt-l': `${textLeft}px`,
+    '--txt-w': `${micLeft - textLeft}px`,
+    '--mic-l': `${micLeft}px`,
+    '--send-l': `${(barShip.xs + 16) * barK - hang - 22}px`,
+    '--ctl-t': `${barShip.cy * barK - 22}px`,
+  } as CSSProperties;
 
   return (
     <div className="relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row">
@@ -532,7 +595,18 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             ¿Qué entrenamos hoy?
           </motion.h1>
 
-          <div className="flex items-end gap-2 rounded-[28px] bg-white p-2 pl-5 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.35)]">
+          {/* on a phone the bar is the rocket: the field is its body, "send" sits in its nose */}
+          <div
+            ref={barRef}
+            style={barVars}
+            className="flex items-end gap-2 rounded-[28px] bg-white p-2 pl-5 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.35)] max-lg:relative max-lg:-mx-2 max-lg:block max-lg:h-[var(--bar-h)] max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none"
+          >
+            <RocketFigure
+              g={barShip}
+              scale={barK}
+              flame={text.trim() ? 0.3 : 0}
+              className="pointer-events-none absolute left-[var(--fig-l)] top-0 lg:hidden"
+            />
             <label htmlFor="routine-prompt" className="sr-only">
               Describe tu rutina
             </label>
@@ -549,7 +623,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 }
               }}
               placeholder="Hombros, 20 minutos"
-              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none"
+              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--ctl-t)] max-lg:h-11 max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-auto max-lg:overflow-y-hidden max-lg:whitespace-pre max-lg:rounded-lg max-lg:py-0 max-lg:leading-[44px] max-lg:[field-sizing:fixed] max-lg:[scrollbar-width:none] max-lg:focus-visible:bg-ink/[0.04]"
             />
             {speechSupported && (
               <button
@@ -557,9 +631,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 onClick={toggleVoice}
                 aria-pressed={listening}
                 aria-label={listening ? 'Parar de escuchar' : 'Dictar por voz'}
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${focusRing} ${
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${focusRing} max-lg:absolute max-lg:left-[var(--mic-l)] max-lg:top-[var(--ctl-t)] max-lg:h-11 max-lg:w-11 ${
                   listening
-                    ? 'animate-pulse bg-heat text-white'
+                    ? 'animate-pulse bg-heat text-white max-lg:bg-transparent max-lg:text-heat'
                     : 'text-ink/70 hover:bg-ink/10 hover:text-ink'
                 }`}
               >
@@ -570,9 +644,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               type="submit"
               disabled={!text.trim()}
               aria-label="Crear rutina"
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-ink text-white transition-[transform,opacity] hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 ${focusRing}`}
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-ink text-white transition-[transform,opacity] hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 ${focusRing} max-lg:absolute max-lg:left-[var(--send-l)] max-lg:top-[var(--ctl-t)] max-lg:h-11 max-lg:w-11 max-lg:bg-transparent`}
             >
-              <ArrowUp className="h-5 w-5" strokeWidth={2.6} aria-hidden="true" />
+              {/* (on a phone, a smaller ink disc in the base of the nose; on a computer the button itself is the disc) */}
+              <span className="contents max-lg:flex max-lg:h-7 max-lg:w-7 max-lg:items-center max-lg:justify-center max-lg:rounded-full max-lg:bg-ink">
+                <ArrowUp className="h-5 w-5 max-lg:h-4 max-lg:w-4" strokeWidth={2.6} aria-hidden="true" />
+              </span>
             </button>
           </div>
 
@@ -632,7 +709,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                         type="button"
                         whileTap={{ scale: 0.97 }}
                         onClick={() => answer({ targetMinutes: draftMinutes })}
-                        className={`flex h-16 items-center justify-center rounded-full bg-ink text-xl font-semibold text-white ${focusRing}`}
+                        className={`flex h-16 items-center justify-center rounded-full bg-ink text-xl font-semibold text-white ${focusRing} max-lg:hidden`}
                       >
                         Seguir
                       </motion.button>
@@ -658,9 +735,23 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 </motion.div>
               ))}
           </AnimatePresence>
+          {/* phone: the rocket waits for the tap; on the minutes it is the "Seguir" button */}
+          {questions[asked] && (
+            <WaitingRocket
+              key={asked}
+              ref={waitRef}
+              riseDelay={hop}
+              {...(questions[asked].id === 'minutes'
+                ? { label: 'Seguir', onClick: () => answer({ targetMinutes: draftMinutes }) }
+                : {})}
+            />
+          )}
           <button
             type="button"
-            onClick={() => void build(answers)}
+            onClick={() => {
+              launchQuestion(true);
+              void build(answers);
+            }}
             className={`self-start rounded-full text-[15px] font-medium text-ink/55 underline decoration-ink/25 underline-offset-4 hover:text-ink ${focusRing}`}
           >
             Saltar, decide tú
@@ -834,12 +925,24 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
                 <button
                   type="button"
-                  onClick={() => onStart(built.queue, built.meta, intent, text)}
-                  className={`flex h-16 items-center justify-center gap-3 rounded-full bg-ink text-xl font-semibold text-white shadow-[0_22px_40px_-22px_rgba(0,0,0,0.6)] transition-transform hover:scale-[1.02] active:scale-[0.98] ${focusRing}`}
+                  onClick={start}
+                  className={`flex h-16 items-center justify-center gap-3 rounded-full bg-ink text-xl font-semibold text-white shadow-[0_22px_40px_-22px_rgba(0,0,0,0.6)] transition-transform hover:scale-[1.02] active:scale-[0.98] ${focusRing} max-lg:hidden`}
                 >
                   <Play className="h-5 w-5 fill-current" aria-hidden="true" />
                   Empezar
                 </button>
+                {/* phone: "Empezar" is the rocket, back from its last flight */}
+                <WaitingRocket
+                  ref={startRef}
+                  riseDelay={0}
+                  onClick={start}
+                  label={
+                    <>
+                      <Play className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
+                      Empezar
+                    </>
+                  }
+                />
               </motion.div>
             )}
           </AnimatePresence>
