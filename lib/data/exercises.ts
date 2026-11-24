@@ -1,8 +1,20 @@
+import type { MusicTrack } from '@/types/catalog';
 import type { Exercise, ExerciseTalk } from '@/types/workout';
 
 // The catalogue the Studio publishes next to the media: { version, updatedAt, exercises, music }.
-// Only what the routine needs is read here; unknown fields are ignored.
+// Only what the app needs is read here; unknown fields are ignored.
 const CATALOG_PATH = '/catalog/catalog.json';
+// Without NEXT_PUBLIC_MEDIA_BASE_URL, development reads the local media folder (app/dev-media).
+const DEV_MEDIA_BASE = '/dev-media';
+// One download serves everyone who asks within this window (the composer, the player's music,
+// "Repetir"…); after it, the next call reads the file again.
+const FRESH_MS = 30_000;
+
+/** What the public app reads from the catalogue. */
+export interface PublicCatalog {
+  exercises: Exercise[];
+  music: MusicTrack[]; // only enabled tracks
+}
 
 type Row = Record<string, unknown>;
 
@@ -48,6 +60,24 @@ function toExercise(value: unknown): Exercise | null {
   };
 }
 
+/** One playlist track, or null when it is switched off or has no file. */
+function toTrack(value: unknown): MusicTrack | null {
+  if (!isRow(value) || value.id == null || value.enabled === false) return null;
+  const audioUrl = text(value.audio_url);
+  if (!audioUrl) return null;
+  const duration = Number(value.duration_seconds);
+  return {
+    id: String(value.id),
+    title: text(value.title) ?? '',
+    artist: text(value.artist),
+    source_url: text(value.source_url),
+    license: text(value.license),
+    audio_url: audioUrl,
+    duration_seconds: Number.isFinite(duration) && duration > 0 ? duration : 0,
+    enabled: true,
+  };
+}
+
 /** Parses a catalogue body; broken entries are dropped instead of failing the whole list. */
 export function exercisesFromCatalog(body: unknown): Exercise[] {
   if (!isRow(body) || !Array.isArray(body.exercises)) {
@@ -56,17 +86,27 @@ export function exercisesFromCatalog(body: unknown): Exercise[] {
   return body.exercises.map(toExercise).filter((e): e is Exercise => e !== null);
 }
 
-/** Every exercise with its talks, read from the catalogue on the media host. */
-export async function fetchExercises(): Promise<Exercise[]> {
+/** The playlist: enabled tracks with a file. A catalogue without music is simply silent. */
+export function musicFromCatalog(body: unknown): MusicTrack[] {
+  if (!isRow(body) || !Array.isArray(body.music)) return [];
+  return body.music.map(toTrack).filter((t): t is MusicTrack => t !== null);
+}
+
+/** Where the media (and the catalogue) live, without a trailing slash. */
+export function mediaBaseUrl(): string {
   const base = process.env.NEXT_PUBLIC_MEDIA_BASE_URL?.trim().replace(/\/+$/, '');
-  if (!base) {
-    throw new Error('Falta NEXT_PUBLIC_MEDIA_BASE_URL: no se sabe dónde está el catálogo de ejercicios.');
-  }
+  if (base) return base;
+  if (process.env.NODE_ENV !== 'production') return DEV_MEDIA_BASE;
+  throw new Error('Falta NEXT_PUBLIC_MEDIA_BASE_URL: no se sabe dónde está el catálogo de ejercicios.');
+}
+
+async function downloadCatalog(): Promise<PublicCatalog> {
+  const base = mediaBaseUrl();
 
   let response: Response;
   try {
-    // Revalidate with the CDN each time: the Studio rewrites the file when a video is added.
-    response = await fetch(`${base}${CATALOG_PATH}`, { cache: 'no-cache' });
+    // Always the current file: the Studio rewrites it when a video or a track is added.
+    response = await fetch(`${base}${CATALOG_PATH}`, { cache: 'no-store' });
   } catch {
     throw new Error('No se ha podido descargar el catálogo de ejercicios. Revisa la conexión.');
   }
@@ -80,5 +120,35 @@ export async function fetchExercises(): Promise<Exercise[]> {
   } catch {
     throw new Error('El catálogo de ejercicios no es un JSON válido.');
   }
-  return exercisesFromCatalog(body);
+  return { exercises: exercisesFromCatalog(body), music: musicFromCatalog(body) };
+}
+
+let recent: { at: number; promise: Promise<PublicCatalog> } | null = null;
+
+/** The catalogue: one request shared by every caller within a few seconds; a failure is not kept. */
+export function fetchCatalog(): Promise<PublicCatalog> {
+  const now = Date.now();
+  if (recent && now - recent.at < FRESH_MS) return recent.promise;
+  const promise = downloadCatalog();
+  const entry = { at: now, promise };
+  recent = entry;
+  promise.catch(() => {
+    if (recent === entry) recent = null; // let the next attempt retry
+  });
+  return promise;
+}
+
+/** Forget the shared download (tests, or to force a fresh read). */
+export function clearCatalogCache(): void {
+  recent = null;
+}
+
+/** Every exercise with its talks, read from the catalogue on the media host. */
+export async function fetchExercises(): Promise<Exercise[]> {
+  return (await fetchCatalog()).exercises;
+}
+
+/** The enabled music tracks, from the same catalogue download. */
+export async function fetchMusic(): Promise<MusicTrack[]> {
+  return (await fetchCatalog()).music;
 }

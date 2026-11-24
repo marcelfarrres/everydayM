@@ -5,6 +5,7 @@ import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
+import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
 import { DesktopBackdrop } from './DesktopBackdrop';
@@ -28,10 +29,6 @@ export interface WorkoutPlayerProps {
   timeLeft: number;
   totalItemDuration: number;
   videoRef: RefObject<HTMLVideoElement | null>;
-  musicOn: boolean;
-  onToggleMusic: () => void;
-  musicVolume: number; // 0..1
-  onMusicVolume: (volume: number) => void;
   onExit: () => void;
   onNext: () => void;
   onPrev?: () => void;
@@ -57,10 +54,6 @@ export function WorkoutPlayer({
   timeLeft,
   totalItemDuration,
   videoRef,
-  musicOn,
-  onToggleMusic,
-  musicVolume,
-  onMusicVolume,
   onExit,
   onNext,
   onPrev,
@@ -118,6 +111,10 @@ export function WorkoutPlayer({
   }, [onTogglePause, handleNext, handlePrev]);
 
   useCountdownBeep(timeLeft, beepOn && !isPaused && kind !== 'outro');
+
+  // Background music: started in the "Empezar" tap, paused with the player, stopped on exit.
+  usePlayerMusic(isPaused);
+  const { music, setMuted, setVolume } = useMusicControls();
 
   // Entering a rest, the screen changes only once the clouds cover it; anywhere else at once.
   const enteringRest = kind === 'rest' && !reduced;
@@ -190,10 +187,11 @@ export function WorkoutPlayer({
       <PlayerMenu
         beepOn={beepOn}
         onToggleBeep={() => setBeepOn((on) => !on)}
-        musicOn={musicOn}
-        onToggleMusic={onToggleMusic}
-        musicVolume={musicVolume}
-        onMusicVolume={onMusicVolume}
+        musicAvailable={music.available}
+        musicOn={!music.muted}
+        onToggleMusic={() => setMuted(!music.muted)}
+        musicVolume={music.volume}
+        onMusicVolume={setVolume}
         onCreateClip={onOpenTiktok}
         onExit={onExit}
       />

@@ -25,6 +25,34 @@
 
 En Vercel nunca se configuran `STUDIO_ENABLED`, `BUNNY_STORAGE_KEY` ni `STUDIO_SESSION_SECRET`. Sin esas variables, el código del Estudio está en GitHub pero no funciona.
 
+## Sonido: música y vídeos hablados
+
+Cómo funciona (código en `lib/audio/`):
+
+- Al tocar **Empezar** se desbloquea todo lo que luego sonará, en el mismo toque (`unlockPlayerAudio`): se despierta el `AudioContext` compartido, arranca la música y se «ceba» el único `<video>` que reproduce todos los vídeos hablados (luego solo cambia su `src`). Un `<video>` nuevo con sonido sería rechazado en Safari del iPhone.
+- La música pasa por Web Audio (`<audio>` → `GainNode` → altavoz) porque el iPhone ignora `audio.volume`. Mientras suena un vídeo hablado, la música baja al 25 % con rampas de 0,3 s y vuelve al acabar.
+- Si el servidor de los archivos (Bunny) no envía cabeceras CORS, Web Audio no puede leerlos: la app lo detecta y toca la música directamente. Suena, pero **en iPhone el volumen y la bajada durante los vídeos hablados dejan de funcionar**. Por eso hay que activar CORS en la pull zone (ver `docs/MUDANZA-BUNNY.md`).
+- Con la pantalla bloqueada o la app en segundo plano, la música se para; al volver, sigue sola.
+- Silenciar y volumen están en «···» y se recuerdan en el dispositivo (`localStorage`).
+
+Configuración de la app (comprobado en `node_modules/@capacitor/ios`, Capacitor 8.6):
+
+- Capacitor ya crea el WebView con `allowsInlineMediaPlayback = true` (los vídeos no saltan a pantalla completa) y `mediaTypesRequiringUserActionForPlayback = []` (en la app, el audio y el vídeo con sonido pueden empezar sin toque). **No hace falta cambiar `capacitor.config.ts` ni el proyecto de Xcode, ni recompilar la app** por este cambio: llega con la web.
+- No se ha añadido el modo de fondo `audio` (`UIBackgroundModes` en `Info.plist`): la música no sigue con la pantalla bloqueada, a propósito (el entrenamiento también se para). Si algún día se quiere, hay que añadirlo en Xcode (Signing & Capabilities → Background Modes → Audio) y publicar una versión nueva.
+- El interruptor de silencio del iPhone: mientras suena la música o un vídeo hablado, el sistema usa la categoría de «reproducción» y se oye aunque el interruptor esté en silencio. El pitido de los últimos 3 s, si la música está silenciada, sí respeta el interruptor (como antes).
+
+Lo que solo se puede comprobar en un iPhone de verdad (Safari y la app):
+
+1. Crea una rutina y toca **Empezar** → la música suena en menos de 1 s.
+2. «···» → mueve **Volumen** → cambia el volumen (si no cambia, faltan las cabeceras CORS en Bunny).
+3. «···» → **Música** apagada → se calla en 0,3 s. Encendida → vuelve.
+4. Llega un descanso largo con vídeo hablado → cuando se abren las nubes se oye la voz y la música baja; al terminar, la música sube.
+5. Si en lugar de la voz aparece **Activar sonido**, tócalo → se oyen la voz y la música. (Que aparezca es el caso de reserva; anótalo.)
+6. Pausa → música y vídeo se paran; reanuda → siguen.
+7. Bloquea la pantalla 10 s y desbloquea → la música sigue sola (o con el primer toque).
+8. «···» → **Salir** → silencio total.
+9. Cierra y vuelve a abrir → el volumen y el silencio elegidos se mantienen.
+
 ## Probarla ya en tu iPhone (gratis, sin App Store)
 
 1. Conecta el iPhone al Mac por cable.

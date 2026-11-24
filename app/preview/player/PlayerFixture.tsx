@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 import { useWorkoutRoutine } from '@/hooks/useWorkoutRoutine';
 import { WorkoutPlayer } from '@/components/workout/player/WorkoutPlayer';
+import { getMusicEngine } from '@/lib/audio/music';
+import { unlockPlayerAudio } from '@/lib/audio/unlock';
 import { buildRoutine } from '@/lib/routine';
 import type { RoutineItem, RoutineMeta, WorkoutFilters } from '@/types/workout';
+import { fixtureMusic } from './fixtureMusic';
 import { FIXTURE_EXERCISES, FIXTURE_MUSCLES, seeded } from './fixtures';
 
 /*
@@ -42,11 +45,20 @@ export function PlayerFixture() {
   const [seed, setSeed] = useState(7);
   const [target, setTarget] = useState<number | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [musicOn, setMusicOn] = useState(false);
-  const [musicVolume, setMusicVolume] = useState(0.8);
+  const [withMusic, setWithMusic] = useState(true);
 
+  // The fixture playlist (or none, to see the silent player); the engine is reachable from the
+  // console as window.__music for checks.
+  useEffect(() => {
+    const engine = getMusicEngine();
+    engine?.setTracks(withMusic ? fixtureMusic() : []);
+    (window as unknown as { __music?: unknown }).__music = engine;
+  }, [withMusic]);
+
+  // Called from a tap ("Empezar", "Repetir"): sound is unlocked here, as in the app.
   const start = (nextSeed: number) => {
     const built = build(nextSeed);
+    unlockPlayerAudio({ queue: built.queue });
     setSeed(nextSeed);
     setTarget(null);
     startBuiltRoutine(built.queue, built.meta);
@@ -78,6 +90,10 @@ export function PlayerFixture() {
           <Play className="h-5 w-5 fill-current" aria-hidden="true" />
           Empezar
         </button>
+        <label className="flex min-h-11 items-center gap-2 text-[15px]">
+          <input type="checkbox" checked={withMusic} onChange={(e) => setWithMusic(e.target.checked)} className="h-4 w-4 accent-ink" />
+          Con música de prueba (sintetizada)
+        </label>
       </main>
     );
   }
@@ -94,10 +110,6 @@ export function PlayerFixture() {
         timeLeft={routine.timeLeft}
         totalItemDuration={routine.totalItemDuration}
         videoRef={routine.videoRef}
-        musicOn={musicOn}
-        onToggleMusic={() => setMusicOn((on) => !on)}
-        musicVolume={musicVolume}
-        onMusicVolume={setMusicVolume}
         onExit={() => routine.setStep('config')}
         onNext={nextItem}
         onPrev={prevItem}
