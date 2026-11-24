@@ -15,6 +15,20 @@ export function useLagged<T>(value: T, ms: number): T {
 }
 
 /**
+ * True for `ms` after `key` changes (never on mount, never when `enabled` is false): e.g. while
+ * the clouds of a rest that just began are still on screen.
+ */
+export function useBusyAfter(key: unknown, ms: number, enabled: boolean): boolean {
+  // The key whose busy time is over. Starts as the first key: nothing plays on mount.
+  const [settled, setSettled] = useState(key);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(key), enabled ? ms : 0);
+    return () => clearTimeout(t);
+  }, [key, ms, enabled]);
+  return enabled && settled !== key;
+}
+
+/**
  * Guards against accidental taps: for `ms` after `key` changes, `blocked()` is true.
  * A second tap on "next" must not land on "Saltar" of the rest that just appeared in the same
  * place, and nothing under the clouds can be pressed while they cover the screen.

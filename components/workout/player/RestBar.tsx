@@ -6,7 +6,7 @@ import { FOCUS, own } from './ui';
 /*
  * The bar during a rest: same size as while exercising, no hilo. It fills with blue water from
  * the bottom up, with a wave on the surface; full = the serie starts. "Descanso", the time,
- * "Luego: <ejercicio>" small, and "Saltar". No pause button.
+ * "Luego: <ejercicio>" small, and "Saltar". No pause button. On the narrowest phones (320 px, with\r\n * the mini preview at the left) the time and "Saltar" tighten their padding so "Descanso" fits whole.
  */
 
 // Water sits on the bar's dark fill; white text keeps >= 4.5:1 on both.
@@ -58,13 +58,13 @@ export function RestBar({
         </p>
         <div className="flex h-11 items-center gap-0.5">
           <p className="min-w-0 flex-1 truncate text-[16px] font-semibold leading-tight">Descanso</p>
-          <span role="timer" className="shrink-0 px-1.5 text-[21px] font-bold leading-none tabular-nums tracking-[-0.02em]">
+          <span role="timer" className="shrink-0 px-1 text-[21px] min-[360px]:px-1.5 font-bold leading-none tabular-nums tracking-[-0.02em]">
             {time}
           </span>
           <button
             type="button"
             onClick={own(onSkip)}
-            className={`flex h-11 shrink-0 items-center rounded-full px-4 text-[15px] font-semibold ring-1 ring-white/80 ring-inset ${FOCUS}`}
+            className={`flex h-11 shrink-0 items-center rounded-full px-3 text-[15px] min-[360px]:px-4 font-semibold ring-1 ring-white/80 ring-inset ${FOCUS}`}
           >
             Saltar
           </button>

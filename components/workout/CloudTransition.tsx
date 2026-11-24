@@ -38,10 +38,14 @@ const STAGGER_S = 0.07;
 const HOLD_MS = TALK_LEAD_MS - CLOSE_MS - STAGGER_S * 1000;
 const OPEN_S = 1.6;
 
-/** When the screen is fully covered, and when the clouds start to open (ms after `playKey` changes). */
+/**
+ * When the screen is fully covered, when the clouds start to open, and when the layer is gone
+ * again (rocket and clouds off screen), in ms after `playKey` changes.
+ */
 export const CLOUDS = {
   coveredMs: CLOSE_MS + 100,
   openingMs: TALK_LEAD_MS,
+  clearMs: TALK_LEAD_MS + OPEN_S * 1000 + 100,
 } as const;
 
 type Layer = { src: string; side: 'l' | 'r'; top: string; left: string; flip?: boolean };

@@ -13,7 +13,7 @@ import { PlayerMenu } from './PlayerMenu';
 import { PlayerWidget } from './PlayerWidget';
 import { RestFrame } from './RestFrame';
 import { Stage } from './Stage';
-import { useCountdownBeep, useLagged } from './hooks';
+import { useBusyAfter, useCountdownBeep, useLagged } from './hooks';
 import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter } from './model';
 
 /*
@@ -68,7 +68,6 @@ export function WorkoutPlayer({
 }: WorkoutPlayerProps) {
   const reduced = Boolean(useReducedMotion());
   const [beepOn, setBeepOn] = useState(true);
-  const [listOpen, setListOpen] = useState(false);
   const kind = currentItem?.kind;
 
   // A skip stops the clip at once, so it can't tick the clock of the next moment.
@@ -127,6 +126,16 @@ export function WorkoutPlayer({
   // The clouds play each time a rest begins.
   let cloudKey = currentIndex;
   while (cloudKey >= 0 && queue[cloudKey]?.kind !== 'rest') cloudKey--;
+
+  // The list belongs to the stretch between two rests: a new rest closes it, and it can't open
+  // while the clouds and the rocket are still on screen (they are drawn above the widget).
+  const clouding = useBusyAfter(cloudKey, CLOUDS.clearMs, !reduced);
+  const [listKey, setListKey] = useState<number | null>(null);
+  const listOpen = listKey === cloudKey && !clouding;
+  const setListOpen = useCallback(
+    (open: boolean) => setListKey(open && !clouding ? cloudKey : null),
+    [clouding, cloudKey],
+  );
   const label = cloudLabel(currentItem);
   const total = totalSeconds ?? meta?.totalSeconds ?? 0;
 
@@ -136,8 +145,10 @@ export function WorkoutPlayer({
   const ring = displayItem && displayItem.kind !== 'outro' ? RING[displayItem.kind] : RING.workout;
   const frameStyle = { '--ring': ring, '--p': itemProgress } as CSSProperties;
 
-  // Warm up the next clip so it is ready by the time it plays.
-  const upNext = nextExerciseAfter(queue, currentIndex);
+  // Warm up the next clip so it is ready by the time it plays. Not during a rest: the rest
+  // already plays that clip (full screen or in the bar), and a phone should decode two videos
+  // at most (a talk plus the bar's preview).
+  const upNext = kind === 'rest' ? undefined : nextExerciseAfter(queue, currentIndex);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">

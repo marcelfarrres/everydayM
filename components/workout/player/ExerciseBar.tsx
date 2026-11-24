@@ -38,14 +38,16 @@ export function ExerciseBar({
   const icon = `flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${FOCUS}`;
   return (
     <div className="flex h-full flex-col justify-between">
-      {/* row 1: a real button for keyboards and screen readers; a tap anywhere else on the bar does the same */}
+      {/* row 1: a real button for keyboards and screen readers; a tap anywhere else on the bar does the same.
+          44 px tall but laid out as 24: it reaches up to the bar's top edge and 10 px under row 2,
+          which is drawn above it, so row 2's buttons keep their own taps. */}
       <button
         type="button"
         onClick={own(onToggleList)}
         aria-expanded={listOpen}
         aria-controls={listId}
         aria-label={listOpen ? 'Cerrar la rutina' : 'Ver la rutina'}
-        className={`-mx-1 flex h-6 items-center gap-3 rounded-md px-1 ${FOCUS}`}
+        className={`-mx-1 -my-2.5 flex h-11 items-center gap-3 rounded-md px-1 ${FOCUS}`}
       >
         <Hilo blocks={hilo} className="flex-1" />
         <ChevronUp
@@ -54,7 +56,7 @@ export function ExerciseBar({
         />
       </button>
 
-      <div className="flex h-11 items-center gap-0.5">
+      <div className="relative flex h-11 items-center gap-0.5">
         <p className="min-w-0 flex-1 truncate text-[16px] font-semibold leading-tight">{name}</p>
         <span role="timer" className="shrink-0 px-1.5 text-[21px] font-bold leading-none tabular-nums tracking-[-0.02em]">
           {time}
