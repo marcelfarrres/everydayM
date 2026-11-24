@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Loader2, Play, X } from 'lucide-react';
 import { useWorkoutRoutine } from '@/hooks/useWorkoutRoutine';
@@ -10,30 +10,9 @@ import { RoutineComposer } from '@/components/workout/RoutineComposer';
 import { TiktokExport } from '@/components/workout/TiktokExport';
 import { DifficultyScale } from '@/components/ui/DifficultyScale';
 import { NumberStepper } from '@/components/ui/NumberStepper';
-import type { PlaylistTrack, RoutineIntent, RoutineItem, RoutineMeta } from '@/types/workout';
-
-const PLAYLIST: PlaylistTrack[] = [
-  {
-    id: 0,
-    label: 'Electro Energético',
-    url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=workout-energetic-electro-pop-112199.mp3',
-  },
-  {
-    id: 1,
-    label: 'Phonk Intenso',
-    url: 'https://cdn.pixabay.com/download/audio/2022/10/06/audio_ff1461ff25.mp3?filename=phonk-workout-121852.mp3',
-  },
-  {
-    id: 2,
-    label: 'Cyberpunk',
-    url: 'https://cdn.pixabay.com/download/audio/2023/11/19/audio_d07a976fcc.mp3?filename=cyberpunk-workout-175510.mp3',
-  },
-  {
-    id: 3,
-    label: 'Hip Hop Beats',
-    url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8b81757ac.mp3?filename=hip-hop-workout-102555.mp3',
-  },
-];
+import { unlockPlayerAudio } from '@/lib/audio/unlock';
+import { useCatalogMusic } from '@/lib/audio/useMusic';
+import type { RoutineIntent, RoutineItem, RoutineMeta } from '@/types/workout';
 
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
 
@@ -65,40 +44,25 @@ export function Home({ studio }: { studio: boolean }) {
     handleVideoTimeUpdate,
   } = useWorkoutRoutine();
 
-  const [currentTrackId, setCurrentTrackId] = useState(0);
-  const [musicPlaying, setMusicPlaying] = useState(false);
-  const [musicVolume, setMusicVolume] = useState(0.8);
   const [tiktokOpen, setTiktokOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
 
   const lastIntentRef = useRef<RoutineIntent | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const studioDialogRef = useRef<HTMLDialogElement | null>(null);
 
-  // Background music (off by default: TikTok adds its own sound)
-  useEffect(() => {
-    const bgAudio = audioRef.current;
-    if (!bgAudio) return;
-    if (step === 'player' && musicPlaying && !isPaused) {
-      bgAudio.play().catch(() => {});
-    } else {
-      bgAudio.pause();
-      if (step === 'config') bgAudio.currentTime = 0;
-    }
-  }, [step, musicPlaying, isPaused, currentTrackId]);
+  // The playlist comes with the catalogue, so the music can start in the "Empezar" tap.
+  useCatalogMusic();
 
-  // Volume from the player's menu. (iPhone ignores it; the audio engine will use a GainNode.)
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = musicVolume;
-  }, [musicVolume]);
-
+  // Runs inside the "Empezar" tap (RoutineComposer calls it synchronously): sound is unlocked here.
   const handleStartPrepared = (builtQueue: RoutineItem[], builtMeta: RoutineMeta, intent: RoutineIntent, text: string) => {
+    unlockPlayerAudio({ queue: builtQueue });
     lastIntentRef.current = intent;
     setPrompt(text);
     startBuiltRoutine(builtQueue, builtMeta);
   };
 
   const handleRepeatRoutine = () => {
+    unlockPlayerAudio({ startMusic: false }); // the "Repetir" tap; the new routine is built after an await
     if (lastIntentRef.current) {
       void generateFromIntent(lastIntentRef.current);
       return;
@@ -117,12 +81,6 @@ export function Home({ studio }: { studio: boolean }) {
 
   return (
     <main className="relative min-h-dvh bg-paper text-ink selection:bg-ink selection:text-white">
-      <audio
-        ref={audioRef}
-        src={PLAYLIST[currentTrackId].url}
-        onEnded={() => setCurrentTrackId((prev) => (prev + 1) % PLAYLIST.length)}
-      />
-
       {studio && <TiktokExport open={tiktokOpen} onClose={() => setTiktokOpen(false)} queue={queue} meta={meta} prompt={prompt} />}
 
       {step === 'config' ? (
@@ -170,6 +128,7 @@ export function Home({ studio }: { studio: boolean }) {
                 </summary>
                 <form
                   onSubmit={(e) => {
+                    unlockPlayerAudio({ startMusic: false }); // the routine may still fail: music starts with the player
                     void generateWorkout(e);
                   }}
                   className="mt-4 space-y-4"
@@ -225,10 +184,6 @@ export function Home({ studio }: { studio: boolean }) {
           timeLeft={timeLeft}
           totalItemDuration={totalItemDuration}
           videoRef={videoRef}
-          musicOn={musicPlaying}
-          onToggleMusic={() => setMusicPlaying((prev) => !prev)}
-          musicVolume={musicVolume}
-          onMusicVolume={setMusicVolume}
           onExit={() => setStep('config')}
           onNext={nextItem}
           onPrev={prevItem}

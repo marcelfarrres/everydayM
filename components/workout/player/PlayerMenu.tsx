@@ -23,6 +23,7 @@ function Switch({ on }: { on: boolean }) {
 export function PlayerMenu({
   beepOn,
   onToggleBeep,
+  musicAvailable,
   musicOn,
   onToggleMusic,
   musicVolume,
@@ -32,6 +33,7 @@ export function PlayerMenu({
 }: {
   beepOn: boolean;
   onToggleBeep: () => void;
+  musicAvailable: boolean; // false: the catalogue has no tracks yet
   musicOn: boolean;
   onToggleMusic: () => void;
   musicVolume: number; // 0..1
@@ -39,6 +41,7 @@ export function PlayerMenu({
   onCreateClip?: () => void;
   onExit: () => void;
 }) {
+  const musicNoteId = useId();
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -92,11 +95,24 @@ export function PlayerMenu({
             Pitido en los últimos 3 s
             <Switch on={beepOn} />
           </button>
-          <button type="button" role="switch" aria-checked={musicOn} onClick={onToggleMusic} className={row}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={musicAvailable && musicOn}
+            aria-describedby={musicAvailable ? undefined : musicNoteId}
+            disabled={!musicAvailable}
+            onClick={onToggleMusic}
+            className={`${row} disabled:opacity-45 disabled:hover:bg-transparent`}
+          >
             Música
-            <Switch on={musicOn} />
+            <Switch on={musicAvailable && musicOn} />
           </button>
-          <label className={`flex min-h-11 items-center gap-3 px-3 ${musicOn ? '' : 'opacity-45'}`}>
+          {!musicAvailable && (
+            <p id={musicNoteId} className="px-3 pb-1 text-[13px] leading-snug text-ink/70">
+              Aún no hay canciones.
+            </p>
+          )}
+          <label className={`flex min-h-11 items-center gap-3 px-3 ${musicAvailable && musicOn ? '' : 'opacity-45'}`}>
             <span className="text-[13px] text-ink/70">Volumen</span>
             <input
               type="range"
@@ -104,7 +120,7 @@ export function PlayerMenu({
               max={1}
               step={0.05}
               value={musicVolume}
-              disabled={!musicOn}
+              disabled={!musicAvailable || !musicOn}
               onChange={(e) => onMusicVolume(Number(e.target.value))}
               aria-label="Volumen de la música"
               className="h-11 min-w-0 flex-1 accent-ink"
