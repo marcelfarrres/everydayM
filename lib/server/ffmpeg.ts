@@ -81,7 +81,7 @@ export interface TranscodeOptions {
   keepAudio: boolean;
   /** Bring the voice to about -16 LUFS (talks). Only applies when keepAudio is true. */
   normalizeLoudness?: boolean;
-  /** Reject outputs this big or bigger (Supabase Free: 50 MB). null/undefined = no limit. */
+  /** Reject outputs this big or bigger. null/undefined = no limit. */
   maxBytes?: number | null;
 }
 
