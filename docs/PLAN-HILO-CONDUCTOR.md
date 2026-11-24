@@ -88,7 +88,8 @@ Qué hacer: quitar el blur animado; como mucho 4 capas de nubes; texturas reesca
 
 ## 6. Estudio y consumo
 
-- **Alojamiento de medios: Bunny (Storage + CDN) en prepago**, decidido el 24-11-2026. Motivo: Supabase gratis solo da 1 GB / 5 GB al mes y ha bloqueado el proyecto (402); Bunny permite un techo de gasto real (saldo prepago, recarga automática desactivada y tope mensual de GB en la pull zone). Vídeos, versiones ligeras, miniaturas y música van a Bunny. **La base de datos se queda en Supabase gratis.** Las columnas siguen guardando la URL completa; la mudanza de lo existente es un `UPDATE … replace()`.
+- **Alojamiento de medios: Bunny (Storage + CDN) en prepago**, decidido el 24-11-2026. Motivo: Supabase gratis solo da 1 GB / 5 GB al mes y ha bloqueado el proyecto (402); Bunny permite un techo de gasto real (saldo prepago, recarga automática desactivada y tope mensual de GB en la pull zone). Vídeos, versiones ligeras, miniaturas y música van a Bunny.
+- **Sin base de datos** (decidido el 24-11-2026): Supabase pausó el proyecto y no se reanuda. Los datos (ejercicios con sus vídeos hablados, y la música) son un único archivo, `catalog/catalog.json`, en el mismo almacenamiento: `{ version, updatedAt, exercises[], music[] }`. La app pública solo lo lee; solo el Estudio lo escribe, guardando copia fechada antes de cada cambio. La mudanza de lo existente parte de las dos copias descargadas de Supabase (objetos y volcado de la base de datos) y la hace `scripts/migrate-media.mjs`.
 - Variables de entorno nuevas (vacías en `.env.example`, valores solo en `.env.local`): `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_HOST`, `BUNNY_STORAGE_KEY` (solo servidor) y `NEXT_PUBLIC_MEDIA_BASE_URL` (URL pública de la pull zone).
 - Al subir un vídeo se guardan tres cosas: **original** (1080 de ancho, para exportar), **versión ligera** (720 de ancho, ~8–12 MB, la que reproduce la app) y **miniatura** (captura de la mitad del clip, ~30 KB).
 - El Estudio enseña solo miniaturas y textos; un vídeo se descarga únicamente al abrirlo.
@@ -119,7 +120,10 @@ Qué hacer: quitar el blur animado; como mucho 4 capas de nubes; texturas reesca
 
 ## 8. Arquitectura
 
-### 8.1 Datos (migraciones nuevas en `supabase/migrations/`)
+### 8.1 Datos
+
+> Sustituido por el catálogo JSON de §6. Las tablas descritas abajo quedan solo como referencia de los campos; las migraciones de noviembre no se aplican y Supabase se retira del proyecto al integrar.
+
 - `exercises`: añadir `video_lite_url text null`, `poster_url text null`. Ojo: el tipo de `exercises.id` no aparece en ninguna migración; comprobarlo antes de crear claves ajenas.
 - Tabla `exercise_talks`: `id`, `exercise_id` (FK, borrado en cascada), `video_url`, `video_lite_url`, `poster_url`, `duration_seconds`, `note text null`, `created_at`. RLS como en `202611120001_harden_rls.sql`: lectura anónima, escritura solo `service_role`.
 - Tabla `music_tracks`: `id`, `title`, `artist`, `source_url`, `license`, `audio_url`, `duration_seconds`, `enabled`. Los archivos van a Bunny, con CORS abierto para que Web Audio pueda leerlos.
@@ -162,7 +166,7 @@ Antes de la fase 2, prueba aislada del riesgo de §4 en un iPhone.
 
 ## 10. Pendiente de Marcel
 
-1. **Cuenta de Bunny**: crearla, meter saldo, desactivar la recarga automática, crear la zona de almacenamiento (Europa) con su pull zone, fijar el tope mensual de GB y poner las claves en `.env.local`. Después, mudar los vídeos y vaciar el bucket de Supabase para que la base de datos deje de devolver 402 (visto el 21-11-2026) en el siguiente ciclo.
+1. **Cuenta de Bunny**: crearla, meter saldo, desactivar la recarga automática, crear la zona de almacenamiento (Europa) con su pull zone, fijar el tope mensual de GB y poner las claves en `.env.local`. Dejar las dos copias descargadas de Supabase (objetos y base de datos) en una carpeta fuera del repo para la mudanza. Poner `NEXT_PUBLIC_MEDIA_BASE_URL` también en Vercel.
 2. **Música**: Pixabay y Free Music Archive prohíben la descarga automática en lote, así que las pistas hay que bajarlas a mano. Lista corta recomendada en el anexo.
 3. Grabar al menos 3 o 4 vídeos hablados para poder probar los descansos largos.
 4. Confirmar el supuesto de §1.7 (ordenador sin rediseñar).
