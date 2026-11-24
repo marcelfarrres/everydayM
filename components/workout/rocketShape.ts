@@ -35,6 +35,7 @@ export const SHIP = {
 } as const;
 
 const { T, F, STROKE, FLAME_ROOM, NOZZLE, BAND_AT, BAND_GAP, NOSE, CONTENT_GAP, FLAME_LENGTH } = SHIP;
+const T_BASE = T;
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -64,6 +65,9 @@ export interface ShipGeometry {
   /** the drawing's box (flame room and fins included) */
   W: number;
   H: number;
+  /** its body's thickness (SHIP.T, more for the creator's bar when it holds more lines) and its fins' reach */
+  T: number;
+  F: number;
   cy: number;
   /** nozzle exit, body start, the seam of the nose, the tip */
   xe: number;
@@ -102,7 +106,8 @@ function nosePath(xs: number, n: number, cy: number, half: number): string {
 }
 
 /** Half the hull's thickness at `x` (its outer outline): T/2 along the body, less over the nose. */
-export function hullHalfAt(g: Pick<ShipGeometry, 'xs' | 'tip'>, x: number): number {
+export function hullHalfAt(g: Pick<ShipGeometry, 'xs' | 'tip'> & { T?: number }, x: number): number {
+  const T = g.T ?? T_BASE;
   if (x <= g.xs) return T / 2;
   if (x >= g.tip) return 0;
   const n = g.tip - g.xs;
@@ -117,8 +122,13 @@ export function hullHalfAt(g: Pick<ShipGeometry, 'xs' | 'tip'>, x: number): numb
   return best.half;
 }
 
-/** The rocket, `width` px long from the flame's room to the tip. */
-export function shipGeometry(width: number): ShipGeometry {
+/**
+ * The rocket, `width` px long from the flame's room to the tip; `thickness` makes its body thicker
+ * than SHIP.T (the creator's bar, one more line of text at a time): the fins, nozzle and the nose's
+ * curve follow it, the nose keeps its length.
+ */
+export function shipGeometry(width: number, thickness: number = T_BASE): ShipGeometry {
+  const T = Math.max(T_BASE, thickness);
   const W = Math.max(180, Math.round(width));
   const H = T + 2 * F;
   const cy = F + T / 2;
@@ -160,6 +170,8 @@ export function shipGeometry(width: number): ShipGeometry {
   return {
     W,
     H,
+    T,
+    F,
     cy,
     xe,
     x0,
@@ -262,4 +274,31 @@ export function widgetLayout(width: number): WidgetLayout {
     center: { x: left + (g.xe + g.tip) / 2, y: top + g.cy },
     body: { left: g.x0, right: g.tip, top: F, bottom: F + T },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The routine creator's bar: the rocket's body holds the sentence and grows a line at a time.
+
+export const BAR_TEXT = {
+  /** px per line of the sentence (18 px text) */
+  LINE: 24,
+  /** px of the field around its lines (a 44 px target with one line) */
+  PAD: 10,
+  /** air between the lines and the body's outline, px */
+  AIR: 4,
+  /** it grows up to this many lines; then it scrolls inside */
+  MAX_LINES: 4,
+} as const;
+
+/** The bar's body thickness (rocket units) for `lines` lines of text, drawn `k` times its size. */
+export function barThickness(lines: number, k: number): number {
+  const n = Math.min(BAR_TEXT.MAX_LINES, Math.max(1, Math.round(lines)));
+  const inner = n * BAR_TEXT.LINE + 2 * BAR_TEXT.AIR;
+  return Math.max(SHIP.T, Math.round((inner / k + SHIP.STROKE) * 10) / 10);
+}
+
+/** How many lines a field shows for a content `scrollHeight` (px, padding included). */
+export function barLines(scrollHeight: number): number {
+  const lines = Math.round((scrollHeight - 2 * BAR_TEXT.PAD) / BAR_TEXT.LINE);
+  return Math.min(BAR_TEXT.MAX_LINES, Math.max(1, lines));
 }

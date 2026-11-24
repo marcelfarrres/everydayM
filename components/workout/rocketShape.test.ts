@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BOB, PAM_NUDGES, POD_FOLDED, SHAKE, SINK, SPRING_NUDGES, SPUTTER_NUDGES, sinkAt, type Nudge } from './rocketFlight';
-import { BANNER, SHIP, WIDGET, hullHalfAt, overlaps, widgetLayout, type WidgetLayout } from './rocketShape';
+import { BANNER, BAR_TEXT, SHIP, WIDGET, barLines, barThickness, hullHalfAt, overlaps, shipGeometry, widgetLayout, type WidgetLayout } from './rocketShape';
 
 // The widget's width on phones of 320, 360 and 390 px (6 px each side) and a tablet's cap.
 const WIDTHS = [308, 348, 378, 576];
@@ -189,5 +189,34 @@ describe('the rocket moving in its place', () => {
     for (const rz of [-0.22 * amp, 0.22 * amp]) {
       expect(highest(L, [{ x: amp, y: -0.7 * amp, rz }], middle)).toBeGreaterThanOrEqual(L.banner.bottom);
     }
+  });
+});
+
+describe("the routine creator's bar", () => {
+  it('stays the usual rocket with one line, and grows a line at a time up to four', () => {
+    const k = 1.15;
+    expect(barThickness(1, k)).toBe(SHIP.T);
+    const t = [1, 2, 3, 4].map((n) => barThickness(n, k));
+    for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1]);
+    expect(barThickness(9, k)).toBe(t[3]);
+    // every line fits inside the body, clear of its outline
+    [1, 2, 3, 4].forEach((n) => {
+      const inner = (barThickness(n, k) - SHIP.STROKE) * k; // (half a stroke each side)
+      expect(inner).toBeGreaterThanOrEqual(n * BAR_TEXT.LINE + 2 * BAR_TEXT.AIR - 0.5);
+    });
+    // the drawing follows: thicker body, same nose length and content room along it
+    const thin = shipGeometry(300);
+    const thick = shipGeometry(300, t[2]);
+    expect(thick.H - thin.H).toBeCloseTo(t[2] - SHIP.T, 5);
+    expect(thick.tip - thick.xs).toBe(thin.tip - thin.xs);
+    expect(thick.content.right - thick.content.left).toBe(thin.content.right - thin.content.left);
+  });
+
+  it('counts the lines of the field from its content height', () => {
+    expect(barLines(44)).toBe(1);
+    expect(barLines(68)).toBe(2);
+    expect(barLines(92)).toBe(3);
+    expect(barLines(300)).toBe(BAR_TEXT.MAX_LINES);
+    expect(barLines(0)).toBe(1);
   });
 });

@@ -20,11 +20,12 @@ import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import { Hilo } from '@/components/workout/player/Hilo';
 import { useRocketWidth } from '@/components/workout/player/hooks';
-import { CREATOR, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
+import { CREATOR, SuggestionRocket, WaitingRocket, launchRocket, towRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
 import { RocketFigure } from '@/components/workout/RocketShip';
 import { HOP, riseKeyframes } from '@/components/workout/rocketFlight';
 import { launchedUntil } from '@/components/workout/rocketHandoff';
-import { SHIP } from '@/components/workout/rocketShape';
+import { BAR_TEXT, SHIP, barLines, barThickness } from '@/components/workout/rocketShape';
+import { pickSuggestions } from '@/lib/intent/suggestions';
 import type {
   Exercise,
   MuscleId,
@@ -167,6 +168,17 @@ function blocksAndSeries(blocks: number, series: number): string {
   return `${blocks} ${blocks === 1 ? 'bloque' : 'bloques'} de ${series} ${series === 1 ? 'serie' : 'series'}`;
 }
 
+/** The minutes question's rocket: a bigger flame the more minutes (0.3 at the least, 1 at the most). */
+function minutesFlame(minutes: number): number {
+  const share = (Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, minutes)) - MIN_MINUTES) / (MAX_MINUTES - MIN_MINUTES);
+  return Math.round((0.3 + share * 0.7) * 100) / 100;
+}
+
+const SERVER_SUGGESTIONS = EXAMPLES.slice(0, 3);
+let picked: string[] | null = null;
+/** Three suggestions at random, once per page load. */
+const browserSuggestions = () => (picked ??= pickSuggestions(3));
+
 function intensityLabel(difficulty: number): string {
   return difficulty <= 4 ? 'suave' : difficulty <= 6 ? 'media' : 'alta';
 }
@@ -230,7 +242,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // the bar bleeds 8 px into the side margins, and its flame room a little further to the left
   const barPx = rocketWidth - 12;
   const hang = (SHIP.FLAME_ROOM - 4) * barK;
-  const barShip = useCreatorShip(barPx + hang, barK);
+  // it grows a line at a time as the sentence wraps (up to BAR_TEXT.MAX_LINES; then it scrolls inside)
+  const [lines, setLines] = useState(1);
+  const barShip = useCreatorShip(barPx + hang, barK, barThickness(lines, barK));
+  // three suggestions at random, chosen in the browser (the server, and hydration, use the first three)
+  const suggestions = useSyncExternalStore(subscribeNoop, browserSuggestions, () => SERVER_SUGGESTIONS);
 
   const speechSupported = useSyncExternalStore(
     subscribeNoop,
@@ -292,6 +308,45 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     return () => controls.stop();
   }, [counting, minutes, reducedMotion]);
 
+  // Phone: how many lines the sentence takes in the bar (measured as it is typed, without the
+  // field's own height).
+  const measureLines = (field: HTMLTextAreaElement) => {
+    if (window.matchMedia('(min-width: 64rem)').matches) return;
+    const height = field.style.height;
+    field.style.height = '0px';
+    const next = barLines(field.scrollHeight);
+    field.style.height = height;
+    setLines(next);
+  };
+  // ...and once the sentence has been set from elsewhere (the voice, a suggestion, "Cambiar")
+  const remeasure = () =>
+    requestAnimationFrame(() => {
+      const field = document.getElementById('routine-prompt');
+      if (field instanceof HTMLTextAreaElement) measureLines(field);
+    });
+
+  // ...and each new line (or one less) lands with a "¡pam!": down at once, and a little shake.
+  const shownLines = useRef(lines);
+  useLayoutEffect(() => {
+    const node = barRef.current;
+    if (shownLines.current === lines) return;
+    const more = lines > shownLines.current;
+    shownLines.current = lines;
+    if (!node || reducedMotion || window.matchMedia('(min-width: 64rem)').matches) return;
+    const pam = node.animate(
+      [
+        { transform: `translateY(${more ? -7 : 4}px) scale(1, ${more ? 1.04 : 0.97})`, easing: 'cubic-bezier(0.5, 0, 0.9, 0.5)' },
+        { transform: 'translateY(3px) scale(1.01, 0.95)', offset: 0.3, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
+        { transform: 'translate(-2px, 0px)', offset: 0.48 },
+        { transform: 'translate(2px, 0px)', offset: 0.62 },
+        { transform: 'translate(-1px, 0px)', offset: 0.78 },
+        { transform: 'none' },
+      ],
+      { duration: 380 },
+    );
+    return () => pam.cancel();
+  }, [lines, reducedMotion]);
+
   // Back to the sentence ("Cambiar"): the bar comes back up from below.
   useLayoutEffect(() => {
     const node = barRef.current;
@@ -302,11 +357,16 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     return () => rise.cancel();
   }, [view, barRises, reducedMotion]);
 
-  const submit = (raw: string) => {
+  const submit = (raw: string, towed?: HTMLElement | null) => {
     const prompt = raw.trim();
     if (!prompt) return;
-    // the bar takes off with the sentence (phone); the next step is already here
-    setHop(launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }));
+    // the bar takes off with the sentence (phone), towing the suggestion picked, if one was; the
+    // next step is already here
+    setHop(
+      towed
+        ? towRocket(barRef.current, towed, { hookX: barShip.xe * barK - hang, text: prompt })
+        : launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }),
+    );
     recognitionRef.current?.stop();
     setError('');
     setText(prompt);
@@ -394,6 +454,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     }
     setClipDone(false);
     setBarRises(true);
+    remeasure();
     setView('ask');
   };
 
@@ -457,6 +518,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           .join(' ')
           .trim(),
       );
+      remeasure();
     };
     recognition.onend = () => setListening(false);
     recognition.onerror = () => setListening(false);
@@ -501,6 +563,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     '--mic-l': `${micLeft}px`,
     '--send-l': `${(barShip.xs + 16) * barK - hang - 22}px`,
     '--ctl-t': `${barShip.cy * barK - 22}px`,
+    // the field: as many lines as the bar holds, centred in its body
+    '--txt-h': `${lines * BAR_TEXT.LINE + 2 * BAR_TEXT.PAD}px`,
+    '--txt-t': `${barShip.cy * barK - (lines * BAR_TEXT.LINE + 2 * BAR_TEXT.PAD) / 2}px`,
   } as CSSProperties;
 
   return (
@@ -538,7 +603,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             setStage(4);
           }
         }}
-        className={`media-feather relative mx-auto aspect-[9/16] shrink-0 overflow-hidden transition-[height] duration-500 lg:mx-0 lg:h-dvh ${view === 'questions' ? 'h-[30dvh]' : 'h-[52dvh]'}`}
+        className={`media-feather relative mx-auto aspect-[9/16] shrink-0 overflow-hidden transition-[height] duration-500 lg:mx-0 lg:h-dvh ${view === 'questions' ? 'h-[30dvh]' : view === 'result' && ready ? 'h-[36dvh]' : 'h-[52dvh]'}`}
       >
         <motion.div
           initial={false}
@@ -615,7 +680,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               rows={1}
               maxLength={500}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                measureLines(e.target);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -623,7 +691,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 }
               }}
               placeholder="Hombros, 20 minutos"
-              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--ctl-t)] max-lg:h-11 max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-auto max-lg:overflow-y-hidden max-lg:whitespace-pre max-lg:rounded-lg max-lg:py-0 max-lg:leading-[44px] max-lg:[field-sizing:fixed] max-lg:[scrollbar-width:none] max-lg:focus-visible:bg-ink/[0.04]"
+              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-hidden max-lg:overflow-y-auto max-lg:rounded-lg max-lg:py-[10px] max-lg:leading-6 max-lg:[field-sizing:fixed] max-lg:[scrollbar-width:none] max-lg:focus-visible:bg-ink/[0.04]"
             />
             {speechSupported && (
               <button
@@ -653,7 +721,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-lg:hidden">
             {EXAMPLES.map((example) => (
               <button
                 key={example}
@@ -663,6 +731,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               >
                 {example}
               </button>
+            ))}
+          </div>
+          {/* phone: three suggestions at random, as small rockets; the bar tows the one picked */}
+          <div className="-ml-1 flex flex-col items-start gap-1 lg:hidden">
+            {suggestions.map((example) => (
+              <SuggestionRocket key={example} text={example} onClick={(e) => submit(example, e.currentTarget)} />
             ))}
           </div>
 
@@ -742,7 +816,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               ref={waitRef}
               riseDelay={hop}
               {...(questions[asked].id === 'minutes'
-                ? { label: 'Seguir', onClick: () => answer({ targetMinutes: draftMinutes }) }
+                ? {
+                    label: 'Seguir',
+                    onClick: () => answer({ targetMinutes: draftMinutes }),
+                    // the more minutes, the bigger its flame
+                    flame: minutesFlame(draftMinutes),
+                  }
                 : {})}
             />
           )}
@@ -765,7 +844,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               setStage(4); // tap anywhere to skip the build
             }
           }}
-          className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-5 px-5 pb-8 sm:px-8 lg:px-16"
+          className={`mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-5 px-5 pb-8 sm:px-8 lg:px-16 ${ready ? 'max-lg:pb-36' : ''}`}
         >
           <div>
             <p aria-live="polite" className="h-6 text-[15px] font-medium text-ink/60">
@@ -932,20 +1011,29 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                   Empezar
                 </button>
                 {/* phone: "Empezar" is the rocket, back from its last flight */}
-                <WaitingRocket
-                  ref={startRef}
-                  riseDelay={0}
-                  onClick={start}
-                  label={
-                    <>
-                      <Play className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
-                      Empezar
-                    </>
-                  }
-                />
               </motion.div>
             )}
           </AnimatePresence>
+        </div>
+      )}
+
+      {/* phone: "Empezar" is the rocket, back from its last flight, held at the bottom of the screen
+          so it is always whole (the content scrolls under it). Outside the steps' moving layers:
+          a transformed parent would hold a fixed element in place of the screen. */}
+      {view === 'result' && ready && built && intent && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] z-20 flex justify-center lg:hidden">
+          <WaitingRocket
+            ref={startRef}
+            riseDelay={0}
+            onClick={start}
+            className="pointer-events-auto"
+            label={
+              <>
+                <Play className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
+                Empezar
+              </>
+            }
+          />
         </div>
       )}
     </div>

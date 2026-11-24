@@ -56,7 +56,8 @@ export function RocketShip({
   className?: string;
   style?: CSSProperties;
 }) {
-  const { F, T, STROKE } = SHIP;
+  const { F, T } = g;
+  const { STROKE } = SHIP;
   const svg = {
     'aria-hidden': true,
     width: g.W,
