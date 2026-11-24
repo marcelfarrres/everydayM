@@ -6,7 +6,7 @@ import type { RoutineItem, RoutineMeta } from '@/types/workout';
 /*
  * Computer view: the routine on a real chalkboard. The current block is written line by line in
  * chalk; finished exercises get crossed out, the one you are on gets circled, and the clock is
- * chalk too. Words a first-timer understands: "Vuelta 2 · queda 1", not "ronda 2 de 3".
+ * chalk too. Words a first-timer understands: "Bloque 2 · queda 1", not "ronda 2 de 3".
  */
 
 const CHALK = '#f3f0e7';
@@ -103,7 +103,7 @@ export function ChalkBoard({
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={onWarmup ? 'warm' : `r${round}`}
-            exit={{ opacity: 0, filter: 'blur(6px)', transition: { duration: 0.35 } }}
+            exit={{ opacity: 0, transition: { duration: 0.35 } }}
             className="flex flex-col gap-1"
           >
             {!onWarmup && warmups.length > 0 && (
@@ -112,7 +112,7 @@ export function ChalkBoard({
               </ChalkLine>
             )}
             <ChalkLine i={1} className="mb-2 text-[clamp(2.5rem,3.7vw,3.4rem)] font-bold">
-              <span style={{ color: YELLOW }}>{onWarmup ? 'Calentamiento' : `Vuelta ${round} · ${roundsLeftText(round, rounds)}`}</span>
+              <span style={{ color: YELLOW }}>{onWarmup ? 'Calentamiento' : `Bloque ${round} · ${roundsLeftText(round, rounds)}`}</span>
             </ChalkLine>
             {list.map(({ q, i }, k) => (
               <ChalkLine key={i} i={k + 2} state={stateOf(i)} className="text-[clamp(1.9rem,2.8vw,2.7rem)] leading-[1.3]">

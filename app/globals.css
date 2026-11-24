@@ -93,3 +93,25 @@ body {
     animation: none;
   }
 }
+
+/* Rest bar: the wave on the water slides sideways (a strip twice as wide, moved by half). */
+.water-wave {
+  animation: water-wave 2.2s linear infinite;
+}
+@keyframes water-wave {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* The rocket's flame scales from the nozzle (CloudTransition makes it flicker while it flies). */
+.rocket-flame {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .water-wave {
+    animation: none;
+  }
+}

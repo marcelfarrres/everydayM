@@ -16,6 +16,7 @@ import { parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
 import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types';
 import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
+import { Hilo } from '@/components/workout/player/Hilo';
 import type {
   Exercise,
   MuscleId,
@@ -67,11 +68,11 @@ const Q_MINUTES: Question = {
 };
 const Q_ROUNDS: Question = {
   id: 'rounds',
-  title: '¿Cuántas rondas?',
+  title: '¿Cuántos bloques?',
   options: [
-    { label: '2 rondas', patch: { rounds: 2 } },
-    { label: '3 rondas', patch: { rounds: 3 } },
-    { label: '4 rondas', patch: { rounds: 4 } },
+    { label: '2 bloques', patch: { rounds: 2 } },
+    { label: '3 bloques', patch: { rounds: 3 } },
+    { label: '4 bloques', patch: { rounds: 4 } },
     { label: 'Las que encajen', patch: { rounds: null } },
   ],
 };
@@ -142,6 +143,11 @@ function focusParts(intent: RoutineIntent): { fullBody: boolean; names: string[]
     };
   }
   return { fullBody: false, names };
+}
+
+/** "3 bloques de 4 series" */
+function blocksAndSeries(blocks: number, series: number): string {
+  return `${blocks} ${blocks === 1 ? 'bloque' : 'bloques'} de ${series} ${series === 1 ? 'serie' : 'series'}`;
 }
 
 function intensityLabel(difficulty: number): string {
@@ -337,7 +343,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     setView('ask');
   };
 
-  /** The routine these minutes would give, as "3 rondas × 5 ejercicios" (fixed seed: no reshuffle while dragging). */
+  /** The routine these minutes would give, as "3 bloques de 5 series" (fixed seed: no reshuffle while dragging). */
   const shapeFor = (minutes: number, base?: RoutineIntent | null) => {
     const list = library;
     if (list.length === 0) return undefined;
@@ -345,8 +351,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     const { meta } = buildRoutine(list, { ...intent, targetMinutes: minutes }, () => 0.42);
     // Before the rounds are chosen only the total is certain.
     return base?.rounds || parseRounds(text)
-      ? `${meta.rounds} ${meta.rounds === 1 ? 'ronda' : 'rondas'} × ${meta.exercisesPerRound} ejercicios`
-      : `≈ ${meta.rounds * meta.exercisesPerRound} ejercicios en total`;
+      ? blocksAndSeries(meta.rounds, meta.exercisesPerRound)
+      : `≈ ${meta.rounds * meta.exercisesPerRound} series en total`;
   };
 
   const retouch = (next: RoutineIntent) => {
@@ -683,13 +689,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               <span className="text-3xl font-semibold text-ink/55">min</span>
             </button>
             {ready && built && (
-              <motion.p
+              <motion.div
                 initial={reducedMotion ? false : { opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-2 text-xl font-semibold tabular-nums text-ink/70"
+                className="mt-2 flex max-w-sm flex-col gap-3"
               >
-                {built.meta.rounds} {built.meta.rounds === 1 ? 'ronda' : 'rondas'} × {built.meta.exercisesPerRound} ejercicios
-              </motion.p>
+                <p className="text-xl font-semibold tabular-nums text-ink/70">
+                  {blocksAndSeries(built.meta.rounds, built.meta.exercisesPerRound)}
+                </p>
+                {/* the same hilo the player's bar draws, every serie still to do */}
+                <Hilo surface="light" blocks={built.meta.blocks.map((block) => block.map(() => 'todo' as const))} />
+              </motion.div>
             )}
           </div>
 

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 // Development only: the app at phone and computer size, side by side.
@@ -9,6 +10,11 @@ export default function PreviewPage() {
     <main className="min-h-dvh bg-[#d9d9d6] px-6 py-6 font-[family-name:var(--font-display)] text-ink">
       <p className="mb-5 text-[15px] font-semibold text-ink/60">
         Vista previa · cada marco funciona por separado. La versión anterior está en la rama <code>version-1</code>.
+        {' '}El reproductor con ejercicios de prueba está en{' '}
+        <Link href="/preview/player" className="underline underline-offset-2">
+          /preview/player
+        </Link>
+        .
       </p>
 
       <div className="flex flex-wrap items-start gap-8">
