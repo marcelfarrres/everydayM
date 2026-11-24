@@ -25,8 +25,8 @@ export interface CheerDemo {
 const ZONE =
   'pointer-events-none absolute inset-0 overflow-hidden [container-type:size] ' +
   '[--side:max(12px,env(safe-area-inset-left),env(safe-area-inset-right))] ' +
-  // "···" is 44 px tall at max(12px, safe area) from the top; the bar 86 px at the same from the bottom
-  '[--top:calc(max(12px,env(safe-area-inset-top))_+_56px)] [--bottom:calc(max(12px,env(safe-area-inset-bottom))_+_98px)] ' +
+  // "···" is 44 px tall at max(12px, safe area) from the top; the rocket 112 px at the same from the bottom
+  '[--top:calc(max(12px,env(safe-area-inset-top))_+_56px)] [--bottom:calc(max(12px,env(safe-area-inset-bottom))_+_124px)] ' +
   'lg:[--side:16px] lg:[--top:16px] lg:[--bottom:16px]';
 
 // The burst: about half the width on a phone, capped on big screens, and always small enough

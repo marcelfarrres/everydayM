@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { playCountdownBeep } from '@/lib/audio';
 
@@ -66,4 +66,17 @@ export function useCountdownBeep(timeLeft: number, enabled: boolean) {
       last.current = null;
     }
   }, [timeLeft, enabled]);
+}
+
+// The computer layout (the chalkboard) starts at Tailwind's `lg`, the same 64rem as the CSS.
+const DESKTOP = '(min-width: 64rem)';
+const subscribeDesktop = (onChange: () => void) => {
+  const query = window.matchMedia(DESKTOP);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+};
+
+/** True on the computer layout; false on phones (and on the server). */
+export function useIsDesktop(): boolean {
+  return useSyncExternalStore(subscribeDesktop, () => window.matchMedia(DESKTOP).matches, () => false);
 }

@@ -21,12 +21,15 @@ export function SeriesList({
   warmup,
   stateOf,
   onScroll,
+  bare = false,
 }: {
   id: string;
   blocks: Block[];
   warmup: StepState | null; // null: this routine has no warm-up
   stateOf: (queueIndex: number) => StepState;
   onScroll: () => void;
+  /** Phone: drawn inside a panel that has its own fill (and the controls under the list). */
+  bare?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -43,7 +46,12 @@ export function SeriesList({
       ref={scroller}
       id={id}
       onScroll={onScroll}
-      className="relative max-h-[min(15.5rem,calc(50dvh-7.5rem))] overflow-y-auto overscroll-contain rounded-[22px] bg-[rgb(14_14_14/0.84)] px-4 py-2 text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className={`relative overflow-y-auto overscroll-contain px-4 py-2 text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+        bare
+          ? // with the rocket (112 px) and the controls (56 px) under it, still under half the screen
+            'max-h-[max(6rem,min(15.5rem,calc(50dvh-12.5rem)))]'
+          : 'max-h-[min(15.5rem,calc(50dvh-7.5rem))] rounded-[22px] bg-[rgb(14_14_14/0.84)]'
+      }`}
     >
       <ol aria-label="La rutina" className="flex flex-col">
         {warmup && (

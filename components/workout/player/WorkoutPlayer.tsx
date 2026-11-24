@@ -5,6 +5,7 @@ import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
+import { FLIGHT } from '@/components/workout/rocketFlight';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -13,16 +14,19 @@ import { DesktopBackdrop } from './DesktopBackdrop';
 import { PlayerMenu } from './PlayerMenu';
 import { PlayerWidget } from './PlayerWidget';
 import { RestFrame } from './RestFrame';
+import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
-import { useBusyAfter, useCountdownBeep, useLagged } from './hooks';
+import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
 import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
- * bottom (PlayerWidget) plus the "···" menu at the top. During a rest a blue frame runs round
+ * bottom, the rocket (RocketWidget), plus the "···" menu at the top right and, quietly at the top
+ * left, how much of the routine is done. During a rest a blue frame runs round
  * the screen. Now and then, during a serie, a comic "golpe" of encouragement bursts onto the
  * video (CheerHits). On a computer the same pieces sit on the chalkboard: the video centred and
- * as tall as the bar below it allows, the board written on both sides of it.
+ * as tall as the bar below it allows, the board written on both sides of it, and the bar
+ * (PlayerWidget) under it.
  */
 
 export interface WorkoutPlayerProps {
@@ -76,6 +80,7 @@ export function WorkoutPlayer({
   cheerDemo,
 }: WorkoutPlayerProps) {
   const reduced = Boolean(useReducedMotion());
+  const desktop = useIsDesktop();
   const [beepOn, setBeepOn] = useState(true);
   const kind = currentItem?.kind;
 
@@ -124,9 +129,11 @@ export function WorkoutPlayer({
   usePlayerMusic(isPaused);
   const { music, setMuted, setVolume } = useMusicControls();
 
-  // Entering a rest, the screen changes only once the clouds cover it; anywhere else at once.
+  // Entering a rest, the screen changes only once the clouds cover it; on a phone the end screen
+  // waits for the rocket's last takeoff; anywhere else at once.
   const enteringRest = kind === 'rest' && !reduced;
-  const displayIndex = useLagged(currentIndex, enteringRest ? CLOUDS.coveredMs : 0);
+  const lastTakeoff = kind === 'outro' && !reduced && !desktop;
+  const displayIndex = useLagged(currentIndex, enteringRest ? CLOUDS.coveredMs : lastTakeoff ? FLIGHT.takeoffMs : 0);
   const displayItem = queue[displayIndex];
 
   // The rest whose talks have finished: from then on it shows the countdown, like a short rest.
@@ -157,6 +164,11 @@ export function WorkoutPlayer({
   const label = cloudLabel(currentItem);
   const total = totalSeconds ?? meta?.totalSeconds ?? 0;
 
+  // Phone: how much of the routine is done, by time.
+  const segment = timeline[currentIndex];
+  const elapsed = segment ? segment.start + Math.min(segment.duration, Math.max(0, totalItemDuration - timeLeft)) : 0;
+  const percent = kind === 'outro' ? 100 : total > 0 ? Math.min(100, Math.floor((elapsed / total) * 100)) : 0;
+
   // Desktop: the frame round the video is the clock of the moment.
   const itemProgress = totalItemDuration > 0 ? Math.min(1, Math.max(0, (totalItemDuration - timeLeft) / totalItemDuration)) : 0;
   const frameClass = displayItem?.kind === 'rest' ? 'stage-spin' : isExercise(displayItem) ? 'stage-ring' : '';
@@ -169,7 +181,7 @@ export function WorkoutPlayer({
   const upNext = kind === 'rest' ? undefined : nextExerciseAfter(queue, currentIndex);
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
+    <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
       <DesktopBackdrop reduced={reduced} bulbX={BULB_X} />
 
       {/* Computer: the video in the middle column, as tall as the bar below it allows; the board
@@ -241,23 +253,56 @@ export function WorkoutPlayer({
         onExit={onExit}
       />
 
-      <PlayerWidget
-        queue={queue}
-        currentIndex={currentIndex}
-        displayIndex={displayIndex}
-        timeLeft={timeLeft}
-        totalItemDuration={totalItemDuration}
-        isPaused={isPaused}
-        onTogglePause={onTogglePause}
-        onPrev={handlePrev}
-        canPrev={Boolean(onPrev) && currentIndex > 0}
-        onNext={handleNext}
-        listOpen={listOpen}
-        onListOpenChange={setListOpen}
-        restCountdown={currentRest === 'countdown'}
-        talkPreview={shownRest === 'talks'}
-        reduced={reduced}
-      />
+      {/* Phone: how far you are, small and quiet. It steps aside for "Activar sonido" of a talk. */}
+      {displayItem?.kind !== 'outro' && (
+        <p
+          aria-label={`${percent} % de la rutina`}
+          className="pointer-events-none fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex h-11 items-center group-has-[[data-unmute]]/player:invisible lg:hidden"
+        >
+          <span data-rw="percent" className="rounded-full bg-[rgb(14_14_14/0.45)] px-2.5 py-1 text-[13px] font-semibold leading-none tabular-nums text-white/90">
+            {percent}&#8239;%
+          </span>
+        </p>
+      )}
+
+      {desktop ? (
+        <PlayerWidget
+          queue={queue}
+          currentIndex={currentIndex}
+          displayIndex={displayIndex}
+          timeLeft={timeLeft}
+          totalItemDuration={totalItemDuration}
+          isPaused={isPaused}
+          onTogglePause={onTogglePause}
+          onPrev={handlePrev}
+          canPrev={Boolean(onPrev) && currentIndex > 0}
+          onNext={handleNext}
+          listOpen={listOpen}
+          onListOpenChange={setListOpen}
+          restCountdown={currentRest === 'countdown'}
+          talkPreview={shownRest === 'talks'}
+          reduced={reduced}
+        />
+      ) : (
+        <RocketWidget
+          queue={queue}
+          currentIndex={currentIndex}
+          displayIndex={displayIndex}
+          cloudKey={cloudKey}
+          timeLeft={timeLeft}
+          totalItemDuration={totalItemDuration}
+          isPaused={isPaused}
+          onTogglePause={onTogglePause}
+          onPrev={handlePrev}
+          canPrev={Boolean(onPrev) && currentIndex > 0}
+          onNext={handleNext}
+          listOpen={listOpen}
+          onListOpenChange={setListOpen}
+          restCountdown={currentRest === 'countdown'}
+          talkPreview={shownRest === 'talks'}
+          reduced={reduced}
+        />
+      )}
 
       {upNext && (
         <video
@@ -277,6 +322,7 @@ export function WorkoutPlayer({
         kicker="Descanso"
         color={REST_BLUE}
         journey={journeyOf(queue, timeline, currentIndex, total)}
+        phone={!desktop}
       />
     </div>
   );
