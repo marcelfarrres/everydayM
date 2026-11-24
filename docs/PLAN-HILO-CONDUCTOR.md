@@ -72,6 +72,13 @@ Barra en modo descanso:
 ### 1.6 Hilo desde la creación
 - En la pantalla de rutina lista (`RoutineComposer`), bajo los minutos, se dibuja el mismo hilo por bloques junto a «3 bloques de 4 series». Es el mismo dibujo que luego vive en la barra.
 
+### 1.6.1 El cohete en el creador (móvil; el ordenador no cambia)
+El mismo `RocketShip` está desde la frase hasta el calentamiento (`components/workout/CreatorRocket.tsx`):
+- La barra de «¿Qué entrenamos hoy?» es el cuerpo del cohete (escala 1,15): el campo (44 px de alto, 18 px), el micrófono y, en la base del morro, «enviar». Con texto, se le enciende una llamita.
+- Al enviar despega (gira el morro y sale por arriba). En cada pregunta espera abajo inclinado 12°, con llamita y temblor suaves; en la de minutos es el botón «Seguir» y en las de opciones solo espera (no hay botón de seguir: las opciones responden). Cada respuesta lo lanza (0,48 s) y el siguiente sube desde abajo (0,3 s).
+- En la rutina lista «Empezar» es el cohete. Al tocarlo despega y el del reproductor llega para el calentamiento cuando ese ya ha salido (`rocketHandoff.ts`).
+- Los vuelos son una copia del cohete fuera de React: el toque actúa al momento. Con movimiento reducido no vuela: el siguiente aparece con un fundido.
+
 ### 1.7 Ordenador
 - **Se mantiene la pizarra** (fondo de pizarra con viñeta, bombilla colgando con su parpadeo, lo escrito con tiza, el marco que gira alrededor del vídeo, la barra abajo en el centro y el «···» arriba a la derecha). Se probó quitarla (24-11-2026) y Marcel pidió volver a ella: «había perdido todo su encanto».
 - Único cambio sobre la pizarra de antes (decidido por Marcel, 24-11-2026): el vídeo 9:16 va **centrado y tan alto como deja la barra** de abajo (antes iba a la izquierda con márgenes grandes arriba y abajo). La pizarra se escribe a los dos lados: la rutina a la izquierda y el reloj de tiza a la derecha, con la bombilla encima del reloj.
