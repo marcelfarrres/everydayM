@@ -28,7 +28,7 @@ export function SeriesList({
   warmup: StepState | null; // null: this routine has no warm-up
   stateOf: (queueIndex: number) => StepState;
   onScroll: () => void;
-  /** Phone: drawn inside a panel that has its own fill (and the controls under the list). */
+  /** Phone: drawn inside a panel that has its own fill (the controls are the rocket's pod). */
   bare?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);

@@ -7,16 +7,32 @@ import {
   FLIGHT,
   PAM_KEYFRAMES,
   PARKED,
+  POD,
+  POD_BUMP_KEYFRAMES,
   RETURN_KEYFRAMES,
   SETTLE_KEYFRAMES,
+  SINK,
+  SPUTTER,
+  SPUTTER_FLAME_KEYFRAMES,
+  SPUTTER_KEYFRAMES,
   TAKEOFF_KEYFRAMES,
+  UPRIGHT,
   arrival,
+  controlsLiveAt,
+  controlsLiveFrom,
   ignitionLevel,
   launchesAfter,
   nextFlight,
-  parkedFrom,
   phaseAt,
+  podPopKeyframes,
+  podRetractKeyframes,
+  sinkAt,
+  sinkTransform,
+  springBackKeyframes,
+  sputterPuffKeyframes,
+  sputtersBetween,
   type Flight,
+  type Sink,
 } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { RoutineItem } from '@/types/workout';
@@ -24,29 +40,35 @@ import { Hilo } from './Hilo';
 import { SeriesList } from './SeriesList';
 import { useTapGuard } from './hooks';
 import { blocksOf, clock, isExercise, serieState, warmupState, type StepState } from './model';
-import { ROCKET, flamePaths, rocketGeometry, type RocketGeometry } from './rocketShape';
-import { HOVER_ON_DARK, PRESSABLE, own } from './ui';
+import { POD as POD_SHAPE, ROCKET, flamePaths, rocketGeometry, type Box, type RocketGeometry } from './rocketShape';
+import { own } from './ui';
 
 /*
  * Phone: the widget at the bottom IS the rocket (the drawing of Rocket.tsx lying on its side,
  * nose to the right), and it goes with you through the whole routine.
  *
- *   serie     inside the body: the hilo and, under it, the name and the time; the porthole is
- *             pause/resume. Tapping the body opens the list above it (with Anterior, Pausa and
- *             Siguiente), as the bar did.
+ *   serie     inside the body the hilo (big, across the whole body) and the name; the time in the
+ *             short, rounded nose. Under the belly hangs the control pod: Anterior, Pausa,
+ *             Siguiente. Tapping the body opens the list above it.
+ *   warm-up   the same; between one clip and the next it tries to take off and can't (a sputter,
+ *             a hop, and it settles back).
  *   last 3 s  before a rest or the end the engine lights: the flame grows each second, more and
  *             more exhaust, and it trembles.
- *   rest      "Descanso" and "Saltar" and it fills with water as the rest goes by. With talks it
- *             keeps the time (in the porthole) and "Luego", and the next exercise peeks above it.
- *   flights   it takes off as each rest begins (the big rocket of the clouds is the same one: they
- *             are never on screen together), comes back from the depth when the clouds open and
- *             parks with a squash; at the end of a rest, a small "¡pam!". It arrives when the
- *             routine starts and takes off one last time before the end screen.
+ *   rest      "Descanso" in the body and "Saltar" in the pod. It fills with water as the rest goes
+ *             by, and gets heavy: it sinks a little, tail down. When the rest ends, "¡pam!": the
+ *             water is gone and it springs back upright. With talks the time is in the nose, and
+ *             the next exercise peeks above the body.
+ *   flights   it takes off as each rest begins (the pod goes back into its belly first), leaves the
+ *             screen, and only a beat later does the big rocket of the clouds come up (the same
+ *             one: they are never on screen together); once that one has gone, a beat, and it
+ *             comes back from the left and parks with a squash; then the pod pops out. It arrives
+ *             when the routine starts and takes off one last time before the end screen.
  *
  * Where it is comes from `Flight` (rocketFlight.ts), a pure function of the clock: every flight is
  * put on the browser's animation timeline at once (Web Animations with delays, no chained timers),
  * so a skip, a pause, a hidden tab or a jump of the fixture always lands it in a defined pose.
- * Only transform and opacity move. Nothing in it can be pressed while it is away.
+ * Only transform and opacity move. Nothing in it can be pressed while it is away (`inert`, kept in
+ * step with the flight by one effect that owns its timer, see useInertWhileAway).
  */
 
 const INK = '#131313';
@@ -108,14 +130,38 @@ export function RocketWidget({
   }, []);
   const g = useMemo(() => rocketGeometry(width), [width]);
 
+  const shown = queue[displayIndex];
+  const live = displayIndex === currentIndex;
+
+  // ---- the rest's weight: it sinks as the water rises (a transform, set once a second)
+  const level = shown?.kind === 'rest' && live && totalItemDuration > 0 ? (totalItemDuration - timeLeft + 1) / totalItemDuration : 0;
+  const sink = !reduced && shown?.kind === 'rest' ? sinkAt(level) : UPRIGHT;
+  const lastSink = useRef<Sink>(UPRIGHT);
+  useEffect(() => {
+    lastSink.current = sink;
+  }, [sink]);
+
   // ---- the flight
   const root = useRef<HTMLDivElement>(null);
   const flightEl = useRef<HTMLDivElement>(null);
+  const sinkEl = useRef<HTMLDivElement>(null);
   const squashEl = useRef<HTMLDivElement>(null);
   const flameEl = useRef<HTMLDivElement>(null);
+  const puffsEl = useRef<HTMLDivElement>(null);
+  const podEl = useRef<HTMLDivElement>(null);
   const waterEl = useRef<HTMLDivElement>(null);
   const textEl = useRef<HTMLDivElement>(null);
-  useRocketFlight({ root, flightEl, squashEl, flameEl, contentEls: [waterEl, textEl], cloudKey, ending, queue, currentIndex, reduced });
+  const flight = useRocketFlight({
+    els: { flightEl, sinkEl, squashEl, flameEl, puffsEl, podEl, contentEls: [waterEl, textEl] },
+    lastSink,
+    podHidden: g.pod.hidden,
+    cloudKey,
+    ending,
+    queue,
+    currentIndex,
+    reduced,
+  });
+  useInertWhileAway(root, flight, cloudKey, ending, queue, currentIndex, reduced);
 
   // ---- the list's 5 s: restarted by any touch, wheel or scroll inside the widget
   const [touch, setTouch] = useState(0);
@@ -134,26 +180,25 @@ export function RocketWidget({
   };
 
   const blocks = blocksOf(queue);
-  const shown = queue[displayIndex];
-  const live = displayIndex === currentIndex;
   const time = clock(live ? timeLeft : 0);
-  const level = !reduced && live && isExercise(shown) && launchesAfter(queue, displayIndex) ? ignitionLevel(timeLeft) : 0;
+  const ignition = !reduced && live && isExercise(shown) && launchesAfter(queue, displayIndex) ? ignitionLevel(timeLeft) : 0;
   const preview = talkPreview && shown?.kind === 'rest' ? shown.nextExercise : undefined;
-  const bodyBox = { left: g.x0, top: ROCKET.F, width: g.tip - g.x0, height: ROCKET.T };
-  const c = g.content;
-  const contentBox: CSSProperties = { left: c.left, top: c.top, width: c.right - c.left, height: c.bottom - c.top };
+  const bodyBox: CSSProperties = { left: g.x0, top: ROCKET.F, width: g.tip - g.x0, height: ROCKET.T };
+  const contentBox = boxStyle(g.content);
   const toggleList = () => onListOpenChange(!listOpen);
+  const showTime = isExercise(shown) || (shown?.kind === 'rest' && !restCountdown && live);
 
   return (
     <div
       ref={root}
+      data-rw="root"
       onPointerDownCapture={bump}
       onWheelCapture={bump}
       onKeyDownCapture={bump}
       className="pointer-events-none fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(4px,env(safe-area-inset-left))] right-[max(6px,env(safe-area-inset-right))] z-[61] font-[family-name:var(--font-display)] text-ink"
     >
-      <div ref={box} className="relative mx-auto w-full max-w-[36rem]" style={{ height: g.H }}>
-        {/* the list, above the rocket */}
+      <div ref={box} className="relative mx-auto w-full max-w-[36rem]" style={{ height: g.box }}>
+        {/* the list, above the rocket (its controls are the pod's, under the rocket) */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
@@ -173,144 +218,156 @@ export function RocketWidget({
                 stateOf={(i) => serieState(i, currentIndex)}
                 onScroll={bump}
               />
-              <ListControls isPaused={isPaused} onTogglePause={onTogglePause} onPrev={guarded(onPrev)} canPrev={canPrev} onNext={guarded(onNext)} />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* THE ROCKET: flight (where it is) > squash (settle, ¡pam!) > tremble (ignition) */}
+        {/* THE ROCKET: flight (where it is) > pod (under the belly, behind it) and
+            sink (the rest's weight) > squash (settle, ¡pam!, sputter) > tremble (ignition) */}
         <div ref={flightEl} className="absolute inset-0">
-          <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `50% ${ROCKET.F + ROCKET.T}px` }}>
-            <div
-              className={`absolute inset-0 ${level > 0 && !isPaused ? 'rw-shake' : ''}`}
-              style={{ '--rw-amp': SHAKE[level] } as CSSProperties}
-            >
-              <IgnitionFlame g={g} level={level} />
-              <FlightFlame g={g} flameRef={flameEl} />
-              <RocketBack g={g} />
-              <Exhaust g={g} level={level} paused={isPaused} />
-              <div ref={waterEl} className="absolute inset-0">
-                {shown?.kind === 'rest' && (
-                  <Water
-                    key={displayIndex}
-                    g={g}
-                    level={live && totalItemDuration > 0 ? (totalItemDuration - timeLeft + 1) / totalItemDuration : 0}
-                    reduced={reduced}
-                  />
-                )}
-              </div>
-              <RocketFront g={g} glint={shown?.kind === 'rest' && (restCountdown || !live)} />
+          <div ref={podEl} data-rw="pod" className="absolute inset-0" style={{ transformOrigin: `${g.pod.cx}px ${g.pod.top}px` }}>
+            {shown?.kind === 'rest' ? (
+              <Pod g={g} box={g.pod.skip}>
+                <button
+                  type="button"
+                  data-rw="skip"
+                  onClick={own(guarded(onNext))}
+                  className="pointer-events-auto flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full text-[18px] font-semibold transition-colors duration-150 hover:bg-ink/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink active:scale-95 motion-reduce:active:scale-100"
+                >
+                  Saltar
+                  <SkipForward className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
+                </button>
+              </Pod>
+            ) : (
+              <Pod g={g} box={g.pod.controls}>
+                <PodButton rw="prev" label="Anterior" onClick={guarded(onPrev)} disabled={!canPrev}>
+                  <SkipBack className="h-[20px] w-[20px] fill-current" aria-hidden="true" />
+                </PodButton>
+                <PodButton rw="pause" label={isPaused ? 'Reanudar' : 'Pausar'} onClick={() => onTogglePause?.()} strong>
+                  {isPaused ? (
+                    <Play className="ml-0.5 h-[20px] w-[20px] fill-current" aria-hidden="true" />
+                  ) : (
+                    <Pause className="h-[20px] w-[20px] fill-current" aria-hidden="true" />
+                  )}
+                </PodButton>
+                <PodButton rw="next" label="Siguiente" onClick={guarded(onNext)}>
+                  <SkipForward className="h-[20px] w-[20px] fill-current" aria-hidden="true" />
+                </PodButton>
+              </Pod>
+            )}
+          </div>
 
-              {/* what it carries */}
-              <div ref={textEl} className="absolute inset-0">
-                {isExercise(shown) && (
-                  <>
-                    {/* a tap anywhere on the body opens the list, as the bar did */}
-                    <div
-                      data-bar=""
-                      onClick={toggleList}
-                      className="pointer-events-auto absolute cursor-pointer"
-                      style={{ ...bodyBox, borderRadius: 6 }}
-                    />
-                    <div className="absolute flex flex-col" style={contentBox}>
-                      {/* a real button for keyboards and screen readers */}
-                      <button
-                        type="button"
-                        onClick={own(toggleList)}
-                        aria-expanded={open}
-                        aria-controls={listId}
-                        aria-label={open ? 'Cerrar la rutina' : 'Ver la rutina'}
-                        className="pointer-events-auto mt-[8px] flex h-4 cursor-pointer items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                      >
-                        <Hilo
-                          surface="light"
-                          className="flex-1"
-                          blocks={blocks.map((block) => block.series.map((serie): StepState => serieState(serie.queueIndex, displayIndex)))}
-                        />
-                        <ChevronUp
-                          aria-hidden="true"
-                          className={`h-3.5 w-3.5 shrink-0 text-ink/70 transition-transform duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                      <div className="mb-[9px] mt-auto flex h-[30px] items-center gap-1.5">
-                        <p data-rw="name" className="min-w-0 flex-1 truncate text-[16px] font-semibold leading-[1.25] min-[375px]:text-[17px]">
-                          {shown.kind === 'warmup' ? 'Calentamiento' : shown.exercise.title}
-                        </p>
-                        <span data-rw="time" role="timer" className="shrink-0 text-[19px] font-bold leading-none tabular-nums tracking-[-0.02em] min-[375px]:text-[21px]">
-                          {time}
-                        </span>
+          <div
+            ref={sinkEl}
+            data-rw="sink"
+            className="absolute inset-0"
+            style={{
+              transform: sinkTransform(sink),
+              transformOrigin: `${g.pod.pivot.x}px ${g.pod.pivot.y}px`,
+              transition: resting && !reduced ? 'transform 1s linear' : 'none',
+            }}
+          >
+            <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `50% ${ROCKET.F + ROCKET.T}px` }}>
+              <div
+                className={`absolute inset-0 ${ignition > 0 && !isPaused ? 'rw-shake' : ''}`}
+                style={{ '--rw-amp': SHAKE[ignition] } as CSSProperties}
+              >
+                <IgnitionFlame g={g} level={ignition} />
+                <FlightFlame g={g} flameRef={flameEl} />
+                <RocketBack g={g} />
+                <Exhaust g={g} level={ignition} paused={isPaused} />
+                <SputterPuffs g={g} puffsRef={puffsEl} />
+                <div ref={waterEl} className="absolute inset-0">
+                  {shown?.kind === 'rest' && <Water key={displayIndex} g={g} level={level} reduced={reduced} />}
+                </div>
+                <RocketFront g={g} />
+
+                {/* what it carries */}
+                <div ref={textEl} className="absolute inset-0">
+                  {isExercise(shown) && (
+                    <>
+                      {/* a tap anywhere on the body opens the list */}
+                      <div data-bar="" onClick={toggleList} className="pointer-events-auto absolute cursor-pointer" style={{ ...bodyBox, borderRadius: 6 }} />
+                      <div className="absolute flex flex-col" style={contentBox}>
+                        {/* a real button for keyboards and screen readers */}
+                        <button
+                          type="button"
+                          onClick={own(toggleList)}
+                          aria-expanded={open}
+                          aria-controls={listId}
+                          aria-label={open ? 'Cerrar la rutina' : 'Ver la rutina'}
+                          className="pointer-events-auto mt-[9px] flex h-[16px] cursor-pointer items-center rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                        >
+                          <Hilo
+                            surface="light"
+                            size="lg"
+                            className="flex-1"
+                            blocks={blocks.map((block) => block.series.map((serie): StepState => serieState(serie.queueIndex, displayIndex)))}
+                          />
+                        </button>
+                        <div className="mb-[8px] mt-auto flex h-[30px] items-center gap-1.5">
+                          <p data-rw="name" className="min-w-0 flex-1 truncate text-[18px] font-semibold leading-[1.3] min-[360px]:text-[20px]">
+                            {shown.kind === 'warmup' ? 'Calentamiento' : shown.exercise.title}
+                          </p>
+                          <ChevronUp
+                            aria-hidden="true"
+                            // (on the narrowest phones the name needs its room more than the hint)
+                            className={`hidden h-4 w-4 shrink-0 text-ink/70 transition-transform min-[340px]:block duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+                          />
+                        </div>
                       </div>
-                    </div>
-                    {/* the porthole: pause / resume (a 44 px target round a smaller window) */}
-                    <button
-                      type="button"
-                      data-rw="porthole"
-                      onClick={own(() => onTogglePause?.())}
-                      aria-label={isPaused ? 'Reanudar' : 'Pausar'}
-                      className="pointer-events-auto absolute flex h-11 w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ink active:scale-95 motion-reduce:active:scale-100"
-                      style={{ left: g.porthole.cx - 22, top: g.porthole.cy - 22 }}
-                    >
-                      {isPaused ? (
-                        <Play className="ml-0.5 h-[13px] w-[13px] fill-current" aria-hidden="true" />
-                      ) : (
-                        <Pause className="h-[13px] w-[13px] fill-current" aria-hidden="true" />
-                      )}
-                    </button>
-                  </>
-                )}
+                    </>
+                  )}
 
-                {shown?.kind === 'rest' && (
-                  <>
-                    {restCountdown || !live ? (
-                      <div className="absolute flex items-center gap-2" style={contentBox}>
-                        <p data-rw="rest" className="min-w-0 flex-1 truncate text-[17px] font-semibold leading-tight">
+                  {shown?.kind === 'rest' &&
+                    (restCountdown || !live ? (
+                      <div className="absolute flex items-center" style={contentBox}>
+                        <p data-rw="rest" className="min-w-0 flex-1 truncate text-[22px] font-semibold leading-tight">
                           Descanso
                         </p>
-                        <SkipButton onSkip={guarded(onNext)} />
                       </div>
                     ) : (
                       <div className="absolute flex flex-col" style={contentBox}>
-                        <p data-rw="next" className="mt-[6px] h-[18px] truncate text-[14px] font-medium leading-[18px] text-ink/80">
+                        <p data-rw="later" className="mt-[9px] h-[20px] truncate text-[15px] font-medium leading-[20px] text-ink/80">
                           Luego: {shown.nextExercise.title}
                         </p>
-                        <div className="mb-[5px] mt-auto flex items-center gap-2">
-                          <p data-rw="rest" className="min-w-0 flex-1 truncate text-[17px] font-semibold leading-tight">
+                        <p data-rw="rest" className="mb-[8px] mt-auto truncate text-[21px] font-semibold leading-[28px]">
                           Descanso
                         </p>
-                          <SkipButton onSkip={guarded(onNext)} />
-                        </div>
                       </div>
-                    )}
-                    {/* long rest with talks: the seconds in the porthole */}
-                    {!restCountdown && live && (
-                      <span
-                        role="timer"
-                        aria-label={`${time} de descanso`}
-                        className={`absolute flex h-11 w-11 items-center justify-center font-bold tabular-nums leading-none ${timeLeft >= 60 ? 'text-[11px]' : 'text-[15px]'}`}
-                        style={{ left: g.porthole.cx - 22, top: g.porthole.cy - 22 }}
-                      >
-                        {timeLeft >= 60 ? time : Math.max(0, Math.round(timeLeft))}
-                      </span>
-                    )}
-                    {/* the first serie of the coming block, standing on the body, right of the fin */}
-                    {preview && (
-                      <video
-                        key={preview.id}
-                        data-rw="preview"
-                        src={playbackUrl(preview)}
-                        poster={preview.poster_url ?? undefined}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        aria-hidden="true"
-                        onError={(e) => retryWithOriginal(e.currentTarget, preview)}
-                        className="pointer-events-none absolute h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
-                        style={{ left: Math.max(c.left, g.finReach + 10), top: ROCKET.F - 8 - 106 }}
-                      />
-                    )}
-                  </>
-                )}
+                    ))}
+
+                  {/* the time, big, in the nose (a rest with the giant countdown on the video doesn't repeat it) */}
+                  {showTime && (
+                    <span
+                      data-rw="time"
+                      role="timer"
+                      aria-label={shown?.kind === 'rest' ? `${time} de descanso` : undefined}
+                      className="pointer-events-none absolute flex items-center justify-center text-[27px] font-bold leading-none tabular-nums tracking-[-0.02em] min-[360px]:text-[30px]"
+                      style={boxStyle(g.time)}
+                    >
+                      {time}
+                    </span>
+                  )}
+
+                  {/* the first serie of the coming block, standing on the body, right of the fin */}
+                  {preview && (
+                    <video
+                      key={preview.id}
+                      data-rw="preview"
+                      src={playbackUrl(preview)}
+                      poster={preview.poster_url ?? undefined}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      aria-hidden="true"
+                      onError={(e) => retryWithOriginal(e.currentTarget, preview)}
+                      className="pointer-events-none absolute h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
+                      style={{ left: Math.max(g.content.left, g.finReach + 10), top: ROCKET.F - 8 - 106 }}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -320,42 +377,64 @@ export function RocketWidget({
   );
 }
 
+const boxStyle = (b: Box): CSSProperties => ({ left: b.left, top: b.top, width: b.right - b.left, height: b.bottom - b.top });
+
 // ---------------------------------------------------------------------------------------------
 // The flight on the animation timeline
 
+interface FlightEls {
+  flightEl: RefObject<HTMLDivElement | null>;
+  sinkEl: RefObject<HTMLDivElement | null>;
+  squashEl: RefObject<HTMLDivElement | null>;
+  flameEl: RefObject<HTMLDivElement | null>;
+  puffsEl: RefObject<HTMLDivElement | null>;
+  podEl: RefObject<HTMLDivElement | null>;
+  contentEls: RefObject<HTMLDivElement | null>[];
+}
+
 function useRocketFlight({
-  root,
-  flightEl,
-  squashEl,
-  flameEl,
-  contentEls,
+  els,
+  lastSink,
+  podHidden,
   cloudKey,
   ending,
   queue,
   currentIndex,
   reduced,
 }: {
-  root: RefObject<HTMLDivElement | null>;
-  flightEl: RefObject<HTMLDivElement | null>;
-  squashEl: RefObject<HTMLDivElement | null>;
-  flameEl: RefObject<HTMLDivElement | null>;
-  contentEls: RefObject<HTMLDivElement | null>[];
+  els: FlightEls;
+  lastSink: RefObject<Sink>;
+  podHidden: number;
   cloudKey: number;
   ending: boolean;
   queue: RoutineItem[];
   currentIndex: number;
   reduced: boolean;
-}) {
+}): RefObject<Flight> {
   const flight = useRef<Flight>(PARKED);
   const seen = useRef<{ cloudKey: number; ending: boolean; queue: RoutineItem[]; item: RoutineItem | undefined } | null>(null);
-  const unblock = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const contents = useRef(contentEls);
+  const refs = useRef(els);
+  const hidden = useRef(podHidden);
+  useLayoutEffect(() => {
+    hidden.current = podHidden;
+  }, [podHidden]);
 
   useLayoutEffect(() => {
     const now = performance.now();
     const prev = seen.current;
     const item = queue[currentIndex];
     seen.current = { cloudKey, ending, queue, item };
+    const r = refs.current;
+    const el = {
+      flight: r.flightEl.current,
+      sink: r.sinkEl.current,
+      squash: r.squashEl.current,
+      flame: r.flameEl.current,
+      puffs: r.puffsEl.current,
+      pod: r.podEl.current,
+      contents: r.contentEls.map((x) => x.current).filter((x): x is HTMLDivElement => x !== null),
+    };
+    if (!el.flight || !el.sink || !el.squash || !el.flame || !el.pod || !el.puffs) return;
 
     let next: Flight;
     if (!prev) next = arrival(now);
@@ -363,54 +442,76 @@ function useRocketFlight({
     else if (!ending && cloudKey !== prev.cloudKey && !reduced) next = nextFlight(flight.current, 'clouds', now);
     else if (!ending && (prev.ending || queue !== prev.queue)) next = nextFlight(flight.current, 'show', now);
     else {
-      // the end of a rest: no clouds, a small "¡pam!" as the serie comes in
-      const squash = squashEl.current;
-      const parked = phaseAt(flight.current, now) === 'parked';
-      if (squash && parked && prev.item?.kind === 'rest' && isExercise(item)) {
-        if (reduced) contents.current.forEach((r) => r.current?.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 200 }));
-        else squash.animate(PAM_KEYFRAMES, { duration: FLIGHT.pamMs });
+      // No flight: the moment changed with the rocket in its place.
+      if (phaseAt(flight.current, now) !== 'parked') return;
+      if (prev.item?.kind === 'rest' && isExercise(item)) {
+        // the end of a rest: "¡pam!", the water is gone, and it springs back upright
+        if (reduced) {
+          [...el.contents, el.pod].forEach((node) => node.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 200 }));
+        } else {
+          el.squash.animate(PAM_KEYFRAMES, { duration: FLIGHT.pamMs });
+          el.sink.animate(springBackKeyframes(lastSink.current), { duration: SINK.springMs });
+          el.pod.animate(POD_BUMP_KEYFRAMES, { duration: 360 });
+        }
+      } else if (!reduced && sputtersBetween(prev.item, item)) {
+        // one warm-up clip to the next: it tries to take off and can't
+        el.squash.animate(SPUTTER_KEYFRAMES, { duration: SPUTTER.ms });
+        el.flame.animate(SPUTTER_FLAME_KEYFRAMES, { duration: SPUTTER.ms });
+        Array.from(el.puffs.children).forEach((puff, i) =>
+          (puff as HTMLElement).animate(sputterPuffKeyframes(i ? 14 : -10, i ? 26 : -34), {
+            duration: 760,
+            delay: i ? 330 : 160,
+            easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)',
+          }),
+        );
       }
       return;
     }
     if (next === flight.current) return;
     flight.current = next;
+    playFlight(next, now, reduced, hidden.current, {
+      flight: el.flight,
+      squash: el.squash,
+      flame: el.flame,
+      pod: el.pod,
+      contents: el.contents,
+    });
+  }, [cloudKey, ending, queue, currentIndex, reduced, lastSink]);
 
-    const els = {
-      flight: flightEl.current,
-      squash: squashEl.current,
-      flame: flameEl.current,
-      contents: contents.current.map((r) => r.current).filter((el): el is HTMLDivElement => el !== null),
-    };
-    if (!els.flight || !els.squash || !els.flame) return;
-    playFlight(next, now, reduced, { flight: els.flight, squash: els.squash, flame: els.flame, contents: els.contents });
+  return flight;
+}
 
-    // nothing in it can be pressed until it is parked again
-    const node = root.current;
-    clearTimeout(unblock.current);
-    if (node) {
-      const until = parkedFrom(next);
-      node.toggleAttribute('inert', until > now);
-      if (until > now && Number.isFinite(until)) unblock.current = setTimeout(() => node.toggleAttribute('inert', false), until - now);
-    }
-  }, [cloudKey, ending, queue, currentIndex, reduced, root, flightEl, squashEl, flameEl]);
-
-  // Back from the background (where timers run late): controls follow where the rocket really is.
+/**
+ * The widget is `inert` exactly while the rocket is not parked. One effect owns the timer that
+ * hands control back: it runs after every flight and again whenever it mounts (React's dev double
+ * mount included), and on coming back to the tab, so the timer can never be lost. (It used to be
+ * set by the flight and cleared by another effect's cleanup: the dev double mount cleared it and
+ * left the widget inert from the start of the routine until the first rest.)
+ */
+function useInertWhileAway(root: RefObject<HTMLDivElement | null>, flight: RefObject<Flight>, ...moment: [number, boolean, RoutineItem[], number, boolean]) {
+  const [cloudKey, ending, queue, currentIndex, reduced] = moment;
   useEffect(() => {
+    const node = root.current;
+    if (!node) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sync = () => {
+      clearTimeout(timer);
+      const now = performance.now();
+      node.toggleAttribute('inert', !controlsLiveAt(flight.current, now));
+      const at = controlsLiveFrom(flight.current, now);
+      if (at !== null) timer = setTimeout(sync, at - now + 16);
+    };
+    sync();
     const onVisible = () => {
-      const node = root.current;
-      if (document.visibilityState !== 'visible' || !node) return;
-      const parkedAt = parkedFrom(flight.current);
-      if (performance.now() >= parkedAt) {
-        clearTimeout(unblock.current);
-        node.toggleAttribute('inert', false);
-      }
+      if (document.visibilityState === 'visible') sync();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
-      clearTimeout(unblock.current);
     };
-  }, [root]);
+    // (the moment's parts aren't read here: they are what can start a flight, so it re-syncs after each)
+  }, [root, flight, cloudKey, ending, queue, currentIndex, reduced]);
 }
 
 /** Puts the whole of a flight on the timeline, from now: leaving (if it does), and coming back (if it does). */
@@ -418,12 +519,14 @@ function playFlight(
   f: Flight,
   now: number,
   reduced: boolean,
-  el: { flight: HTMLElement; squash: HTMLElement; flame: HTMLElement; contents: HTMLElement[] },
+  podHidden: number,
+  el: { flight: HTMLElement; squash: HTMLElement; flame: HTMLElement; pod: HTMLElement; contents: HTMLElement[] },
 ) {
   // where it is right now, for a fade from mid-flight
   const style = getComputedStyle(el.flight);
   const from = { transform: style.transform === 'none' ? 'none' : style.transform, opacity: Number(style.opacity) };
-  [el.flight, el.squash, el.flame, ...el.contents].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
+  const podOpacity = Number(getComputedStyle(el.pod).opacity);
+  [el.flight, el.squash, el.flame, el.pod, ...el.contents].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
   if (f.leftAt === null) return;
 
   const leaves = Number.isFinite(f.leftAt);
@@ -435,13 +538,17 @@ function playFlight(
     node.animate(keys, options).startTime = now;
   };
   const contentTo = (keys: Keyframe[], options: KeyframeAnimationOptions) => el.contents.forEach((node) => run(node, keys, options));
+  const podIn = [{ opacity: 0, transform: `translateY(${-podHidden}px)` }];
 
   if (leaves) {
     const at = delay(f.leftAt);
     if (f.how === 'takeoff' && !reduced) {
+      // the pod goes back into the belly as the rocket gathers itself
+      run(el.pod, podRetractKeyframes(podHidden), { duration: POD.outMs, delay: at, fill: 'forwards' });
       run(el.flight, TAKEOFF_KEYFRAMES, { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
       // full flame from the first push
-      run(el.flame, 
+      run(
+        el.flame,
         [
           { opacity: 0, transform: 'scale(0.35, 0.8)' },
           { opacity: 1, transform: 'scale(0.6, 0.95)', offset: FLIGHT.anticipationMs / FLIGHT.takeoffMs },
@@ -453,19 +560,25 @@ function playFlight(
       contentTo([{ opacity: 1 }, { opacity: 0 }], { duration: FLIGHT.contentOutMs, delay: at, fill: 'forwards', easing: 'ease-out' });
     } else {
       // an interrupted flight, or reduced motion: it fades where it is
-      run(el.flight, 
+      run(
+        el.flight,
         [
           { transform: from.transform, opacity: from.opacity },
           { transform: from.transform, opacity: 0 },
         ],
         { duration: FLIGHT.fadeMs, delay: at, fill: 'forwards' },
       );
+      if (reduced) run(el.pod, [{ opacity: podOpacity }, { opacity: 0 }], { duration: FLIGHT.fadeMs, delay: at, fill: 'forwards' });
+      else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
       contentTo([{ opacity: 0 }, { opacity: 0 }], { duration: 1, fill: 'forwards' });
     }
   }
 
   if (f.returnAt === null) {
-    if (!leaves) run(el.flight, [{ opacity: 0 }, { opacity: 0 }], { duration: 1, fill: 'forwards' });
+    if (!leaves) {
+      run(el.flight, [{ opacity: 0 }, { opacity: 0 }], { duration: 1, fill: 'forwards' });
+      run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
+    }
     return;
   }
   // coming back: while it waits, the leaving animation holds it away; with none, the return's own first frame does
@@ -475,11 +588,13 @@ function playFlight(
   if (reduced) {
     run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill });
     contentTo([{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: at, fill });
+    run(el.pod, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: at, fill });
     return;
   }
   run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill });
   // the flame burns on the way in and dies as it settles
-  run(el.flame, 
+  run(
+    el.flame,
     [
       { opacity: 1, transform: 'scale(0.8, 0.95)' },
       { opacity: 1, transform: 'scale(1, 1)', offset: 0.2 },
@@ -491,12 +606,15 @@ function playFlight(
   );
   run(el.squash, SETTLE_KEYFRAMES, { duration: FLIGHT.settleMs, delay: parkedAt - FLIGHT.settleMs * 0.35 });
   contentTo([{ opacity: 0 }, { opacity: 1 }], { duration: FLIGHT.contentInMs, delay: parkedAt, fill, easing: 'ease-out' });
+  // once it has settled, the pod pops out from under it (held in until then: by its going in, or
+  // with none, by this one's first frame; a backward fill here would hide it before it goes in)
+  run(el.pod, podPopKeyframes(podHidden), { duration: POD.inMs, delay: parkedAt + POD.inDelayMs, fill });
 }
 
 // ---------------------------------------------------------------------------------------------
 // The drawing
 
-/** Fins, nozzle, body and nose: white with the ink line (under the water). */
+/** Fins, nozzle, and the body with its rounded nose: white with the ink line (under the water). */
 function RocketBack({ g }: { g: RocketGeometry }) {
   return (
     <svg
@@ -516,16 +634,14 @@ function RocketBack({ g }: { g: RocketGeometry }) {
       <path d={g.finBottom} />
       <path d={g.nozzle} />
       <path d={g.nozzleLine} strokeWidth={1.25} />
-      <rect x={g.body.x} y={g.body.y} width={g.body.w} height={g.body.h} rx={2.5} />
-      <path d={g.nose} />
+      <path d={g.hull} />
     </svg>
   );
 }
 
-/** What is drawn over the water: the bands, the line of the nose's base, the edge-on fin, the porthole. */
-function RocketFront({ g, glint }: { g: RocketGeometry; glint: boolean }) {
+/** What is drawn over the water: the tail's bands, the seam of the nose section, the edge-on fin. */
+function RocketFront({ g }: { g: RocketGeometry }) {
   const { F, T } = ROCKET;
-  const { cx, cy, r } = g.porthole;
   return (
     <svg
       data-rocket="front"
@@ -539,14 +655,62 @@ function RocketFront({ g, glint }: { g: RocketGeometry; glint: boolean }) {
       strokeLinejoin="round"
       strokeLinecap="round"
     >
-      {g.bands.map((x) => (
-        <path key={x} d={`M${x} ${F} L${x} ${F + T}`} strokeWidth={1.4} />
+      {g.bands.map((x, i) => (
+        <path key={x} d={`M${x} ${F} L${x} ${F + T}`} strokeWidth={i === 2 ? ROCKET.STROKE : 1.4} />
       ))}
-      <path d={`M${g.x1} ${F} L${g.x1} ${F + T}`} strokeWidth={ROCKET.STROKE} />
       <path d={g.edgeFin} strokeWidth={ROCKET.STROKE} />
-      <circle cx={cx} cy={cy} r={r} strokeWidth={ROCKET.STROKE} />
-      {glint && <path d={`M${cx - r * 0.52} ${cy - r * 0.31} A${r * 0.59} ${r * 0.59} 0 0 1 ${cx + r * 0.16} ${cy - r * 0.59}`} fill="none" strokeWidth={1.2} />}
     </svg>
+  );
+}
+
+/** The control pod: hung from the belly by a short neck, white with the ink line. */
+function Pod({ g, box, children }: { g: RocketGeometry; box: Box; children: React.ReactNode }) {
+  const neckTop = ROCKET.F + ROCKET.T - POD_SHAPE.NECK_HIDDEN;
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute border-x-2 border-ink bg-white"
+        style={{ left: g.pod.cx - POD_SHAPE.NECK_W / 2, top: neckTop, width: POD_SHAPE.NECK_W, height: box.top - neckTop + 2 }}
+      />
+      <div
+        className="absolute flex items-center justify-between rounded-full border-2 border-ink bg-white px-[2px]"
+        style={boxStyle(box)}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
+function PodButton({
+  rw,
+  label,
+  onClick,
+  disabled = false,
+  strong = false,
+  children,
+}: {
+  rw: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  strong?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      data-rw={rw}
+      onClick={own(onClick)}
+      disabled={disabled}
+      aria-label={label}
+      className={`pointer-events-auto flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-95 disabled:cursor-default disabled:opacity-30 motion-reduce:active:scale-100 ${
+        strong ? 'bg-ink text-white hover:bg-ink/85' : 'text-ink hover:bg-ink/8 disabled:hover:bg-transparent'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -569,7 +733,7 @@ const flameBox = (g: RocketGeometry): CSSProperties => ({
   transformOrigin: '100% 50%',
 });
 
-/** The flame of the flight: hidden unless a flight animation shows it. */
+/** The flame of the flight (and of the warm-up's sputter): hidden unless an animation shows it. */
 function FlightFlame({ g, flameRef }: { g: RocketGeometry; flameRef: RefObject<HTMLDivElement | null> }) {
   return (
     <div ref={flameRef} aria-hidden="true" className="pointer-events-none absolute" style={{ ...flameBox(g), opacity: 0 }}>
@@ -603,14 +767,22 @@ function IgnitionFlame({ g, level }: { g: RocketGeometry; level: 0 | 1 | 2 | 3 }
   const step = IGNITION[level];
   return (
     <div
-        aria-hidden="true"
-        className="pointer-events-none absolute transition-[transform,opacity] duration-[450ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-        style={{ ...flameBox(g), opacity: level > 0 ? 1 : 0, transform: `scale(${step.sx}, ${step.sy})` }}
-      >
+      aria-hidden="true"
+      className="pointer-events-none absolute transition-[transform,opacity] duration-[450ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+      style={{ ...flameBox(g), opacity: level > 0 ? 1 : 0, transform: `scale(${step.sx}, ${step.sy})` }}
+    >
       <FlameDrawing />
     </div>
   );
 }
+
+const PuffDrawing = () => (
+  <svg viewBox="0 0 26 18" className="block h-full w-full overflow-visible" fill="#fff" stroke={INK} strokeWidth={1.4} strokeLinejoin="round">
+    <path d="M5 15 A4.5 4.5 0 0 1 4.5 6.4 A6 6 0 0 1 15.5 4.2 A5 5 0 0 1 22.6 9.6 A3.8 3.8 0 0 1 20.5 15 Z" />
+  </svg>
+);
+
+const puffBox = (g: RocketGeometry): CSSProperties => ({ left: g.xe - 10, top: g.cy - 9, width: 26, height: 18 });
 
 /** ...with more and more exhaust round the tail. */
 function Exhaust({ g, level, paused }: { g: RocketGeometry; level: 0 | 1 | 2 | 3; paused: boolean }) {
@@ -623,10 +795,7 @@ function Exhaust({ g, level, paused }: { g: RocketGeometry; level: 0 | 1 | 2 | 3
           className="rw-puff pointer-events-none absolute"
           style={
             {
-              left: g.xe - 10,
-              top: g.cy - 9,
-              width: 26,
-              height: 18,
+              ...puffBox(g),
               '--rw-dx': `${puff.dx}px`,
               '--rw-dy': `${puff.dy}px`,
               '--rw-puff-delay': `${puff.delay}s`,
@@ -635,12 +804,23 @@ function Exhaust({ g, level, paused }: { g: RocketGeometry; level: 0 | 1 | 2 | 3
             } as CSSProperties
           }
         >
-          <svg viewBox="0 0 26 18" className="block h-full w-full overflow-visible" fill="#fff" stroke={INK} strokeWidth={1.4} strokeLinejoin="round">
-            <path d="M5 15 A4.5 4.5 0 0 1 4.5 6.4 A6 6 0 0 1 15.5 4.2 A5 5 0 0 1 22.6 9.6 A3.8 3.8 0 0 1 20.5 15 Z" />
-          </svg>
+          <PuffDrawing />
         </div>
       ))}
     </>
+  );
+}
+
+/** Two puffs of gas for the warm-up's sputter: hidden unless the sputter shows them. */
+function SputterPuffs({ g, puffsRef }: { g: RocketGeometry; puffsRef: RefObject<HTMLDivElement | null> }) {
+  return (
+    <div ref={puffsRef} aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {[0, 1].map((i) => (
+        <div key={i} className="absolute" style={{ ...puffBox(g), opacity: 0 }}>
+          <PuffDrawing />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -709,58 +889,6 @@ function Water({ g, level, reduced }: { g: RocketGeometry; level: number; reduce
             />
           ))}
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------
-// Controls
-
-function SkipButton({ onSkip }: { onSkip: () => void }) {
-  return (
-    <button
-      type="button"
-      data-rw="skip"
-      onClick={own(onSkip)}
-      // drawn 34 px tall; the target reaches 44 px
-      className={`pointer-events-auto relative flex h-[34px] shrink-0 cursor-pointer items-center rounded-full bg-white px-3 text-[15px] min-[360px]:px-4 font-semibold ring-[1.5px] ring-ink ring-inset transition-colors duration-150 before:absolute before:-inset-x-1 before:-inset-y-[5px] before:content-[''] hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-95 motion-reduce:active:scale-100`}
-    >
-      Saltar
-    </button>
-  );
-}
-
-/** Under the list: Anterior, Pausa, Siguiente (they don't fit in the rocket). */
-function ListControls({
-  isPaused,
-  onTogglePause,
-  onPrev,
-  canPrev,
-  onNext,
-}: {
-  isPaused: boolean;
-  onTogglePause?: () => void;
-  onPrev: () => void;
-  canPrev: boolean;
-  onNext: () => void;
-}) {
-  const icon = `flex h-11 w-11 items-center justify-center rounded-full ${PRESSABLE} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white`;
-  return (
-    <div className="flex items-center justify-center gap-6 border-t border-white/12 py-1.5">
-      <button type="button" onClick={own(onPrev)} disabled={!canPrev} aria-label="Anterior" className={`${icon} ${HOVER_ON_DARK} disabled:opacity-35`}>
-        <SkipBack className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={own(() => onTogglePause?.())}
-        aria-label={isPaused ? 'Reanudar' : 'Pausar'}
-        className={`${icon} bg-white text-ink hover:bg-white/80 active:scale-95 motion-reduce:active:scale-100`}
-      >
-        {isPaused ? <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" /> : <Pause className="h-5 w-5 fill-current" aria-hidden="true" />}
-      </button>
-      <button type="button" onClick={own(onNext)} aria-label="Siguiente" className={`${icon} ${HOVER_ON_DARK}`}>
-        <SkipForward className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
-      </button>
     </div>
   );
 }
