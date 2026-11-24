@@ -8,6 +8,7 @@ import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
+import { CheerHits, type CheerDemo } from './CheerHits';
 import { DesktopBackdrop } from './DesktopBackdrop';
 import { PlayerMenu } from './PlayerMenu';
 import { PlayerWidget } from './PlayerWidget';
@@ -19,7 +20,8 @@ import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter } from './m
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
  * bottom (PlayerWidget) plus the "···" menu at the top. During a rest a blue frame runs round
- * the screen. On a computer the same pieces sit beside the chalkboard.
+ * the screen. Now and then, during a serie, a comic "golpe" of encouragement bursts onto the
+ * video (CheerHits). On a computer the same pieces sit beside the chalkboard.
  */
 
 export interface WorkoutPlayerProps {
@@ -41,6 +43,8 @@ export interface WorkoutPlayerProps {
   onVideoTimeUpdate: () => void;
   /** Only where the Studio is on: "Crear clip" in the menu. */
   onOpenTiktok?: () => void;
+  /** Development only (/preview/player): fire a comic hit now. */
+  cheerDemo?: CheerDemo;
 }
 
 // Desktop ring round the video: warm-up in chalk white, a serie in red, a rest in blue.
@@ -65,6 +69,7 @@ export function WorkoutPlayer({
   totalSeconds,
   onVideoTimeUpdate,
   onOpenTiktok,
+  cheerDemo,
 }: WorkoutPlayerProps) {
   const reduced = Boolean(useReducedMotion());
   const [beepOn, setBeepOn] = useState(true);
@@ -177,6 +182,17 @@ export function WorkoutPlayer({
                 onRepeat={onRepeat}
                 onExit={onExit}
                 onTap={() => setListOpen(false)}
+              />
+              <CheerHits
+                queue={queue}
+                currentIndex={currentIndex}
+                displayIndex={displayIndex}
+                timeLeft={timeLeft}
+                totalItemDuration={totalItemDuration}
+                isPaused={isPaused}
+                hidden={clouding || listOpen}
+                reduced={reduced}
+                demo={cheerDemo}
               />
             </div>
           </div>

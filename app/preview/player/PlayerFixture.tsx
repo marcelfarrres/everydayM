@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 import { useWorkoutRoutine } from '@/hooks/useWorkoutRoutine';
 import { WorkoutPlayer } from '@/components/workout/player/WorkoutPlayer';
+import type { CheerDemo } from '@/components/workout/player/CheerHits';
+import { HIT_WORDS } from '@/lib/routine/cheers';
 import { getMusicEngine } from '@/lib/audio/music';
 import { unlockPlayerAudio } from '@/lib/audio/unlock';
 import { buildRoutine } from '@/lib/routine';
@@ -29,7 +31,9 @@ function build(seed: number): { queue: RoutineItem[]; meta: RoutineMeta } {
   return buildRoutine(FIXTURE_EXERCISES, FILTERS, seeded(seed));
 }
 
-type Jump = { label: string; find: (item: RoutineItem) => boolean };
+const HIT_WORD_LIST = Object.values(HIT_WORDS).flat();
+
+type Jump ={ label: string; find: (item: RoutineItem) => boolean };
 const JUMPS: Jump[] = [
   { label: 'Calentamiento', find: (q) => q.kind === 'warmup' },
   { label: 'Serie', find: (q) => q.kind === 'workout' },
@@ -46,6 +50,8 @@ export function PlayerFixture() {
   const [target, setTarget] = useState<number | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [withMusic, setWithMusic] = useState(true);
+  const [demo, setDemo] = useState<CheerDemo | null>(null);
+  const [demoWord, setDemoWord] = useState('');
 
   // The fixture playlist (or none, to see the silent player); the engine is reachable from the
   // console as window.__music for checks.
@@ -99,6 +105,13 @@ export function PlayerFixture() {
   }
 
   const item = queue[currentIndex];
+  const fireHit = () => {
+    const word = demoWord || HIT_WORD_LIST[Math.floor(Math.random() * HIT_WORD_LIST.length)];
+    setDemo((last) => ({
+      id: (last?.id ?? 0) + 1,
+      hit: { queueIndex: currentIndex, moment: 'mid', group: 'mid', word, seed: Math.floor(Math.random() * 2 ** 32) },
+    }));
+  };
   const describe = item?.kind === 'rest' ? `descanso ${item.restKind === 'long' ? 'largo' : 'corto'} · ${item.talks.length} hablados` : item?.kind;
 
   return (
@@ -121,7 +134,33 @@ export function PlayerFixture() {
         totalSeconds={routine.totalSeconds}
         onVideoTimeUpdate={routine.handleVideoTimeUpdate}
         onOpenTiktok={() => window.alert('Aquí se abriría «Crear clip» (solo con el Estudio activo).')}
+        cheerDemo={demo ?? undefined}
       />
+
+      {/* DEV: fire a comic hit now (it shows only during a serie, as in the app) */}
+      <div className="fixed bottom-1/4 left-1 z-[80] flex flex-col gap-1 font-[family-name:var(--font-display)] text-[13px]">
+        <button
+          type="button"
+          onClick={fireHit}
+          className="min-h-11 rounded-full bg-[#ffe27a] px-3 font-semibold text-ink shadow"
+        >
+          ¡Golpe!
+        </button>
+        <select
+          aria-label="Palabra del golpe"
+          value={demoWord}
+          onChange={(e) => setDemoWord(e.target.value)}
+          className="min-h-11 w-28 rounded-xl bg-white px-1 text-ink shadow"
+        >
+          <option value="">al azar</option>
+          {HIT_WORD_LIST.map((word) => (
+            <option key={word} value={word}>
+              {word}
+            </option>
+          ))}
+        </select>
+        {item?.kind !== 'workout' && <p className="w-28 rounded-xl bg-white/90 px-2 py-1 text-[11px] text-ink">Solo se ve en una serie</p>}
+      </div>
 
       {/* DEV: jump between states */}
       <div className="fixed left-1 top-1/2 z-[80] -translate-y-1/2 font-[family-name:var(--font-display)] text-[13px]">
