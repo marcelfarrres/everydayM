@@ -36,13 +36,14 @@ Hay dos tipos. En ambos: **marco azul** alrededor de la pantalla y la barra en *
 
 | | Corto (entre series) | Largo (entre bloques, y entre calentamiento y bloque 1) |
 |---|---|---|
-| Pantalla completa | El ejercicio siguiente, en bucle y sin voz | 1 o 2 **vídeos hablados** seguidos, con voz |
+| Pantalla completa | El ejercicio siguiente, en bucle y sin voz, tras un **velo oscuro** (negro translúcido ~60 %), con la **cuenta atrás gigante** en segundos y debajo «Luego: <ejercicio>» | 1 o 2 **vídeos hablados** seguidos, con voz, sin velo (sin vídeos hablados, o cuando terminan: como un corto) |
 | Mini vídeo en la barra | No | Sí: la primera serie del bloque, a la izquierda, asomando por encima de la barra |
 
 Barra en modo descanso:
 - Mismo tamaño que en una serie. **Sin hilo.**
 - Se **llena de agua azul de abajo arriba** con una ola en la superficie; llena = empieza la serie.
 - Texto: «Descanso», el tiempo, «Luego: <ejercicio>» en pequeño, y el botón «Saltar». Sin botón de pausa.
+- Cuando el vídeo ya enseña la cuenta atrás gigante (descanso sin vídeos hablados), la barra no repite el tiempo ni «Luego»: solo «Descanso» y «Saltar». El número aparece cuando las nubes se han ido; con movimiento reducido no se anima cada segundo. (Decidido por Marcel tras probarlo, 24-11-2026.)
 - No se usa la palabra «tutorial» en ningún sitio.
 
 ### 1.5 Transiciones
@@ -56,7 +57,10 @@ Barra en modo descanso:
 - En la pantalla de rutina lista (`RoutineComposer`), bajo los minutos, se dibuja el mismo hilo por bloques junto a «3 bloques de 4 series». Es el mismo dibujo que luego vive en la barra.
 
 ### 1.7 Ordenador
-- No se ha rediseñado. Se mantiene la pizarra actual; solo recibe los cambios comunes (sin intro, descansos nuevos, cohete nuevo). **Supuesto, pendiente de confirmar.**
+- Decidido por Marcel tras probarlo en su PC (24-11-2026): **fuera la pizarra** (panel de tiza, bombilla y fondo de pizarra). Fondo liso oscuro.
+- El vídeo 9:16 va **centrado y a toda la altura** de la ventana, sin márgenes. **El mismo widget** del móvil va justo a su derecha, alineado abajo, con ancho fijo (22 rem); el «···» arriba en esa misma columna, fuera del vídeo. El marco azul del descanso rodea el vídeo.
+- Se usa cuando la ventana tiene sitio para el vídeo y la columna del widget (ancho ≥ alto × 9/16 + 392 px) y al menos 480 px de alto; si no (ventanas estrechas, tablets en vertical, móvil en horizontal), la disposición del móvil.
+- Con ratón, todo control tiene cursor de mano y cambio al pasar por encima; la barra se ilumina donde un clic abre la lista.
 
 ## 2. Vídeos hablados
 
@@ -169,7 +173,7 @@ Antes de la fase 2, prueba aislada del riesgo de §4 en un iPhone.
 1. **Cuenta de Bunny**: crearla, meter saldo, desactivar la recarga automática, crear la zona de almacenamiento (Europa) con su pull zone, fijar el tope mensual de GB y poner las claves en `.env.local`. Dejar las dos copias descargadas de Supabase (objetos y base de datos) en una carpeta fuera del repo para la mudanza. Poner `NEXT_PUBLIC_MEDIA_BASE_URL` también en Vercel.
 2. **Música**: Pixabay y Free Music Archive prohíben la descarga automática en lote, así que las pistas hay que bajarlas a mano. Lista corta recomendada en el anexo.
 3. Grabar al menos 3 o 4 vídeos hablados para poder probar los descansos largos.
-4. Confirmar el supuesto de §1.7 (ordenador sin rediseñar).
+4. ~~Confirmar el supuesto de §1.7~~: decidido (sin pizarra, vídeo a toda altura con el widget al lado).
 
 ## Anexo — música candidata (≈56 min, comprobada el 24-11-2026)
 
