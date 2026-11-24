@@ -67,7 +67,7 @@ describe('rests', () => {
       expect(item.nextExercise.id).toBe(next.exercise.id);
       if (item.restKind === 'short') {
         expect(item.talks).toEqual([]);
-        expect(item.duration).toBe(getRestDuration(5) + item.prepSeconds);
+        expect(item.duration).toBe(getRestDuration(5));
       }
     });
     expect(rests(queue).filter((r) => r.restKind === 'long')).toHaveLength(3); // warm-up→1, 1→2, 2→3
@@ -144,6 +144,21 @@ describe('talks in long rests', () => {
     expect(counts).toEqual(new Set([1, 2]));
   });
 
+  it('keeps every rest the decided length, whatever the clips last (a clip lasts what it lasts)', () => {
+    const lib = library().map((e, i) => ({ ...e, duration_seconds: [20, 32, 45, 60][i % 4] }));
+    const { queue, meta } = buildRoutine(lib, gluteIntent({ rounds: 3, exercisesPerRound: 4 }), seeded(3));
+    const base = getRestDuration(5);
+    for (const rest of rests(queue)) {
+      expect(rest.prepSeconds).toBe(0);
+      if (rest.restKind === 'short') expect(rest.duration).toBe(base);
+      else if (rest.talks.length === 0) expect(rest.duration).toBe(getLongRestBase(base));
+    }
+    // each serie lasts its clip
+    queue.forEach((item) => {
+      if (item.kind === 'workout') expect(getItemDuration(item, meta.slotSeconds)).toBe(item.exercise.duration_seconds);
+    });
+  });
+
   it('makes a long rest last at least its usual time and at least its talks after the clouds open', () => {
     const base = getLongRestBase(getRestDuration(5));
     let stretched = 0;
@@ -155,11 +170,13 @@ describe('talks in long rests', () => {
       );
       for (const rest of rests(queue).filter((r) => r.restKind === 'long')) {
         const talkSum = rest.talks.reduce((acc, t) => acc + t.duration_seconds, 0);
-        expect(rest.duration).toBeGreaterThanOrEqual(base + rest.prepSeconds);
+        expect(rest.duration).toBeGreaterThanOrEqual(base);
         // the talks start TALK_LEAD_MS into the rest, when the clouds open
         expect(rest.duration * 1000).toBeGreaterThanOrEqual(TALK_LEAD_MS + talkSum * 1000);
         expect(Number.isInteger(rest.duration)).toBe(true);
-        if (rest.talks.length > 0 && rest.duration > base + rest.prepSeconds) stretched++;
+        if (rest.talks.length > 0 && rest.duration > base) stretched++;
+        // without talks to fit, exactly its usual time
+        if (rest.talks.length === 0) expect(rest.duration).toBe(base);
       }
     }
     expect(stretched).toBeGreaterThan(0); // the talks really set the length somewhere

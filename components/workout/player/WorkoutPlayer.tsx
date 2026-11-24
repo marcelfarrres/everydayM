@@ -13,6 +13,7 @@ import { CheerHits, type CheerDemo } from './CheerHits';
 import { DesktopBackdrop } from './DesktopBackdrop';
 import { PlayerMenu } from './PlayerMenu';
 import { PlayerWidget } from './PlayerWidget';
+import { RestClock, type RestClockPhase } from './RestClock';
 import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
@@ -149,6 +150,9 @@ export function WorkoutPlayer({
   // The list belongs to the stretch between two rests: a new rest closes it, and it can't open
   // while the clouds and the rocket are still on screen (they are drawn above the widget).
   const clouding = useBusyAfter(cloudKey, CLOUDS.clearMs, !reduced);
+  // Phone: the rest's countdown stands in the clouds until they start to open (RestClock).
+  const inClouds = useBusyAfter(cloudKey, CLOUDS.openingMs, !reduced);
+  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : 'hidden';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;
   const setListOpen = useCallback(
@@ -182,6 +186,7 @@ export function WorkoutPlayer({
 
   // Where the routine is, for the clouds (and, on a phone, where the rocket stands in them).
   const journey = journeyOf(queue, timeline, currentIndex, total);
+  const cloudTop = railTop(journey?.progress ?? 0.5);
 
   return (
     <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
@@ -212,7 +217,8 @@ export function WorkoutPlayer({
                 restScreen={shownRest}
                 onTalksDone={setTalksDone}
                 timeLeft={timeLeft}
-                countdownShown={!clouding}
+                // (on a phone the countdown is RestClock, from the clouds on: the stage keeps only its veil)
+                countdownShown={desktop && !clouding}
                 onRepeat={onRepeat}
                 onExit={onExit}
                 onTap={() => setListOpen(false)}
@@ -303,7 +309,7 @@ export function WorkoutPlayer({
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
           talkPreview={shownRest === 'talks'}
-          cloudTop={railTop(journey?.progress ?? 0.5)}
+          cloudTop={cloudTop}
           reduced={reduced}
         />
       )}
@@ -318,6 +324,9 @@ export function WorkoutPlayer({
           aria-hidden="true"
           className="pointer-events-none absolute h-px w-px opacity-0"
         />
+      )}
+      {!desktop && kind === 'rest' && (
+        <RestClock key={cloudKey} seconds={timeLeft} phase={clockPhase} cloudTop={cloudTop} reduced={reduced} />
       )}
       <CloudTransition
         playKey={cloudKey}

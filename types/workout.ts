@@ -86,6 +86,7 @@ export type RoutineItem =
   | {
       kind: 'rest';
       duration: number;
+      /** always 0 since rests stopped taking a short clip's leftover slot (kept for saved routines) */
       prepSeconds: number;
       nextExercise: Exercise;
       nextRound: number;

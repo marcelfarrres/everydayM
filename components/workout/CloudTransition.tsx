@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
+import { CLOUD_CLOCK_PX } from '@/components/workout/player/RestClock';
 import { CLOUDS, CLOUD_TIMING, WORDS, railTop } from '@/components/workout/rocketFlight';
 
 /*
@@ -202,8 +203,14 @@ export function CloudTransition({
                 {kicker}
               </p>
             )}
+            {/* phone: room for the rest's countdown (RestClock stands here), and the title a step smaller */}
+            {phone && <div aria-hidden="true" style={{ height: CLOUD_CLOCK_PX }} />}
             {title && (
-              <p className="font-[family-name:var(--font-display)] text-[clamp(2.25rem,7vw,4.25rem)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313]">
+              <p
+                className={`font-[family-name:var(--font-display)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313] ${
+                  phone ? 'mt-1 text-[1.75rem]' : 'text-[clamp(2.25rem,7vw,4.25rem)]'
+                }`}
+              >
                 {title}
               </p>
             )}

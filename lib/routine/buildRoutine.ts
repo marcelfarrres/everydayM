@@ -10,9 +10,7 @@ import type {
   WorkoutFilters,
 } from '@/types/workout';
 import {
-  MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
-  getClipDuration,
   getDefaultSlotSeconds,
   getLongRestBase,
   getRestDuration,
@@ -415,16 +413,20 @@ export function buildRoutine(
       duration_seconds: slotSeconds,
     };
 
-  /** The long rest before block `round` (1-based): its talks come from that block's exercises. */
-  const longRest = (round: number, prepSeconds: number, isEndOfRound: boolean): RoutineItem => {
+  /**
+   * The long rest before block `round` (1-based): its talks come from that block's exercises.
+   * Rests are always the decided length (a clip lasts what it lasts, and nothing of a short clip's
+   * slot is added to the rest after it); only a long rest's talks can stretch it.
+   */
+  const longRest = (round: number, isEndOfRound: boolean): RoutineItem => {
     const block = blocks[round - 1];
     const talks = pickTalks(block, usedTalkIds, rng);
     return {
       kind: 'rest',
       // Never shorter than a plain end-of-block rest, and long enough for every talk to finish
       // after the clouds open (the talks start then, TALK_LEAD_MS into the rest).
-      duration: Math.max(getLongRestBase(restSec) + prepSeconds, getTalkRestSeconds(talksSeconds(talks))),
-      prepSeconds,
+      duration: Math.max(getLongRestBase(restSec), getTalkRestSeconds(talksSeconds(talks))),
+      prepSeconds: 0,
       nextExercise: block[0],
       nextRound: round,
       totalRounds,
@@ -438,7 +440,7 @@ export function buildRoutine(
     queue.push({ kind: 'warmup', exercise: w });
   }
   if (selectedWarmups.length > 0 && blocks.length > 0) {
-    queue.push(longRest(1, 0, false));
+    queue.push(longRest(1, false));
   }
 
   blocks.forEach((block, blockIndex) => {
@@ -456,18 +458,16 @@ export function buildRoutine(
       const isLast = r === totalRounds && exIdx === block.length - 1;
       if (isLast) return;
 
-      const clipSeconds = getClipDuration(ex, slotSeconds);
-      const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
       const isEndOfRound = exIdx === block.length - 1;
 
       if (isEndOfRound) {
-        queue.push(longRest(r + 1, prepSeconds, true));
+        queue.push(longRest(r + 1, true));
         return;
       }
       queue.push({
         kind: 'rest',
-        duration: restSec + prepSeconds,
-        prepSeconds,
+        duration: restSec,
+        prepSeconds: 0,
         nextExercise: block[exIdx + 1],
         nextRound: r,
         totalRounds,

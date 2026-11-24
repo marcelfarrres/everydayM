@@ -1,6 +1,5 @@
 import type { Exercise } from '@/types/workout';
 import {
-  MAX_PREP_SECONDS,
   OUTRO_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
@@ -66,8 +65,8 @@ function estimateCircuitDuration(
         total += clipSeconds;
       } else {
         const isEndOfRound = i === exercisesPerRound - 1;
-        const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
-        total += clipSeconds + (isEndOfRound ? longRest(getLongRestBase(restSec) + prepSeconds) : restSec + prepSeconds);
+        // (rests are always the decided length: nothing of a short clip's slot is added to them)
+        total += clipSeconds + (isEndOfRound ? longRest(getLongRestBase(restSec)) : restSec);
       }
     }
   }
