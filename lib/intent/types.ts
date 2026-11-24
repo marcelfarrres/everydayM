@@ -1,21 +1,13 @@
-import type { MuscleId, MuscleRole } from '@/types/workout';
+import type {
+  BlockVariation,
+  MuscleId,
+  MuscleRole,
+  RoutineIntent,
+  RoutineIntentMuscle,
+} from '@/types/workout';
 
-export type { MuscleId, MuscleRole };
-
-export interface RoutineIntentMuscle {
-  id: MuscleId;
-  role: MuscleRole;
-  weight: number; // 0..1
-}
-
-export interface RoutineIntent {
-  muscles: RoutineIntentMuscle[]; // weight 0..1
-  difficulty: number; // 1-10
-  targetMinutes: number | null; // null => use manual rounds/exercises
-  slotSeconds: number | null; // null => engine default by difficulty (40-60)
-  includeWarmup: boolean;
-  focusLabel: string;
-}
+// Defined once in types/workout.ts; re-exported so lib/intent keeps its own entry point.
+export type { BlockVariation, MuscleId, MuscleRole, RoutineIntent, RoutineIntentMuscle };
 
 export type RoutineIntentSource = 'gemini' | 'keywords';
 

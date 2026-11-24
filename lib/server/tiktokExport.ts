@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import sharp from 'sharp';
-import { REST_LINES, cheerFor, getItemDuration } from '@/lib/routine';
+import { REST_LINES, cheerFor, getItemDuration, uniqueExercises } from '@/lib/routine';
 import type { Exercise, RoutineItem, RoutineMeta } from '@/types/workout';
 
 /*
@@ -167,14 +167,14 @@ function plan(meta: RoutineMeta) {
 
 /** The day's own exercises (no repeats), so every routine's video opens and closes differently. */
 function dayExercises(meta: RoutineMeta): Exercise[] {
-  const seen = new Set<string>();
-  return meta.circuit.filter((e) => !seen.has(e.id) && seen.add(e.id));
+  return uniqueExercises(meta);
 }
 
 /** Same routine → same words; another routine → (most likely) other words. */
 function pick<T>(meta: RoutineMeta, salt: number, options: T[]): T {
   let h = salt;
-  for (const ch of meta.circuit.map((e) => e.id).join('|')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  // hashed on the first block, which is what the old single circuit was
+  for (const ch of (meta.blocks[0] ?? []).map((e) => e.id).join('|')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return options[h % options.length];
 }
 
@@ -931,7 +931,7 @@ export function collectVideoUrls(mode: ExportMode, queue: RoutineItem[], meta: R
 
 export function validateExport(mode: ExportMode, queue: RoutineItem[], meta: RoutineMeta): string | null {
   if (!Array.isArray(queue) || queue.length === 0 || queue.length > 400) return 'Rutina vacía o demasiado larga.';
-  if (!meta || !Array.isArray(meta.circuit)) return 'Faltan los datos de la rutina.';
+  if (!meta || !Array.isArray(meta.blocks) || !meta.blocks.every(Array.isArray)) return 'Faltan los datos de la rutina.';
   const bad = collectVideoUrls(mode, queue, meta).find((u) => typeof u !== 'string' || !allowedVideoUrl(u));
   return bad ? 'Hay un vídeo que no es de la biblioteca de EverydayM.' : null;
 }

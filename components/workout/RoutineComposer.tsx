@@ -11,7 +11,7 @@ import {
 import { AnimatePresence, animate, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, ChevronLeft, Mic, Play, SlidersHorizontal } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { buildRoutine } from '@/lib/routine';
+import { buildRoutine, uniqueExercises } from '@/lib/routine';
 import { parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
 import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types';
 import { MinutesSlider } from '@/components/workout/MinutesSlider';
@@ -701,7 +701,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 transition={{ duration: 0.25 }}
                 className="flex min-h-36 flex-wrap content-start gap-2"
               >
-                {built.meta.circuit.map((exercise, index) => (
+                {uniqueExercises(built.meta).map((exercise, index) => (
                   <motion.li
                     key={exercise.id}
                     initial={{ opacity: 0, y: 10 }}

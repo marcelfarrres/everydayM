@@ -30,16 +30,30 @@ export interface MuscleRegion {
 
 export type ExerciseType = 'workout' | 'warmup' | 'intro' | 'filler';
 
+/** Marcel talking to camera about an exercise (~15 s, with voice). Row of public.exercise_talks. */
+export interface ExerciseTalk {
+  id: string;
+  exercise_id: string;
+  video_url: string; // original
+  video_lite_url: string | null; // lighter copy the app plays
+  poster_url: string | null; // still from the middle of the clip
+  duration_seconds: number;
+  note: string | null;
+}
+
 export interface Exercise {
   id: string;
   title: string;
   type: ExerciseType | string; // legacy rows may hold other strings
-  video_url: string;
+  video_url: string; // original (1080 wide, used by exports)
+  video_lite_url?: string | null; // lighter copy the app plays; null until generated
+  poster_url?: string | null; // still from the middle of the clip
   muscle: string;
   muscles?: MuscleSelection[] | null;
   difficulty: string | number;
   duration_seconds: number; // REAL clip length (studio now stores ffprobe value; legacy rows say 60)
   equipment?: string;
+  talks?: ExerciseTalk[]; // only when loaded alongside the exercise
 }
 
 export interface RoutineMeta {
@@ -49,11 +63,14 @@ export interface RoutineMeta {
   exercisesPerRound: number;
   difficulty: number; // 1-10
   muscles: MuscleSelection[]; // targeted
-  circuit: Exercise[]; // unique exercises of one round, in order
+  blocks: Exercise[][]; // one list per block (round), in play order; see uniqueExercises()
   warmups: Exercise[];
   focusLabel: string; // e.g. "Full body · brazos"
   background?: Exercise; // filler video (type 'filler'; fallback: any clip)
 }
+
+/** Short: between two exercises of a block. Long: before a block starts. */
+export type RestKind = 'short' | 'long';
 
 // No intro or plan step: "Empezar" goes straight to the warm-up.
 export type RoutineItem =
@@ -74,6 +91,8 @@ export type RoutineItem =
       nextRound: number;
       totalRounds: number;
       isEndOfRound: boolean;
+      restKind: RestKind; // 'long' before the first exercise of a block
+      talks: ExerciseTalk[]; // talks to play in a long rest (0-2); always [] for now
     }
   | {
       kind: 'outro';
@@ -88,6 +107,10 @@ export interface RoutineIntentMuscle {
   weight: number; // 0..1
 }
 
+/** How much the blocks differ: the same circuit, a few swaps, or all different. */
+export type BlockVariation = 'same' | 'some' | 'all';
+
+// The one definition: lib/intent/types.ts re-exports it.
 export interface RoutineIntent {
   muscles: RoutineIntentMuscle[]; // weight 0..1
   difficulty: number; // 1-10
@@ -96,6 +119,7 @@ export interface RoutineIntent {
   includeWarmup: boolean;
   focusLabel: string;
   rounds?: number | null; // said by the user ("3 rondas"); null => the engine picks
+  variation?: BlockVariation; // not read by the engine yet
 }
 
 export interface TimelineSegment {

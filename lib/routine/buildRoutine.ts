@@ -339,6 +339,9 @@ export function buildRoutine(
     isRoutineIntent(input) ? input.focusLabel : undefined,
   );
 
+  // One list per block. For now every block repeats the same circuit.
+  const blocks: Exercise[][] = Array.from({ length: rounds }, () => [...circuitExercises]);
+
   const meta: RoutineMeta = {
     totalSeconds: 0,
     slotSeconds,
@@ -346,7 +349,7 @@ export function buildRoutine(
     exercisesPerRound: circuitExercises.length,
     difficulty,
     muscles,
-    circuit: circuitExercises,
+    blocks,
     warmups: selectedWarmups,
     focusLabel,
     background,
@@ -372,25 +375,26 @@ export function buildRoutine(
   }
 
   for (let r = 1; r <= rounds; r++) {
-    circuitExercises.forEach((ex, exIdx) => {
+    const block = blocks[r - 1];
+    block.forEach((ex, exIdx) => {
       queue.push({
         kind: 'workout',
         exercise: ex,
         round: r,
         totalRounds: rounds,
         exerciseIndexInRound: exIdx + 1,
-        totalExercisesPerRound: circuitExercises.length,
+        totalExercisesPerRound: block.length,
       });
 
       const isLast =
-        r === rounds && exIdx === circuitExercises.length - 1;
+        r === rounds && exIdx === block.length - 1;
 
       if (!isLast) {
-        const isEndOfRound = exIdx === circuitExercises.length - 1;
+        const isEndOfRound = exIdx === block.length - 1;
         const nextRound = isEndOfRound ? r + 1 : r;
         const nextExercise = isEndOfRound
-          ? circuitExercises[0]
-          : circuitExercises[exIdx + 1];
+          ? blocks[r][0]
+          : block[exIdx + 1];
 
         const clipSeconds = getClipDuration(ex, slotSeconds);
         const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
@@ -404,6 +408,9 @@ export function buildRoutine(
           nextRound,
           totalRounds: rounds,
           isEndOfRound,
+          // The rest before a block's first exercise is the long one (talks go there later).
+          restKind: isEndOfRound ? 'long' : 'short',
+          talks: [],
         });
       }
     });

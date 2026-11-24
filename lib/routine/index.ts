@@ -23,3 +23,5 @@ export {
 } from './buildRoutine';
 
 export { REST_LINES, cheerFor } from './cheers';
+
+export { uniqueExercises } from './blocks';

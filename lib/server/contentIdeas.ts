@@ -1,4 +1,5 @@
 import 'server-only';
+import { uniqueExercises } from '@/lib/routine';
 
 /*
  * Help for posting every day with the least effort:
@@ -206,9 +207,8 @@ export async function ideaForToday(b: RoutineBrief, avoid: string[] = []): Promi
   }
 }
 
-export function briefFrom(meta: { focusLabel?: string; totalSeconds?: number; rounds?: number; exercisesPerRound?: number; circuit?: { id: string; title: string }[] }): RoutineBrief {
-  const seen = new Set<string>();
-  const exercises = (meta.circuit ?? []).filter((e) => !seen.has(e.id) && seen.add(e.id)).map((e) => e.title);
+export function briefFrom(meta: { focusLabel?: string; totalSeconds?: number; rounds?: number; exercisesPerRound?: number; blocks?: { id: string; title: string }[][] }): RoutineBrief {
+  const exercises = uniqueExercises(meta).map((e) => e.title);
   return {
     focus: meta.focusLabel || 'Full body',
     minutes: Math.max(1, Math.round((meta.totalSeconds ?? 0) / 60)),
