@@ -25,8 +25,13 @@ import {
   TAKEOFF_OFFSCREEN_AT,
   UPRIGHT,
   UPRIGHT_AT,
+  CLOUD_LEAVE_MS,
+  CLOUD_OFFSCREEN_AT,
+  WORDS,
   arrival,
-  bigRocketVisibleAt,
+  cloudKeyframes,
+  cloudFlameKeyframes,
+  railTop,
   controlsLiveAt,
   controlsLiveFrom,
   ignitionLevel,
@@ -43,7 +48,6 @@ import {
   springBackKeyframes,
   sputtersBetween,
   widgetOnScreenAt,
-  widgetVisibleAt,
   type Flight,
   type FlightEvent,
 } from './rocketFlight';
@@ -56,30 +60,76 @@ describe('cloud timing', () => {
   });
 });
 
-describe('hand-over between the two rockets (phone)', () => {
-  it('lets the big rocket rise only after the widget rocket has gone, and the widget come back only after the big one has gone', () => {
-    expect(FLIGHT.bigRiseStartMs).toBeGreaterThan(FLIGHT.takeoffMs);
-    expect(FLIGHT.bigRiseEndMs - FLIGHT.bigRiseStartMs).toBeGreaterThanOrEqual(400);
-    expect(FLIGHT.bigRiseEndMs).toBeLessThan(CLOUD_TIMING.liftMs);
-    expect(FLIGHT.returnStartMs).toBeGreaterThan(FLIGHT.bigGoneMs);
+describe('one rocket through the clouds (phone)', () => {
+  const spot = { dx: -60, dy: -420, k: 1.35 };
+
+  it('stays in the clouds long enough to read the words, and takes off once, as they are about to open', () => {
+    // the words are in by WORDS.phoneDelayMs + fadeMs and go as it takes off
+    const readable = FLIGHT.cloudLiftMs - (WORDS.phoneDelayMs + WORDS.fadeMs);
+    expect(readable).toBeGreaterThanOrEqual(2450);
+    // it is in its place before the words come in, and while the clouds close
+    expect(FLIGHT.settledMs).toBeLessThanOrEqual(WORDS.phoneDelayMs + WORDS.fadeMs);
+    expect(FLIGHT.placedMs).toBeGreaterThan(CLOUD_TIMING.closeMs);
+    expect(FLIGHT.cloudLiftMs).toBe(CLOUD_TIMING.liftMs);
+    expect(CLOUD_LEAVE_MS).toBe(FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs);
   });
 
-  it('holds a beat with no rocket on screen between one leaving and the other arriving, both ways', () => {
-    // the widget rocket is out of the top by this moment of its takeoff
-    const widgetGone = FLIGHT.takeoffMs * TAKEOFF_OFFSCREEN_AT;
-    expect(FLIGHT.bigRiseStartMs - widgetGone).toBeGreaterThanOrEqual(300);
-    expect(FLIGHT.bigRiseStartMs - FLIGHT.takeoffMs).toBeGreaterThanOrEqual(FLIGHT.handoverBeatMs);
-    expect(FLIGHT.returnStartMs - FLIGHT.bigGoneMs).toBeGreaterThanOrEqual(FLIGHT.handoverBeatMs);
-    expect(FLIGHT.handoverBeatMs).toBeGreaterThanOrEqual(250);
-    // the takeoff keyframe for "out of the top" is a whole screen up
-    const out = TAKEOFF_KEYFRAMES.find((k) => k.offset === TAKEOFF_OFFSCREEN_AT);
-    expect(out?.transform).toContain('-100vh');
+  it('is one object on screen all the way, from parked to out of the top, and comes back after a beat', () => {
+    const f = nextFlight(PARKED, 'clouds', 0);
+    expect(f.how).toBe('clouds');
+    expect(widgetOnScreenAt(f, FLIGHT.placedMs)).toBe(true);
+    expect(widgetOnScreenAt(f, FLIGHT.cloudLiftMs + 100)).toBe(true);
+    const gone = FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT;
+    expect(widgetOnScreenAt(f, gone + 1)).toBe(false);
+    expect(FLIGHT.returnStartMs - gone).toBeGreaterThanOrEqual(FLIGHT.handoverBeatMs);
+    expect(phaseAt(f, CLOUD_LEAVE_MS + 1)).toBe('away');
+    expect(phaseAt(f, PARKED_AFTER_CLOUDS_MS)).toBe('parked');
+  });
+
+  it('goes to its place in one move, waits there nose up and full size, and climbs straight out', () => {
+    const keys = cloudKeyframes(spot);
+    const at = (ms: number) => keys.find((k) => Math.abs(k.offset - ms / CLOUD_LEAVE_MS) < 0.0002);
+    expect(keys[0].transform).toBe(PARKED_POSE);
+    expect(at(FLIGHT.foldMs)?.transform).toBe(PARKED_POSE);
+    const placed = at(FLIGHT.settledMs)?.transform;
+    expect(placed).toContain('rotateZ(-90deg)');
+    expect(placed).toContain('calc((-60px) / 1)');
+    expect(placed).toContain('scale(1.35, 1.35)');
+    // still until it takes off
+    expect(at(FLIGHT.cloudLiftMs - 180)?.transform).toBe(placed);
+    // out of the top, still opaque, then gone; straight up (the same x)
+    const out = at(FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT);
+    expect(out?.transform).toContain('- 100vh - 400px');
+    expect(out?.transform).toContain('calc((-60px) / 1)');
     expect(out?.opacity).toBe(1);
+    expect(keys.at(-1)).toMatchObject({ offset: 1, opacity: 0 });
+    keys.forEach((k) => expect(k.opacity === 1 || k.offset === 1).toBe(true));
+    const offsets = keys.map((k) => k.offset);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    // the flame keeps the same moments
+    expect(cloudFlameKeyframes().at(-1)?.offset).toBe(1);
+  });
+
+  it('stays in its place when the clouds play again while it waits there', () => {
+    const f = nextFlight(PARKED, 'clouds', 0);
+    const again = nextFlight(f, 'clouds', 2000);
+    expect(again).toEqual({ leftAt: 2000, how: 'clouds', placed: true, returnAt: 2000 + FLIGHT.returnStartMs });
+    expect(podShownAt(again, 2010)).toBe(false);
+    const placed = cloudKeyframes(spot, true);
+    expect(placed[0].transform).toBe(cloudKeyframes(spot)[4].transform);
+    // once it has taken off it just flies on, and comes back later
+    expect(nextFlight(f, 'clouds', FLIGHT.cloudLiftMs + 200)).toEqual({ ...f, returnAt: FLIGHT.cloudLiftMs + 200 + FLIGHT.returnStartMs });
+  });
+
+  it('stands on the rail of the routine, from low (start) to high (done)', () => {
+    expect(railTop(0)).toBe(66);
+    expect(railTop(1)).toBe(22);
+    expect(railTop(7)).toBe(22);
   });
 
   it('parks again before the clouds would let the shortest rest end, and after they have gone', () => {
     expect(PARKED_AFTER_CLOUDS_MS).toBeGreaterThan(CLOUDS.clearMs);
-    expect(PARKED_AFTER_CLOUDS_MS).toBeLessThan(6000); // the shortest rest is 10 s
+    expect(PARKED_AFTER_CLOUDS_MS).toBeLessThan(7000); // the shortest rest is 10 s
   });
 
   it('folds the banner in before it moves, and settles within the return', () => {
@@ -89,75 +139,18 @@ describe('hand-over between the two rockets (phone)', () => {
     expect(FLIGHT.settleMs).toBeLessThan(FLIGHT.returnMs);
   });
 
-  it('climbs straight out of the top, nose up, at full size and opaque', () => {
+  it('at the end of the routine, takes off straight out of the top, at full size and opaque', () => {
     const climbing = TAKEOFF_KEYFRAMES.filter((k) => k.offset >= UPRIGHT_AT);
     expect(climbing.length).toBeGreaterThanOrEqual(3);
     climbing.forEach((k) => {
       expect(k.transform).toContain('rotateZ(-90deg)');
-      // straight up: no sideways offset
       expect(k.transform).toContain('translate3d(calc((0px) / 1)');
     });
     TAKEOFF_KEYFRAMES.forEach((k) => {
-      // never into the depth, never smaller: no translateZ, size 1
       expect(k.transform).toMatch(/, 0px\) rotateZ/);
       if (k.offset <= TAKEOFF_OFFSCREEN_AT) expect(k.opacity).toBe(1);
     });
-    // a little slower than it was: about a second of climbing once it has crouched
-    expect(FLIGHT.takeoffMs * TAKEOFF_OFFSCREEN_AT - FLIGHT.anticipationMs).toBeGreaterThanOrEqual(900);
-  });
-
-  // Walk a sequence of events and sample every 10 ms: the widget rocket and the big rocket of the
-  // latest cloud run are never visible at the same moment.
-  const check = (events: [number, FlightEvent][], until: number) => {
-    let f = arrival(0);
-    let clouds: number | null = null;
-    let k = 0;
-    for (let t = 0; t <= until; t += 10) {
-      while (k < events.length && events[k][0] <= t) {
-        const [at, event] = events[k++];
-        f = nextFlight(f, event, at);
-        if (event === 'clouds') clouds = at;
-      }
-      const big = clouds !== null && bigRocketVisibleAt(t - clouds);
-      if (big) expect({ t, widget: widgetVisibleAt(f, t) }).toEqual({ t, widget: false });
-      // and the beat: no big rocket for a while after the widget one was last on screen
-      if (big && clouds !== null && t - clouds < FLIGHT.bigRiseStartMs + 10) {
-        expect(widgetOnScreenAt(f, t - FLIGHT.handoverBeatMs)).toBe(false);
-      }
-    }
-    return f;
-  };
-
-  it('holds for a plain rest', () => {
-    const f = check([[5000, 'clouds']], 15000);
-    expect(phaseAt(f, 5000 + PARKED_AFTER_CLOUDS_MS)).toBe('parked');
-  });
-
-  it('holds when skips start the clouds again at any moment of a flight', () => {
-    for (let second = 30; second <= 6000; second += 170) {
-      check(
-        [
-          [2000, 'clouds'],
-          [2000 + second, 'clouds'],
-        ],
-        16000,
-      );
-    }
-  });
-
-  it('holds for a burst of jumps (the fixture walking the routine)', () => {
-    check(
-      [
-        [2000, 'clouds'],
-        [2016, 'clouds'],
-        [2032, 'clouds'],
-        [4100, 'clouds'],
-        [4116, 'end'],
-        [9000, 'show'],
-        [9500, 'clouds'],
-      ],
-      20000,
-    );
+    expect(nextFlight(PARKED, 'end', 0).how).toBe('takeoff');
   });
 });
 
@@ -170,9 +163,9 @@ describe('the rocket after any interruption', () => {
 
   it('takes off and comes back when a rest begins', () => {
     const f = nextFlight(PARKED, 'clouds', 0);
-    expect(f).toEqual({ leftAt: 0, how: 'takeoff', returnAt: FLIGHT.returnStartMs });
+    expect(f).toEqual({ leftAt: 0, how: 'clouds', returnAt: FLIGHT.returnStartMs });
     expect(phaseAt(f, 100)).toBe('leaving');
-    expect(phaseAt(f, FLIGHT.takeoffMs + 1)).toBe('away');
+    expect(phaseAt(f, CLOUD_LEAVE_MS + 1)).toBe('away');
     expect(phaseAt(f, FLIGHT.returnStartMs + 1)).toBe('returning');
     expect(parkedFrom(f)).toBe(PARKED_AFTER_CLOUDS_MS);
   });
@@ -180,7 +173,7 @@ describe('the rocket after any interruption', () => {
   it('keeps flying out (no second takeoff) when the clouds start again while it leaves', () => {
     const f = nextFlight(nextFlight(PARKED, 'clouds', 0), 'clouds', 500);
     expect(f.leftAt).toBe(0);
-    expect(f.how).toBe('takeoff');
+    expect(f.how).toBe('clouds');
     expect(f.returnAt).toBe(500 + FLIGHT.returnStartMs);
   });
 

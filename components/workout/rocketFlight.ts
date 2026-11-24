@@ -4,25 +4,25 @@ import type { RoutineItem } from '@/types/workout';
 /*
  * The one rocket of the player (phone), as timing and poses: no React, no DOM.
  *
- * On a phone the bottom widget IS the rocket. When a rest begins it folds its banner in, turns its
- * nose up and climbs straight out of the top of the screen; the clouds close, the same rocket,
- * bigger, comes up from below standing on its tail and shoots off the top as they open, and the
- * rocket comes back from the left and parks again. Both are the same character, so they are never
- * on screen together: everything below is measured from the moment the clouds start (the moment
- * the rest begins) and derived from the clouds' own constants, which CloudTransition also uses.
+ * On a phone the bottom widget IS the rocket, and it is also the rocket of the clouds: when a rest
+ * begins it folds its banner in and, in one continuous move, turns its nose up, grows and goes to
+ * its place in the clouds (by the words, on the rail of the routine) as they close. It waits there,
+ * alive, while the words are read; then it takes off, once, straight out of the top as the clouds
+ * open, and comes back from the left to park again. Everything below is measured from the moment
+ * the clouds start (the moment the rest begins) and derived from the clouds' own constants, which
+ * CloudTransition also uses.
  *
- *   0      takeoff: the banner folds into the body (260 ms); then it crouches (anticipation),
- *          turns its nose up and climbs straight out of the top, full size and opaque
- *   ~1470  the widget rocket has left the screen (it fades only once out, at 1600)
- *   1600   ...a beat of clouds alone...
- *   1850   the big rocket starts coming up from below            (phone only)
- *   2370   the big rocket shoots off with an S-curve              (desktop: straight up, as before)
- *   2520   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
- *   3370   the big rocket is gone
- *   3620   ...after the same beat, the widget rocket comes back from the left, from the depth
- *   4920   parked (with a squash)
- *   5420   half a second later the banner springs out of the body: controls work again
- * Desktop keeps its bar and the clouds as they were; only the clouds' constants are shared.
+ *   0      the banner folds into the body (260 ms); it crouches (anticipation)...
+ *   480    ...and goes to its place in the clouds: nose up, bigger      (placed at 1000, settled 1200)
+ *   870    the clouds have closed; the words are in by 1200 (phone)
+ *   3670   it crouches and takes off straight up                         (desktop: its own rocket, as before)
+ *   3820   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
+ *   ~4520  it is out of the top of the screen (it fades only once out, at 4670)
+ *   4920   ...after a beat, it comes back from the left, from the depth
+ *   6220   parked (with a squash)
+ *   6720   half a second later the banner springs out of the body: controls work again
+ * Desktop keeps its bar and the clouds as they were (their hold is as long); only the clouds'
+ * constants are shared.
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -56,13 +56,20 @@ export const CLOUDS = {
   clearMs: TALK_LEAD_MS + OPEN_MS + 100,
 } as const;
 
+/** Where the rocket stands in the clouds: its nose at this % of the screen's height, from 66 % (start) to 22 % (done). */
+export const railTop = (progress: number) => 66 - Math.min(1, Math.max(0, progress)) * 44;
+/** ...and across, at this share of the screen's width (from 640 px wide: 0.42). */
+export const railLeft = (width: number) => (width >= 640 ? 0.42 : 0.34);
+
+/** The words of the clouds come in by this moment on a phone (the rocket is already placed). */
+export const WORDS = { phoneDelayMs: 750, fadeMs: 450 } as const;
+
 // ---------------------------------------------------------------------------------------------
-// The flight of the widget rocket, and the phone timing of the big one
+// The flight of the widget rocket
 
 const TAKEOFF_MS = 1600;
-const BIG_EXIT_MS = 1000;
-// Between one rocket leaving and the other arriving, the screen holds a beat with neither: read
-// as one rocket that went and came back, not as two.
+const CLOUD_EXIT_MS = 1000;
+// Between leaving the screen and coming back the screen holds a beat without the rocket.
 const HANDOVER_BEAT_MS = 250;
 
 export const FLIGHT = {
@@ -77,15 +84,16 @@ export const FLIGHT = {
   /** An interrupted flight (a skip while it was coming back) just fades out where it is. */
   fadeMs: 250,
   handoverBeatMs: HANDOVER_BEAT_MS,
-  /** The big rocket only starts to come up once the widget rocket has gone, and a beat later... */
-  bigRiseStartMs: TAKEOFF_MS + HANDOVER_BEAT_MS,
-  /** ...and stops a little before it shoots off. */
-  bigRiseEndMs: CLOUD_TIMING.liftMs - 80,
-  bigExitMs: BIG_EXIT_MS,
-  /** The big rocket is off the top of the screen. */
-  bigGoneMs: CLOUD_TIMING.liftMs + BIG_EXIT_MS,
-  /** The widget rocket comes back only after that, and the same beat. */
-  returnStartMs: CLOUD_TIMING.liftMs + BIG_EXIT_MS + HANDOVER_BEAT_MS,
+  /** In the clouds: it reaches its place (a little past it)... */
+  placedMs: 1000,
+  /** ...settles there, and waits... */
+  settledMs: 1200,
+  /** ...until it takes off, once, as the clouds are about to open... */
+  cloudLiftMs: CLOUD_TIMING.liftMs,
+  /** ...climbing straight out of the top. */
+  cloudExitMs: CLOUD_EXIT_MS,
+  /** It comes back once it has gone, and a beat later. */
+  returnStartMs: CLOUD_TIMING.liftMs + CLOUD_EXIT_MS + HANDOVER_BEAT_MS,
   /** From entering at the left to parked (overshoot and ease back included). */
   returnMs: 1300,
   /** The squash as it settles, ending at the parked moment. */
@@ -97,22 +105,25 @@ export const FLIGHT = {
 /** ms after the clouds start until the rocket is parked again. */
 export const PARKED_AFTER_CLOUDS_MS = FLIGHT.returnStartMs + FLIGHT.returnMs;
 
-/** Whether the big rocket of the clouds can be seen, `ms` after the clouds started (phone). */
-export function bigRocketVisibleAt(ms: number): boolean {
-  return ms >= FLIGHT.bigRiseStartMs && ms < FLIGHT.bigGoneMs;
-}
+/** Its whole way through the clouds, from parked to gone out of the top. */
+export const CLOUD_LEAVE_MS = CLOUD_TIMING.liftMs + CLOUD_EXIT_MS;
+/** The part of its exit after which it is out of the top of the screen. */
+export const CLOUD_OFFSCREEN_AT = 0.85;
 
 // ---------------------------------------------------------------------------------------------
 // The state of the widget rocket: where it is at any moment is a function of this and the clock.
 
 /**
  * `leftAt`: when it left its parked place (null: it never did; -Infinity: it was already away,
- * as when the player opens). `how`: a full takeoff, or a short fade where it was (an interrupted
- * flight). `returnAt`: when it starts coming back (null: it stays away, as at the end).
+ * as when the player opens). `how`: through the clouds (it waits in them and takes off from there),
+ * a plain takeoff (the end of the routine), or a short fade where it was (an interrupted flight).
+ * `placed`: a clouds flight that starts already in its place in the clouds (they played again
+ * while it waited there). `returnAt`: when it starts coming back (null: it stays away, as at the end).
  */
 export interface Flight {
   leftAt: number | null;
-  how: 'takeoff' | 'fade';
+  how: 'clouds' | 'takeoff' | 'fade';
+  placed?: boolean;
   returnAt: number | null;
 }
 
@@ -123,7 +134,7 @@ export const PARKED: Flight = { leftAt: null, how: 'fade', returnAt: null };
 /** The player opens: the rocket arrives from the depth and parks, from the first second. */
 export const arrival = (now: number): Flight => ({ leftAt: -Infinity, how: 'fade', returnAt: now });
 
-export const leaveMs = (how: Flight['how']) => (how === 'takeoff' ? FLIGHT.takeoffMs : FLIGHT.fadeMs);
+export const leaveMs = (how: Flight['how']) => (how === 'clouds' ? CLOUD_LEAVE_MS : how === 'takeoff' ? FLIGHT.takeoffMs : FLIGHT.fadeMs);
 
 export function phaseAt(f: Flight, now: number): Phase {
   if (f.leftAt === null) return 'parked';
@@ -141,7 +152,7 @@ export function parkedFrom(f: Flight): number {
 
 /**
  * What happens to the rocket:
- *   clouds  a rest began (or the clouds play again): take off, come back once the big rocket has gone
+ *   clouds  a rest began (or the clouds play again): go into the clouds, take off from there, come back
  *   end     the routine reached its end screen: take off for good
  *   show    the rocket is needed and is away for good (the routine starts again): come back now
  */
@@ -158,8 +169,13 @@ export function nextFlight(f: Flight, event: FlightEvent, now: number): Flight {
   const returnAt = event === 'clouds' ? now + FLIGHT.returnStartMs : null;
   switch (phase) {
     case 'parked':
-      return { leftAt: now, how: 'takeoff', returnAt };
+      return { leftAt: now, how: event === 'clouds' ? 'clouds' : 'takeoff', returnAt };
     case 'leaving':
+      // waiting in the clouds and they play again: it waits in its place for the new ones
+      if (event === 'clouds' && f.how === 'clouds' && f.leftAt !== null && now >= f.leftAt + FLIGHT.settledMs && now < f.leftAt + FLIGHT.cloudLiftMs) {
+        return { leftAt: now, how: 'clouds', placed: true, returnAt };
+      }
+      return { ...f, returnAt };
     case 'away':
       // already on its way out (or out): it only comes back later, or not at all
       return { ...f, returnAt };
@@ -174,13 +190,16 @@ export const widgetVisibleAt = (f: Flight, now: number) => phaseAt(f, now) !== '
 
 /**
  * Where the widget rocket can be seen on screen. It fades only at the very end of its takeoff,
- * but it has climbed out of the top by `TAKEOFF_OFFSCREEN_AT` of it (see TAKEOFF_KEYFRAMES), and
- * coming back it enters at the left edge as it becomes opaque.
+ * but it has climbed out of the top by `TAKEOFF_OFFSCREEN_AT` of it (see TAKEOFF_KEYFRAMES), or of
+ * its exit from the clouds; coming back it enters at the left edge as it becomes opaque.
  */
 export function widgetOnScreenAt(f: Flight, now: number): boolean {
   const phase = phaseAt(f, now);
   if (phase === 'leaving' && f.how === 'takeoff' && f.leftAt !== null) {
     return now < f.leftAt + FLIGHT.takeoffMs * TAKEOFF_OFFSCREEN_AT;
+  }
+  if (phase === 'leaving' && f.how === 'clouds' && f.leftAt !== null) {
+    return now < f.leftAt + FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT;
   }
   return phase !== 'away';
 }
@@ -208,8 +227,8 @@ export function podOutFrom(f: Flight): number {
 export function podShownAt(f: Flight, now: number): boolean {
   const phase = phaseAt(f, now);
   if (phase === 'parked') return f.leftAt === null || now >= parkedFrom(f) + POD.inDelayMs;
-  // it folds in during the first moment of a takeoff (a fade takes it at once)
-  return phase === 'leaving' && f.how === 'takeoff' && f.leftAt !== null && now < f.leftAt + POD.outMs;
+  // it folds in during the first moment of a takeoff or of the way into the clouds (a fade takes it at once)
+  return phase === 'leaving' && f.how !== 'fade' && !f.placed && f.leftAt !== null && now < f.leftAt + POD.outMs;
 }
 
 /**
@@ -546,3 +565,60 @@ export const RETURN_KEYFRAMES: FlightKeyframe[] = [
   { offset: 0.9, transform: pose({ x: '-3px', rz: 0.5 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
   { offset: 1, transform: PARKED_POSE, opacity: 1 },
 ];
+// ---------------------------------------------------------------------------------------------
+// Through the clouds (phone): the widget rocket is the rocket of the clouds.
+
+/** Where its place in the clouds is, from its parked place: px across and down, and its size there. */
+export interface CloudSpot {
+  dx: number;
+  dy: number;
+  k: number;
+}
+
+/**
+ * Parked → its place in the clouds → gone, over CLOUD_LEAVE_MS. Still while the banner folds in; a
+ * crouch; then one continuous move (nose up, growing, to its place, a little past it and back);
+ * it waits there (the bob of the rest keeps it alive) until it crouches and takes off straight up,
+ * once, out of the top. `placed`: it is in its place already (the clouds played again).
+ */
+export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false): FlightKeyframe[] {
+  const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
+  const lift = FLIGHT.cloudLiftMs;
+  const there = (y = 0, sx = 1, sy = 1) => pose({ x: `${num(dx)}px`, y: `${num(dy + y)}px`, rz: -90, sx: k * sx, sy: k * sy });
+  const up = (px: number) => pose({ x: `${num(dx)}px`, y: `${num(dy)}px - 100vh - ${px}px`, rz: -90, sx: k * 1.06, sy: k * 0.94 });
+  const away: FlightKeyframe[] = [
+    { offset: at(lift - 180), transform: there(), opacity: 1, easing: 'cubic-bezier(0.3, 0, 0.5, 1)' },
+    // a crouch before it goes (squashed along its length)
+    { offset: at(lift), transform: there(6, 0.93, 1.06), opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)' },
+    { offset: at(lift + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT), transform: up(400), opacity: 1, easing: 'linear' },
+    { offset: 1, transform: up(600), opacity: 0 },
+  ];
+  if (placed) return [{ offset: 0, transform: there(), opacity: 1, easing: 'linear' }, ...away];
+  return [
+    { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'linear' },
+    { offset: at(FLIGHT.foldMs), transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.33, 0, 0.3, 1)' },
+    { offset: at(FLIGHT.anticipationMs), transform: pose({ x: '-6px', y: '4px', rz: 4, sx: 0.9, sy: 1.16 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.2, 1)' },
+    { offset: at(FLIGHT.placedMs), transform: there(-8, 1.03, 1.03), opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
+    { offset: at(FLIGHT.settledMs), transform: there(), opacity: 1, easing: 'linear' },
+    ...away,
+  ];
+}
+
+/** Its flame on that way: lit as it goes, burning low while it waits, full as it takes off. */
+export function cloudFlameKeyframes(placed = false) {
+  const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
+  const lift = FLIGHT.cloudLiftMs;
+  const tail = [
+    { offset: at(lift - 180), opacity: 1, transform: 'scale(0.7, 0.9)' },
+    { offset: at(lift), opacity: 1, transform: 'scale(1, 1)' },
+    { offset: 1, opacity: 1, transform: 'scale(1.35, 1.08)' },
+  ];
+  if (placed) return [{ offset: 0, opacity: 1, transform: 'scale(0.7, 0.9)' }, ...tail];
+  return [
+    { offset: 0, opacity: 0, transform: 'scale(0.3, 0.7)' },
+    { offset: at(FLIGHT.foldMs), opacity: 1, transform: 'scale(0.45, 0.85)' },
+    { offset: at(FLIGHT.placedMs), opacity: 1, transform: 'scale(1, 1)' },
+    { offset: at(FLIGHT.settledMs + 300), opacity: 1, transform: 'scale(0.7, 0.9)' },
+    ...tail,
+  ];
+}

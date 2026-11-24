@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
-import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight';
+import { CLOUDS, CLOUD_TIMING, WORDS, railTop } from '@/components/workout/rocketFlight';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -20,13 +20,11 @@ import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight'
  *
  * Timing, from the moment `playKey` changes (see CLOUDS for the two moments the player uses):
  *   0.0-0.9 s  the banks drift in (the old moment is still underneath) and the rocket rises
- *   0.9-2.5 s  everything holds; the rest screen mounts behind
- *   2.5-4.1 s  the rocket shoots off the top while the banks open outwards
- * On a phone the rocket of the widget (RocketWidget) takes off first, straight out of the top: this
- * one is the same drawing (RocketShip, with its hilo), bigger, and comes up from below standing on
- * its tail only once that one has gone; it leaves with an S-curve out of the top before the small
- * one comes back (`phone`, `phoneShip`, timing in rocketFlight.ts). On a computer it plays as it
- * always has.
+ *   0.9-3.8 s  everything holds, long enough to read the words; the rest screen mounts behind
+ *   3.8-5.4 s  the rocket shoots off the top while the banks open outwards
+ * On a phone this layer draws no rocket: the widget's own rocket (RocketWidget) goes to its place
+ * on the rail as the clouds close, waits there and takes off from there (`phone`; timing and its
+ * place in rocketFlight.ts), and the words come in sooner. On a computer it plays as it always has.
  */
 
 export type Journey = {
@@ -60,9 +58,8 @@ const DRIFT = { l: 'translateX(4%) scale(1)', r: 'translateX(-4%) scale(1)' } as
 const GONE = { l: 'translateX(-120%) scale(1.2)', r: 'translateX(120%) scale(1.2)' } as const;
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// The rail runs from 66% (start) to 22% (done) of the screen height: even at the start most of
-// the rocket is on screen.
-const railTop = (p: number) => 66 - Math.min(1, Math.max(0, p)) * 44;
+// (The rail, railTop, runs from 66% (start) to 22% (done) of the screen height: even at the start
+// most of the rocket is on screen.)
 const INK = '#131313';
 
 export function CloudTransition({
@@ -73,7 +70,6 @@ export function CloudTransition({
   color = INK,
   journey,
   phone = false,
-  phoneShip,
 }: {
   playKey: number;
   title?: string;
@@ -81,10 +77,8 @@ export function CloudTransition({
   kicker?: string;
   color?: string;
   journey?: Journey;
-  /** Phone: the widget rocket hands over to this one (see the comment at the top). */
+  /** Phone: the widget's rocket is the rocket of the clouds (see the comment at the top). */
   phone?: boolean;
-  /** Phone: the rocket to fly, nose up with the nose at the top of its box (RocketFigure). */
-  phoneShip?: ReactNode;
 }) {
   const reduced = useReducedMotion();
   const [scope, animate] = useAnimate();
@@ -104,63 +98,19 @@ export function CloudTransition({
     // start with the nose just under the bottom edge
     const below = `translateY(${(100 - top + 1).toFixed(2)}%)`;
 
-    // Phone: the rocket waits below the screen while the widget rocket takes off, comes up, and
-    // leaves with a gentle S, shrinking as if it went away into the sky. Its whole path is put on
-    // the animation timeline now (native Web Animations with delays, not timers), so a throttled
-    // background tab can't make it late for the hand-over with the widget rocket. Written before
-    // the layer shows, so not even one frame has two rockets.
+    // (on a phone this layer has no rocket: the widget's rocket is the rocket of the clouds)
     const root = scope.current as HTMLElement;
-    const ship = root.querySelector<HTMLElement>('.cl-ship');
-    const rocket = root.querySelector<HTMLElement>('.cl-rocket');
-    // (the ship only ever moves on a phone; a window resized from phone to computer gets it back)
-    ship?.getAnimations().forEach((a) => a.cancel());
-    if (ship) ship.style.transform = '';
-    if (phone && ship && rocket) {
-      const now = performance.now();
-      rocket.getAnimations().forEach((a) => a.cancel());
-      const belowPhone = `translate(0vw, ${(100 - top + 1).toFixed(2)}%)`;
-      rocket.style.transform = belowPhone;
-      const anchored = (animation: Animation) => {
-        animation.startTime = now; // on the clock, even if the page is in the background
-      };
-      anchored(rocket.animate([{ transform: belowPhone }, { transform: 'translate(0vw, 0%)' }], {
-        duration: FLIGHT.bigRiseEndMs - FLIGHT.bigRiseStartMs,
-        delay: FLIGHT.bigRiseStartMs,
-        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-        fill: 'both',
-      }));
-      const exit = { duration: FLIGHT.bigExitMs, delay: CLOUD_TIMING.liftMs, easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)', fill: 'forwards' as const };
-      anchored(rocket.animate(
-        [
-          { transform: 'translate(0vw, 0%)' },
-          { transform: 'translate(5vw, -30%)', offset: 0.35 },
-          { transform: 'translate(-3vw, -78%)', offset: 0.7 },
-          { transform: 'translate(1vw, -140%)' },
-        ],
-        exit,
-      ));
-      // (it sways with the S, at its full size: it climbs out of the top as the small one did)
-      anchored(ship.animate(
-        [
-          { transform: 'rotate(0deg)' },
-          { transform: 'rotate(6deg)', offset: 0.35 },
-          { transform: 'rotate(-5deg)', offset: 0.7 },
-          { transform: 'rotate(1deg)' },
-        ],
-        exit,
-      ));
-    }
 
     const play = async () => {
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
-      // the flame flickers while it flies (the phone's RocketShip flickers on its own, in CSS)
+      // the flame flickers while it flies
       const flame = root.querySelector('.rocket-flame')
         ? animate('.rocket-flame', { transform: ['scale(0.94, 0.9)', 'scale(1.03, 1.06)'] }, { duration: 0.12, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' })
         : null;
       animate('.cl-flight', { opacity: [1, 1] }, { duration: 0 });
       if (!phone) animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
       animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
-      animate('.cl-words', { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: 0.5, delay: 1.2, ease: [0.22, 1, 0.36, 1] });
+      animate('.cl-words', { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: phone ? WORDS.fadeMs / 1000 : 0.5, delay: phone ? WORDS.phoneDelayMs / 1000 : 1.2, ease: [0.22, 1, 0.36, 1] });
       await Promise.all([
         animate('.cl-l', { transform: [OFF.l, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
         animate('.cl-r', { transform: [OFF.r, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
@@ -174,7 +124,7 @@ export function CloudTransition({
       if (id !== run.current) return;
       // lift-off: the words go, the rocket shoots off the top, the clouds part
       animate('.cl-words', { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-8px)'] }, { duration: 0.25 });
-      // (on a phone the rocket's exit is already on the timeline, see above)
+      // (on a phone the widget's rocket takes off from here on its own timeline)
       if (!phone) animate('.cl-rocket', { transform: ['translateY(0%)', 'translateY(-130%)'] }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
       await wait(LIFT_LEAD_MS);
       if (id !== run.current) return;
@@ -238,14 +188,8 @@ export function CloudTransition({
           )}
           {/* the rocket: its nose is where you are. Its box is the screen's height (see `below`). */}
           <div className="cl-rocket absolute left-0 top-0 h-full w-0">
-            {/* on a phone, the widget's own rocket (RocketShip), bigger and standing on its tail */}
-            {phone && phoneShip ? (
-              <div className="cl-ship absolute -translate-x-1/2" style={{ top: `${top}%` }}>
-                {phoneShip}
-              </div>
-            ) : (
-              <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />
-            )}
+            {/* (on a phone the widget's own rocket comes to this place: see RocketWidget) */}
+            {!phone && <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />}
           </div>
           {/* the words, beside the nose */}
           <div

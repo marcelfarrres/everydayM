@@ -1,13 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
-import { RocketFigure } from '@/components/workout/RocketShip';
-import { FLIGHT } from '@/components/workout/rocketFlight';
-import { widgetLayout } from '@/components/workout/rocketShape';
+import { FLIGHT, railTop } from '@/components/workout/rocketFlight';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -18,8 +16,8 @@ import { PlayerWidget } from './PlayerWidget';
 import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
-import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged, useRocketWidth, useWindowHeight } from './hooks';
-import { blocksOf, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf, serieState } from './model';
+import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
+import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
@@ -182,6 +180,9 @@ export function WorkoutPlayer({
   // at most (a talk plus the bar's preview).
   const upNext = kind === 'rest' ? undefined : nextExerciseAfter(queue, currentIndex);
 
+  // Where the routine is, for the clouds (and, on a phone, where the rocket stands in them).
+  const journey = journeyOf(queue, timeline, currentIndex, total);
+
   return (
     <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
       <DesktopBackdrop reduced={reduced} bulbX={BULB_X} />
@@ -302,6 +303,7 @@ export function WorkoutPlayer({
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
           talkPreview={shownRest === 'talks'}
+          cloudTop={railTop(journey?.progress ?? 0.5)}
           reduced={reduced}
         />
       )}
@@ -323,20 +325,9 @@ export function WorkoutPlayer({
         sub={label.sub}
         kicker="Descanso"
         color={REST_BLUE}
-        journey={journeyOf(queue, timeline, currentIndex, total)}
+        journey={journey}
         phone={!desktop}
-        phoneShip={desktop ? undefined : <CloudShip queue={queue} currentIndex={currentIndex} />}
       />
     </div>
   );
-}
-
-/** Phone: the rocket of the clouds. The widget's own drawing (same width, same proportions, its
- * hilo in the body), stood on its tail and scaled up to about half the screen's height. */
-function CloudShip({ queue, currentIndex }: { queue: RoutineItem[]; currentIndex: number }) {
-  const width = useRocketWidth();
-  const height = useWindowHeight();
-  const g = useMemo(() => widgetLayout(width).g, [width]);
-  const hilo = blocksOf(queue).map((block) => block.series.map((serie) => serieState(serie.queueIndex, currentIndex)));
-  return <RocketFigure g={g} scale={Math.min(0.52 * height, 544) / g.W} upright flame={1} hilo={hilo} />;
 }

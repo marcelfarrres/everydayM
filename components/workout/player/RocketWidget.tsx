@@ -4,9 +4,10 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSP
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronUp, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import { FlameDrawing, RocketShip, boxStyle, flameBox } from '@/components/workout/RocketShip';
-import { BANNER, SHIP, widgetLayout, type ShipGeometry } from '@/components/workout/rocketShape';
+import { BANNER, SHIP, widgetLayout, type ShipGeometry, type WidgetLayout } from '@/components/workout/rocketShape';
 import {
   ANTICIPATION_AT,
+  CLOUD_LEAVE_MS,
   FLIGHT,
   FOLD_AT,
   PAM_KEYFRAMES,
@@ -25,6 +26,8 @@ import {
   UPRIGHT,
   UPRIGHT_AT,
   arrival,
+  cloudFlameKeyframes,
+  cloudKeyframes,
   controlsLiveAt,
   controlsLiveFrom,
   ignitionLevel,
@@ -32,12 +35,14 @@ import {
   nextFlight,
   phaseAt,
   podPopKeyframes,
+  railLeft,
   podRetractKeyframes,
   sinkAt,
   sinkTransform,
   springBackKeyframes,
   sputterPuffKeyframes,
   sputtersBetween,
+  type CloudSpot,
   type Flight,
   type Sink,
 } from '@/components/workout/rocketFlight';
@@ -101,6 +106,7 @@ export function RocketWidget({
   onListOpenChange,
   restCountdown,
   talkPreview,
+  cloudTop,
   reduced,
 }: {
   queue: RoutineItem[];
@@ -118,6 +124,8 @@ export function RocketWidget({
   onListOpenChange: (open: boolean) => void;
   restCountdown: boolean;
   talkPreview: boolean;
+  /** where its nose stands in the clouds, % of the screen's height (railTop) */
+  cloudTop: number;
   reduced: boolean;
 }) {
   const listId = useId();
@@ -154,6 +162,7 @@ export function RocketWidget({
   const flight = useRocketFlight({
     els: { flightEl, sinkEl, squashEl, flameEl, puffsEl, podEl, waterEl },
     lastSink,
+    spotOf: () => cloudSpot(root.current, L, cloudTop),
     cloudKey,
     ending,
     queue,
@@ -326,6 +335,24 @@ export function RocketWidget({
                 </>
               )}
             </div>
+            {/* the first serie of the coming block, standing on the banner's left end (it
+                comes and goes with the banner: never over the clouds) */}
+            {preview && (
+              <video
+                key={preview.id}
+                data-rw="preview"
+                src={playbackUrl(preview)}
+                poster={preview.poster_url ?? undefined}
+                autoPlay
+                loop
+                muted
+                playsInline
+                aria-hidden="true"
+                onError={(e) => retryWithOriginal(e.currentTarget, preview)}
+                className="pointer-events-none absolute h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
+                style={{ left: L.banner.left + 10, top: -8 - 106 }}
+              />
+            )}
           </div>
 
           <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
@@ -375,23 +402,6 @@ export function RocketWidget({
           </div>
         </div>
 
-        {/* the first serie of the coming block, standing on the banner's left end */}
-        {preview && (
-          <video
-            key={preview.id}
-            data-rw="preview"
-            src={playbackUrl(preview)}
-            poster={preview.poster_url ?? undefined}
-            autoPlay
-            loop
-            muted
-            playsInline
-            aria-hidden="true"
-            onError={(e) => retryWithOriginal(e.currentTarget, preview)}
-            className="pointer-events-none absolute h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
-            style={{ left: L.banner.left + 10, top: -8 - 106 }}
-          />
-        )}
       </div>
     </div>
   );
@@ -413,6 +423,7 @@ interface FlightEls {
 function useRocketFlight({
   els,
   lastSink,
+  spotOf,
   cloudKey,
   ending,
   queue,
@@ -421,6 +432,8 @@ function useRocketFlight({
 }: {
   els: FlightEls;
   lastSink: RefObject<Sink>;
+  /** its place in the clouds, measured now */
+  spotOf: () => CloudSpot;
   cloudKey: number;
   ending: boolean;
   queue: RoutineItem[];
@@ -430,6 +443,10 @@ function useRocketFlight({
   const flight = useRef<Flight>(PARKED);
   const seen = useRef<{ cloudKey: number; ending: boolean; queue: RoutineItem[]; item: RoutineItem | undefined } | null>(null);
   const refs = useRef(els);
+  const spot = useRef(spotOf);
+  useLayoutEffect(() => {
+    spot.current = spotOf;
+  });
 
   useLayoutEffect(() => {
     const now = performance.now();
@@ -482,7 +499,7 @@ function useRocketFlight({
     }
     if (next === flight.current) return;
     flight.current = next;
-    playFlight(next, now, reduced, { flight: el.flight, squash: el.squash, flame: el.flame, pod: el.pod, water: el.water });
+    playFlight(next, now, reduced, { flight: el.flight, squash: el.squash, flame: el.flame, pod: el.pod, water: el.water }, () => spot.current());
   }, [cloudKey, ending, queue, currentIndex, reduced, lastSink]);
 
   return flight;
@@ -527,6 +544,7 @@ function playFlight(
   now: number,
   reduced: boolean,
   el: { flight: HTMLElement; squash: HTMLElement; flame: HTMLElement; pod: HTMLElement; water: HTMLElement },
+  spotOf: () => CloudSpot,
 ) {
   // where it is right now, for a fade from mid-flight
   const style = getComputedStyle(el.flight);
@@ -551,7 +569,13 @@ function playFlight(
   if (leaves) {
     const at = delay(f.leftAt);
     run(el.water, dry, { duration: 1, delay: at, fill: 'forwards' });
-    if (f.how === 'takeoff' && !reduced) {
+    if (f.how === 'clouds' && !reduced) {
+      // into the clouds (the banner folds in first), waits there, and takes off once from there
+      if (!f.placed) run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
+      else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
+      run(el.flight, cloudKeyframes(spotOf(), f.placed), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      run(el.flame, cloudFlameKeyframes(f.placed), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+    } else if (f.how === 'takeoff' && !reduced) {
       // the banner folds into the body first; then the rocket crouches, turns its nose up and climbs
       run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
       run(el.flight, TAKEOFF_KEYFRAMES, { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
@@ -815,4 +839,23 @@ function Water({ g, level, tilt, reduced }: { g: ShipGeometry; level: number; ti
       </div>
     </div>
   );
+}
+
+/**
+ * Its place in the clouds, from where it is parked: the nose on the rail of the routine (`top` %
+ * of the screen's height) by the words, nose up, as big as the clouds' rocket always was (about
+ * half the screen's height). Measured from the widget's own box, so safe areas count.
+ */
+function cloudSpot(root: HTMLElement | null, L: WidgetLayout, top: number): CloudSpot {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const k = Math.min(0.52 * vh, 544) / L.g.W;
+  const rect = root?.getBoundingClientRect() ?? { left: 6, top: vh - 6 - L.box, width: vw - 12 };
+  const parked = { x: rect.left + (rect.width - L.B) / 2 + L.center.x, y: rect.top + L.center.y };
+  const half = ((L.g.tip - L.g.xe) / 2) * k;
+  return {
+    dx: Math.round(railLeft(vw) * vw - parked.x),
+    dy: Math.round((top / 100) * vh + half - parked.y),
+    k: Math.round(k * 1000) / 1000,
+  };
 }
