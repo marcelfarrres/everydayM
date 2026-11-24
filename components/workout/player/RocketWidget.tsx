@@ -50,7 +50,6 @@ import {
   type Sink,
 } from '@/components/workout/rocketFlight';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
-import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { RoutineItem } from '@/types/workout';
 import { SeriesList } from './SeriesList';
 import { useRocketWidth, useTapGuard } from './hooks';
@@ -108,7 +107,6 @@ export function RocketWidget({
   listOpen,
   onListOpenChange,
   restCountdown,
-  talkPreview,
   cloudTop,
   reduced,
 }: {
@@ -126,7 +124,6 @@ export function RocketWidget({
   listOpen: boolean;
   onListOpenChange: (open: boolean) => void;
   restCountdown: boolean;
-  talkPreview: boolean;
   /** where its nose stands in the clouds, % of the screen's height (railTop) */
   cloudTop: number;
   reduced: boolean;
@@ -202,7 +199,6 @@ export function RocketWidget({
   const engine = launching ? engineShake(timeLeft) : { amp: 0, period: SHAKE.period[0] };
   const shaking = engine.amp > 0 && !isPaused;
   const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
-  const preview = talkPreview && shown?.kind === 'rest' ? shown.nextExercise : undefined;
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && live;
   const pivot = `${L.pivot.x}px ${L.pivot.y}px`;
@@ -344,24 +340,6 @@ export function RocketWidget({
                 </>
               )}
             </div>
-            {/* the first serie of the coming block, standing on the banner's left end (it
-                comes and goes with the banner: never over the clouds) */}
-            {preview && (
-              <video
-                key={preview.id}
-                data-rw="preview"
-                src={playbackUrl(preview)}
-                poster={preview.poster_url ?? undefined}
-                autoPlay
-                loop
-                muted
-                playsInline
-                aria-hidden="true"
-                onError={(e) => retryWithOriginal(e.currentTarget, preview)}
-                className="pointer-events-none absolute h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
-                style={{ left: L.banner.left + 10, top: -8 - 106 }}
-              />
-            )}
           </div>
 
           <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>

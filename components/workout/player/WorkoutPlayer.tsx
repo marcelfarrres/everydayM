@@ -222,6 +222,8 @@ export function WorkoutPlayer({
                 onRepeat={onRepeat}
                 onExit={onExit}
                 onTap={() => setListOpen(false)}
+                phone={!desktop}
+                miniNext={shownRest === 'talks'}
               />
               <CheerHits
                 queue={queue}
@@ -308,7 +310,6 @@ export function WorkoutPlayer({
           listOpen={listOpen}
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
-          talkPreview={shownRest === 'talks'}
           cloudTop={cloudTop}
           reduced={reduced}
         />

@@ -64,6 +64,7 @@ Barra en modo descanso:
 - Cuando el vídeo ya enseña la cuenta atrás gigante (descanso sin vídeos hablados), la barra no repite el tiempo ni «Luego»: solo «Descanso» y «Saltar». El número aparece cuando las nubes se han ido; con movimiento reducido no se anima cada segundo. (Decidido por Marcel tras probarlo, 24-11-2026.)
 - **Duración fija** (24-11-2026): el vídeo dura lo que dura y el descanso es siempre el decidido (corto = `getRestDuration`, largo = `getLongRestBase`, solo más largo si lo piden los vídeos hablados). Ya no se le suma el hueco del «slot» de un clip corto.
 - **Móvil, el contador empieza en las nubes** (`RestClock`): la cuenta atrás sale con el texto de las nubes, grande en su columna (bajo «Descanso»; «Descansa» un punto más pequeño), y al abrirse se desliza al centro, ya en blanco sobre el velo, con «Empiezas en» encima y nada debajo. En descansos con vídeos hablados se oculta al abrirse y vuelve al centro cuando acaban. El ordenador sigue con su número gigante y «Luego: …».
+- **Móvil, del vídeo hablado al ejercicio** (`miniHandoff.ts`, `Stage`): el mini vídeo (69×122, +15 %) ya es el `<video>` del ejercicio que viene; al acabar el descanso (o con «Saltar») crece hasta la pantalla en 0,52 s (solo transformaciones; las esquinas se cuadran) y sigue como el clip desde su primer fotograma, mientras el vídeo hablado se funde en silencio por debajo. Como mucho 2 vídeos. Sin vídeos hablados en pantalla, como antes.
 - No se usa la palabra «tutorial» en ningún sitio.
 
 ### 1.5 Transiciones
