@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  MISSING_SESSION_SECRET_MESSAGE,
   STUDIO_SESSION_COOKIE,
   STUDIO_SESSION_MAX_AGE_SECONDS,
   createLanSessionToken,
   getRequestIp,
   getStudioAccess,
+  isLanSessionSecretConfigured,
   verifyLanPin,
 } from '@/lib/server/studioGate';
 
@@ -42,6 +44,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   if (access === 'local' || access === 'lan') {
     return NextResponse.json({ ok: true });
+  }
+
+  // Fail closed: without a dedicated session secret no PIN is checked and no cookie is issued.
+  if (!isLanSessionSecretConfigured()) {
+    return NextResponse.json({ error: MISSING_SESSION_SECRET_MESSAGE }, { status: 503 });
   }
 
   const ip = getRequestIp(req);
