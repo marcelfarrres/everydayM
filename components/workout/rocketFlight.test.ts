@@ -11,6 +11,11 @@ import {
   HOP,
   LAUNCH_OFFSCREEN_AT,
   launchKeyframes,
+  RUN_PAST,
+  SHAKE,
+  engineShake,
+  warningFlame,
+  warningLevel,
   riseKeyframes,
   PARKED,
   PARKED_AFTER_CLOUDS_MS,
@@ -385,6 +390,59 @@ describe('ignition', () => {
 
 // (the routine creator's tilt, as CreatorRocket's CREATOR.tilt: a client module, not imported here)
 const CREATOR_TILT = -12;
+
+describe('the warning before the ignition', () => {
+  it('lights a small blue flame at 10 s and grows it steadily until the ignition takes over', () => {
+    expect(warningLevel(12)).toBe(0);
+    expect(warningLevel(10)).toBe(0);
+    expect(warningLevel(9.9)).toBeGreaterThan(0);
+    let prev = 0;
+    for (let t = 9.5; t > 3.01; t -= 0.5) {
+      const w = warningLevel(t);
+      expect(w).toBeGreaterThan(prev);
+      prev = w;
+    }
+    expect(warningLevel(3.05)).toBeGreaterThan(0.95);
+    // from the ignition on, the red flame is the one
+    expect(warningLevel(3)).toBe(0);
+    expect(warningLevel(1)).toBe(0);
+    // its last size is the ignition's first step (IGNITION[1] in the widget: 0.32 x 0.7)
+    const last = warningFlame(1);
+    expect(Math.abs(last.sx - 0.32)).toBeLessThanOrEqual(0.03);
+    expect(Math.abs(last.sy - 0.7)).toBeLessThanOrEqual(0.03);
+  });
+
+  it('shakes a little from 10 s, more and more, and meets the ignition without a jump', () => {
+    expect(engineShake(11).amp).toBe(0);
+    expect(engineShake(10).amp).toBeGreaterThan(0);
+    expect(engineShake(10).amp).toBeLessThan(0.5);
+    let prev = 0;
+    for (let t = 10; t > 3.01; t -= 0.5) {
+      const a = engineShake(t).amp;
+      expect(a).toBeGreaterThanOrEqual(prev);
+      prev = a;
+    }
+    expect(Math.abs(engineShake(3.02).amp - engineShake(3).amp)).toBeLessThanOrEqual(0.15);
+    expect(engineShake(3).amp).toBe(SHAKE.rocket[1]);
+    expect(engineShake(0.5).amp).toBe(SHAKE.rocket[3]);
+  });
+});
+
+describe('landing with a run-up', () => {
+  it('runs past its place and off the screen a little, pulls back, and parks', () => {
+    const atPlace = RETURN_KEYFRAMES.findIndex((k) => k.transform.includes('calc((0px) / 1)'));
+    const past = RETURN_KEYFRAMES.findIndex((k) => k.transform.includes(`calc((${RUN_PAST}) / 1)`));
+    expect(atPlace).toBeGreaterThan(0);
+    expect(past).toBeGreaterThan(atPlace);
+    expect(parseFloat(RUN_PAST)).toBeGreaterThanOrEqual(15); // its nose leaves the screen
+    // then back past its place the other way, and parked
+    expect(RETURN_KEYFRAMES[past + 1].transform).toMatch(/calc\(\(-\d+px\) \/ 1\)/);
+    expect(RETURN_KEYFRAMES.at(-1)).toMatchObject({ transform: PARKED_POSE, opacity: 1, offset: 1 });
+    // the run-up takes longer than before but it parks before the shortest rest is over
+    expect(FLIGHT.returnMs).toBeGreaterThanOrEqual(1500);
+    expect(PARKED_AFTER_CLOUDS_MS).toBeLessThan(7000);
+  });
+});
 
 describe('poses', () => {
   const fns = (transform: string) => transform.match(/[a-zA-Z0-9]+(?=\()/g)?.filter((f) => f !== 'calc');

@@ -30,6 +30,7 @@ import {
   cloudKeyframes,
   controlsLiveAt,
   controlsLiveFrom,
+  engineShake,
   ignitionLevel,
   launchesAfter,
   nextFlight,
@@ -42,6 +43,8 @@ import {
   springBackKeyframes,
   sputterPuffKeyframes,
   sputtersBetween,
+  warningFlame,
+  warningLevel,
   type CloudSpot,
   type Flight,
   type Sink,
@@ -190,9 +193,15 @@ export function RocketWidget({
   const blocks = blocksOf(queue);
   const hilo = blocks.map((block) => block.series.map((serie) => serieState(serie.queueIndex, displayIndex)));
   const time = clock(live ? timeLeft : 0);
-  const ignition = !reduced && live && isExercise(shown) && launchesAfter(queue, displayIndex) ? ignitionLevel(timeLeft) : 0;
-  const shaking = ignition > 0 && !isPaused;
-  const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${SHAKE.period[ignition]}s` }) as CSSProperties;
+  // From 10 s left (before a takeoff) a small blue flame and a soft tremble, growing; from 3 s the
+  // red ignition and the hard shake take over: one build-up.
+  const launching = !reduced && live && isExercise(shown) && launchesAfter(queue, displayIndex);
+  const ignition = launching ? ignitionLevel(timeLeft) : 0;
+  const warning = launching ? warningLevel(timeLeft) : 0;
+  const warned = launching && timeLeft <= FLIGHT.warningS && ignition === 0;
+  const engine = launching ? engineShake(timeLeft) : { amp: 0, period: SHAKE.period[0] };
+  const shaking = engine.amp > 0 && !isPaused;
+  const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
   const preview = talkPreview && shown?.kind === 'rest' ? shown.nextExercise : undefined;
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && live;
@@ -257,7 +266,7 @@ export function RocketWidget({
                     onClick={toggleList}
                     className="pointer-events-auto flex min-w-0 flex-1 cursor-pointer flex-col justify-center self-stretch"
                   >
-                    <div className={`flex min-w-0 flex-col ${shaking ? 'rw-jitter' : ''}`} style={shake(SHAKE.text[ignition])}>
+                    <div className={`flex min-w-0 flex-col ${shaking && ignition > 0 ? 'rw-jitter' : ''}`} style={shake(SHAKE.text[ignition])}>
                       <button
                         type="button"
                         onClick={own(toggleList)}
@@ -371,13 +380,14 @@ export function RocketWidget({
                 style={{ transformOrigin: pivot, animationPlayState: isPaused ? 'paused' : 'running' }}
               >
                 <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
-                  <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(SHAKE.rocket[ignition])}>
+                  <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
                     <RocketShip
                       g={g}
                       hilo={hilo}
                       className="absolute left-0 top-0"
                       behind={
                         <>
+                          <WarningFlame g={g} level={warning} on={warned} />
                           <IgnitionFlame g={g} level={ignition} />
                           <FlightFlame g={g} flameRef={flameEl} />
                           <Exhaust g={g} level={ignition} paused={isPaused} />
@@ -703,6 +713,20 @@ const PUFFS = [
   { dx: -46, dy: -8, delay: 0.5, s: 1.2 },
   { dx: -28, dy: 28, delay: 0.85, s: 1 },
 ] as const;
+
+/** From 10 s left: a small blue flame (the blue of the rest), growing until the ignition takes over. */
+function WarningFlame({ g, level, on }: { g: ShipGeometry; level: number; on: boolean }) {
+  const step = warningFlame(level);
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute transition-[transform,opacity] duration-[450ms] ease-out"
+      style={{ ...flameBox(g), opacity: on ? 1 : 0, transform: `scale(${step.sx}, ${step.sy})` }}
+    >
+      <FlameDrawing color={WATER.line} />
+    </div>
+  );
+}
 
 /** The engine lighting up in the last 3 s: the flame grows each second (behind the nozzle)... */
 function IgnitionFlame({ g, level }: { g: ShipGeometry; level: 0 | 1 | 2 | 3 }) {

@@ -19,8 +19,8 @@ import type { RoutineItem } from '@/types/workout';
  *   3820   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
  *   ~4520  it is out of the top of the screen (it fades only once out, at 4670)
  *   4920   ...after a beat, it comes back from the left, from the depth
- *   6220   parked (with a squash)
- *   6720   half a second later the banner springs out of the body: controls work again
+ *   6520   parked (it ran past its place and pulled back; a squash)
+ *   7020   half a second later the banner springs out of the body: controls work again
  * Desktop keeps its bar and the clouds as they were (their hold is as long); only the clouds'
  * constants are shared.
  */
@@ -75,6 +75,8 @@ const HANDOVER_BEAT_MS = 250;
 export const FLIGHT = {
   /** Seconds left in a serie when the engine lights (the flame grows each second). */
   ignitionS: 3,
+  /** ...and before that, from this many seconds left, a small blue flame and a soft tremble, growing. */
+  warningS: 10,
   /** The whole takeoff, from the parked pose (banner out) to gone. */
   takeoffMs: TAKEOFF_MS,
   /** Its first part: the banner folds in, and only then does the rocket move... */
@@ -94,8 +96,9 @@ export const FLIGHT = {
   cloudExitMs: CLOUD_EXIT_MS,
   /** It comes back once it has gone, and a beat later. */
   returnStartMs: CLOUD_TIMING.liftMs + CLOUD_EXIT_MS + HANDOVER_BEAT_MS,
-  /** From entering at the left to parked (overshoot and ease back included). */
-  returnMs: 1300,
+  /** From entering at the left to parked: it comes in fast, runs past its place and off the
+   * screen a little, and pulls back (and the ease back). */
+  returnMs: 1600,
   /** The squash as it settles, ending at the parked moment. */
   settleMs: 420,
   /** The "¡pam!" when a rest ends and the serie starts (no clouds). */
@@ -452,6 +455,34 @@ export const SHAKE = {
   period: [0.18, 0.15, 0.12, 0.09],
 } as const;
 
+/**
+ * The warning before the ignition: from FLIGHT.warningS seconds left, 0 rising steadily to 1 as
+ * the ignition comes (it takes over from then: 0 again). The blue flame and the soft tremble grow
+ * with it, and meet the ignition's first step where it starts, so it reads as one build-up.
+ */
+export function warningLevel(timeLeft: number): number {
+  if (!Number.isFinite(timeLeft) || timeLeft > FLIGHT.warningS || ignitionLevel(timeLeft) > 0) return 0;
+  const w = (FLIGHT.warningS - timeLeft) / (FLIGHT.warningS - FLIGHT.ignitionS);
+  return Math.round(Math.min(1, Math.max(0, w)) * 1000) / 1000;
+}
+
+/** The blue flame of the warning, as a scale of the full flame: small at first, the ignition's first step at the end. */
+export function warningFlame(level: number) {
+  return { sx: Math.round((0.08 + 0.22 * level) * 1000) / 1000, sy: Math.round((0.5 + 0.18 * level) * 1000) / 1000 };
+}
+
+/** How the engine shakes the rocket with `timeLeft` seconds left (px, s): softly in the warning, hard at the ignition. */
+export function engineShake(timeLeft: number): { amp: number; period: number } {
+  const level = ignitionLevel(timeLeft);
+  if (level > 0) return { amp: SHAKE.rocket[level], period: SHAKE.period[level] };
+  if (!Number.isFinite(timeLeft) || timeLeft > FLIGHT.warningS) return { amp: 0, period: SHAKE.period[0] };
+  const w = warningLevel(timeLeft);
+  return {
+    amp: Math.round((0.3 + w * (SHAKE.rocket[1] - 0.3 - 0.1)) * 100) / 100,
+    period: Math.round((SHAKE.period[0] - w * (SHAKE.period[0] - SHAKE.period[1])) * 1000) / 1000,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Poses (transforms of the rocket as a whole, about its middle). Every pose uses the same list of
 // functions, so any two interpolate function by function. The depth is real: `perspective()`
@@ -554,15 +585,25 @@ export const LAUNCH_OFFSCREEN_AT = (TAKEOFF_OFFSCREEN_AT - FOLD_AT) / (1 - FOLD_
 
 export const AWAY_POSE = TAKEOFF_KEYFRAMES[TAKEOFF_KEYFRAMES.length - 1];
 
-/** Gone → parked: from the depth at the left, growing, nose along its curve; past its place and back. */
+/** How far it runs past its place before it pulls back (it leaves the screen a little that way). */
+export const RUN_PAST = '22vw';
+
+/**
+ * Gone → parked: from the depth at the left, growing, fast; it runs past its place and off the right
+ * edge a little (squashed by the brake), pulls back past it the other way, and eases into it.
+ */
 export const RETURN_KEYFRAMES: FlightKeyframe[] = [
-  // (it shows at the left edge right away: the beat after the big rocket is the time it waited)
+  // (it shows at the left edge right away: the beat before is the time it waited)
   { offset: 0, transform: pose({ x: '-64vw', y: '-30vh', s: 0.22, rz: 30, ry: -64 }), opacity: 0, easing: 'linear' },
-  { offset: 0.08, transform: pose({ x: '-52vw', y: '-25vh', s: 0.28, rz: 27, ry: -58 }), opacity: 1, easing: 'cubic-bezier(0.25, 0.1, 0.4, 1)' },
-  { offset: 0.5, transform: pose({ x: '-20vw', y: '-6vh', s: 0.74, rz: 9, ry: -24 }), opacity: 1, easing: 'cubic-bezier(0.2, 0.6, 0.35, 1)' },
-  // a little past its place and back
-  { offset: 0.76, transform: pose({ x: '9px', y: '-2px', rz: -1.5, ry: 3 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
-  { offset: 0.9, transform: pose({ x: '-3px', rz: 0.5 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
+  { offset: 0.06, transform: pose({ x: '-52vw', y: '-25vh', s: 0.28, rz: 27, ry: -58 }), opacity: 1, easing: 'cubic-bezier(0.3, 0.1, 0.6, 1)' },
+  { offset: 0.34, transform: pose({ x: '-14vw', y: '-5vh', s: 0.82, rz: 8, ry: -18 }), opacity: 1, easing: 'linear' },
+  // through its place at speed...
+  { offset: 0.44, transform: pose({ x: '0px', y: '-1px', rz: -1, sx: 1.04, sy: 0.97 }), opacity: 1, easing: 'cubic-bezier(0.2, 0.6, 0.35, 1)' },
+  // ...past it and off the right edge, braking
+  { offset: 0.58, transform: pose({ x: RUN_PAST, y: '-2px', rz: -3, sx: 0.95, sy: 1.05 }), opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
+  // it pulls back, a little past the other way
+  { offset: 0.8, transform: pose({ x: '-12px', rz: 1.5, sx: 1.02, sy: 0.98 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
+  { offset: 0.92, transform: pose({ x: '4px', rz: -0.5 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
   { offset: 1, transform: PARKED_POSE, opacity: 1 },
 ];
 // ---------------------------------------------------------------------------------------------

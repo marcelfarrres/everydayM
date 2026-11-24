@@ -20,11 +20,11 @@ export const FLAME = flamePaths();
 
 export const boxStyle = (b: Box): CSSProperties => ({ left: b.left, top: b.top, width: b.right - b.left, height: b.bottom - b.top });
 
-/** The flame, pointing left from the nozzle, flickering from its root. */
-export function FlameDrawing() {
+/** The flame, pointing left from the nozzle, flickering from its root (red; blue for the warning before it lights). */
+export function FlameDrawing({ color = RED }: { color?: string }) {
   return (
     <svg viewBox={`0 0 ${FLAME.w} ${FLAME.h}`} className="rw-flicker block h-full w-full overflow-visible">
-      <path d={FLAME.outer} fill={RED} />
+      <path d={FLAME.outer} fill={color} />
       <path d={FLAME.core} fill="#fff" />
     </svg>
   );
