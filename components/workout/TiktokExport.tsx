@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Copy, Download, Film, Images, Lightbulb, ListOrdered, RefreshCw, Sparkles, Timer, X } from 'lucide-react';
-import { CLIP_TYPE_DESCRIPTIONS, CLIP_TYPE_NAMES, IMPLEMENTED_CLIP_TYPES, type ClipType } from '@/lib/clips/types';
+import type { ClipQueueItem } from '@/lib/clips/queue';
+import { CLIP_TYPE_DESCRIPTIONS, CLIP_TYPE_LENGTHS, CLIP_TYPE_NAMES, ROUTINE_CLIP_TYPES, type ClipType } from '@/lib/clips/types';
 import type { RoutineItem, RoutineMeta } from '@/types/workout';
 
 type Mode = ClipType;
@@ -19,16 +20,17 @@ type Idea = {
 type Phase =
   | { at: 'choose' }
   | { at: 'running'; mode: Mode; id: string; progress: number; step: string }
-  | { at: 'done'; mode: Mode; id: string; slides: number }
+  | { at: 'done'; mode: Mode; id: string; slides: number; caption: string; notes: string[] }
   | { at: 'error'; message: string };
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
-const ENDPOINT = '/api/studio/tiktok';
+// Clips go to the Studio's queue (lib/server/clips/queue.ts), the same one the Studio shows.
+const ENDPOINT = '/api/studio/clips';
 
 const NAMES: Record<Mode, string> = CLIP_TYPE_NAMES;
 // What only this dialog needs per type; names and descriptions live in lib/clips/types.ts.
-const ICONS: Record<Mode, typeof Film> = { summary: Sparkles, full: Film, top3: ListOrdered, challenge: Timer, carousel: Images };
+const ICONS: Partial<Record<Mode, typeof Film>> = { summary: Sparkles, full: Film, top3: ListOrdered, challenge: Timer, carousel: Images };
 
 /** Copy to the clipboard, falling back to selecting the text when the browser refuses. */
 function CopyBox({ text }: { text: string }) {
@@ -65,7 +67,8 @@ function CopyBox({ text }: { text: string }) {
 
 /**
  * Everything for TikTok in one place: an idea for today's own clip (to film in a few minutes)
- * and five videos the Studio renders from today's routine, each with its description ready.
+ * and the clips the Studio renders from today's routine. Each one goes to the Studio's clip
+ * queue (Estudio → Clips), where it can also be reviewed and downloaded later.
  */
 export function TiktokExport({
   open,
@@ -87,7 +90,6 @@ export function TiktokExport({
   const [idea, setIdea] = useState<Idea | null>(null);
   const [ideaLoading, setIdeaLoading] = useState(false);
   const [seen, setSeen] = useState<string[]>([]);
-  const [caption, setCaption] = useState('');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -103,15 +105,17 @@ export function TiktokExport({
     if (!runningId || !runningMode) return;
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`${ENDPOINT}?id=${runningId}`, { cache: 'no-store' });
-        const data = (await res.json()) as { status?: string; progress?: number; step?: string; error?: string; slides?: number };
-        if (data.status === 'done') setPhase({ at: 'done', mode: runningMode, id: runningId, slides: data.slides ?? 0 });
-        else if (data.status === 'error' || !res.ok) setPhase({ at: 'error', message: data.error ?? 'No se pudo crear el vídeo.' });
-        else setPhase({ at: 'running', mode: runningMode, id: runningId, progress: data.progress ?? 0, step: data.step ?? '' });
+        const res = await fetch(`${ENDPOINT}/${runningId}`, { cache: 'no-store' });
+        const data = (await res.json()) as { item?: ClipQueueItem; error?: string };
+        const item = data.item;
+        if (!res.ok || !item) setPhase({ at: 'error', message: data.error ?? 'No se pudo crear el vídeo.' });
+        else if (item.status === 'failed') setPhase({ at: 'error', message: item.error ?? 'No se pudo crear el vídeo.' });
+        else if (item.status !== 'rendering') setPhase({ at: 'done', mode: runningMode, id: runningId, slides: item.slides, caption: item.caption, notes: item.notes });
+        else setPhase({ at: 'running', mode: runningMode, id: runningId, progress: item.progress, step: item.step });
       } catch {
         // a missed poll is fine; the next one catches up
       }
-    }, 1000);
+    }, 1500);
     return () => clearInterval(timer);
   }, [runningId, runningMode]);
 
@@ -138,37 +142,30 @@ export function TiktokExport({
 
   const start = async (mode: Mode) => {
     if (!meta) return;
-    setCaption('');
     setPhase({ at: 'running', mode, id: '', progress: 0, step: 'Empezando' });
-    // the description is ready by the time the video is
-    fetch('/api/studio/idea', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meta, caption: mode }) })
-      .then((r) => r.json())
-      .then((d: { caption?: string }) => setCaption(d.caption ?? ''))
-      .catch(() => {});
     try {
       const res = await fetch(ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, queue, meta, handle, prompt }),
+        body: JSON.stringify({ type: mode, routine: { queue, meta, prompt }, handle }),
       });
-      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { item?: ClipQueueItem; error?: string };
       if (res.status === 404) {
         setPhase({ at: 'error', message: 'Los vídeos se crean en el ordenador del Estudio. Abre la app desde ahí (o por la WiFi de casa).' });
-      } else if (!res.ok || !data.id) {
+      } else if (!res.ok || !data.item) {
         setPhase({ at: 'error', message: data.error ?? 'No se pudo empezar.' });
       } else {
-        setPhase({ at: 'running', mode, id: data.id, progress: 0, step: 'Empezando' });
+        setPhase({ at: 'running', mode, id: data.item.id, progress: data.item.progress, step: data.item.step });
       }
     } catch {
       setPhase({ at: 'error', message: 'Sin conexión con el Estudio.' });
     }
   };
 
-  const lengths: Record<Mode, string> = { summary: '≈ 20 s', full: `${minutes} min`, top3: '≈ 16 s', challenge: '≈ 65 s', carousel: 'Fotos' };
-  const options: { mode: Mode; icon: typeof Film; length: string; detail: string }[] = IMPLEMENTED_CLIP_TYPES.map((mode) => ({
+  const options: { mode: Mode; icon: typeof Film; length: string; detail: string }[] = ROUTINE_CLIP_TYPES.map((mode) => ({
     mode,
-    icon: ICONS[mode],
-    length: lengths[mode],
+    icon: ICONS[mode] ?? Film,
+    length: mode === 'full' ? `${minutes} min` : CLIP_TYPE_LENGTHS[mode],
     detail: CLIP_TYPE_DESCRIPTIONS[mode],
   }));
 
@@ -299,7 +296,9 @@ export function TiktokExport({
                 <span className="text-[15px] font-medium text-ink/55">Tu usuario</span>
                 <input value={handle} onChange={(e) => setHandle(e.target.value)} maxLength={30} className="min-h-12 min-w-0 flex-1 bg-transparent text-right text-[17px] font-semibold focus:outline-none" />
               </label>
-              <p className="text-[13px] leading-snug text-ink/50">Sin música: añade el sonido en TikTok. Se crean en el ordenador del Estudio.</p>
+              <p className="text-[13px] leading-snug text-ink/50">
+                Los cortos van sin música: el sonido se pone en TikTok. La rutina completa lleva música. Se montan en el ordenador del Estudio y quedan en su cola de clips.
+              </p>
             </motion.div>
           )}
 
@@ -327,6 +326,7 @@ export function TiktokExport({
               <div>
                 <p className="text-xl font-semibold">Montando: {NAMES[phase.mode]}</p>
                 <p className="mt-1 text-[15px] text-ink/55">{phase.step}</p>
+                <p className="mt-3 text-[13px] text-ink/45">Puedes cerrar: queda en la cola del Estudio (Estudio → Clips).</p>
               </div>
             </motion.div>
           )}
@@ -336,29 +336,35 @@ export function TiktokExport({
               {phase.mode === 'carousel' ? (
                 <div className="grid grid-cols-3 gap-2">
                   {Array.from({ length: phase.slides }, (_, i) => (
-                    <a key={i} href={`${ENDPOINT}?id=${phase.id}&slide=${i}&download=1`} download className="overflow-hidden rounded-2xl bg-black">
+                    <a key={i} href={`${ENDPOINT}/${phase.id}/slides/${i}?download=1`} download className="overflow-hidden rounded-2xl bg-black">
                       {/* eslint-disable-next-line @next/next/no-img-element -- photos just rendered by the Studio */}
-                      <img src={`${ENDPOINT}?id=${phase.id}&slide=${i}`} alt={`Foto ${i + 1}`} className="aspect-[9/16] w-full object-cover" />
+                      <img src={`${ENDPOINT}/${phase.id}/slides/${i}`} alt={`Foto ${i + 1}`} className="aspect-[9/16] w-full object-cover" />
                     </a>
                   ))}
                 </div>
               ) : (
-                <video src={`${ENDPOINT}?id=${phase.id}&file=1`} controls playsInline autoPlay muted className="mx-auto aspect-[9/16] h-[min(50dvh,28rem)] rounded-3xl bg-black object-cover" />
+                <video src={`${ENDPOINT}/${phase.id}/video`} controls playsInline autoPlay muted className="mx-auto aspect-[9/16] h-[min(50dvh,28rem)] rounded-3xl bg-black object-cover" />
               )}
               <a
-                href={`${ENDPOINT}?id=${phase.id}&file=1&download=1`}
+                href={`${ENDPOINT}/${phase.id}/download`}
                 download
                 className={`flex h-14 w-full items-center justify-center gap-2 rounded-full bg-ink text-lg font-semibold text-white transition-transform hover:scale-[1.02] active:scale-[0.98] ${FOCUS}`}
               >
                 <Download className="h-5 w-5" aria-hidden="true" />
                 {phase.mode === 'carousel' ? 'Descargar todas (ZIP)' : 'Descargar MP4'}
               </a>
-              {caption && (
+              {phase.notes.map((note) => (
+                <p key={note} className="text-[14px] leading-snug text-ink/60">{note}</p>
+              ))}
+              {phase.caption && (
                 <div>
                   <p className="mb-2 text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Descripción para TikTok</p>
-                  <CopyBox text={caption} />
+                  <CopyBox text={phase.caption} />
                 </div>
               )}
+              <a href="/admin#clips" className={`min-h-11 text-center text-[15px] font-medium leading-[2.75rem] text-ink/60 underline underline-offset-4 hover:text-ink ${FOCUS}`}>
+                Ver la cola de clips
+              </a>
               <button type="button" onClick={() => setPhase({ at: 'choose' })} className={`min-h-11 rounded-full px-4 text-[15px] font-medium text-ink/60 hover:text-ink ${FOCUS}`}>
                 Crear otro
               </button>
