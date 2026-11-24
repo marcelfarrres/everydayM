@@ -45,8 +45,9 @@ export function Stage({
 }) {
   const item = queue[displayIndex];
   const live = displayIndex === currentIndex;
-  // talks that have finished, per rest (so a rest falls back to the looping exercise after them)
-  const [talksDone, setTalksDone] = useState<number | null>(null);
+  // The rest whose talks have finished (so it falls back to the looping exercise after them).
+  // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
+  const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
 
   const fadeIn = reduced
     ? {}
@@ -87,7 +88,7 @@ export function Stage({
       </motion.div>
     );
   } else if (item?.kind === 'rest') {
-    const talking = item.restKind === 'long' && item.talks.length > 0 && talksDone !== displayIndex;
+    const talking = item.restKind === 'long' && item.talks.length > 0 && talksDone !== item;
     content = (
       <div key={`rest-${displayIndex}`} className="absolute inset-0">
         {talking ? (
@@ -96,7 +97,7 @@ export function Stage({
             // mounted once the clouds cover the screen; it speaks when they open
             delayMs={reduced ? 0 : CLOUDS.openingMs - CLOUDS.coveredMs}
             paused={isPaused}
-            onFinished={() => setTalksDone(displayIndex)}
+            onFinished={() => setTalksDone(item)}
           />
         ) : (
           <LoopingExercise exercise={item.nextExercise} />

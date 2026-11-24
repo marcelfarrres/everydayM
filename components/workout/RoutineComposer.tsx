@@ -10,9 +10,9 @@ import {
 } from 'react';
 import { AnimatePresence, animate, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, ChevronLeft, Mic, Play, SlidersHorizontal } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { buildRoutine, uniqueExercises } from '@/lib/routine';
-import { parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
+import { fetchExercises } from '@/lib/data/exercises';
+import { buildRoutine, recentExerciseIds, uniqueExercises } from '@/lib/routine';
+import { parseExercisesPerRound, parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
 import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types';
 import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
@@ -48,7 +48,6 @@ const GROUPS: { label: string; ids: MuscleId[] }[] = [
   { label: 'glúteos', ids: ['gluteos'] },
 ];
 // ms each build step stays on screen: thinking → minutes → muscles → exercises → ready
-// ms each build step stays on screen: thinking → minutes → muscles → exercises → ready
 // stage 1: the clip (Marcel leaves in street clothes, comes back ready), then the laser paints the muscles
 const STEP_MS = [200, 1900, 300, 1500];
 const CLIP = { src: '/marcel-ready.mp4', poster: '/marcel-ready-poster.webp' };
@@ -73,7 +72,7 @@ const Q_ROUNDS: Question = {
     { label: '2 bloques', patch: { rounds: 2 } },
     { label: '3 bloques', patch: { rounds: 3 } },
     { label: '4 bloques', patch: { rounds: 4 } },
-    { label: 'Las que encajen', patch: { rounds: null } },
+    { label: 'Los que encajen', patch: { rounds: null } },
   ],
 };
 const Q_INTENSITY: Question = {
@@ -87,16 +86,26 @@ const Q_INTENSITY: Question = {
 const SAYS_INTENSITY =
   /suave|tranquil|f[aá]cil|liger|relaj|intens|\bdur[oa]\b|fuerte|a tope|ca[ñn]er|\bmedi[oa]\b|moderad|reventar/i;
 
+/** The sentence already fixes the routine's shape: "3 bloques", "4 series por bloque". */
+function saysShape(prompt: string): boolean {
+  return parseRounds(prompt) !== null || parseExercisesPerRound(prompt) !== null;
+}
+
 function questionsFor(prompt: string): Question[] {
   if (parseIntentKeywords(prompt).targetMinutes !== null) return [];
   return [
     Q_MINUTES,
-    ...(parseRounds(prompt) === null ? [Q_ROUNDS] : []),
+    ...(saysShape(prompt) ? [] : [Q_ROUNDS]),
     ...(SAYS_INTENSITY.test(prompt) ? [] : [Q_INTENSITY]),
   ];
 }
 type Tray = 'minutes' | 'focus' | 'intensity' | null;
 type Built = { queue: RoutineItem[]; meta: RoutineMeta };
+
+/** A real build (not the fixed-seed preview): exercises from the last routines weigh less. */
+function buildFor(list: Exercise[], intent: RoutineIntent): Built {
+  return buildRoutine(list, intent, Math.random, { recentExerciseIds: recentExerciseIds() });
+}
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -208,13 +217,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   const loadExercises = useCallback(() => {
     if (!exercisesRef.current) {
-      exercisesRef.current = Promise.resolve(
-        supabase.from('exercises').select('*'),
-      ).then(({ data, error: dbError }) => {
-        if (dbError) throw dbError;
-        exerciseListRef.current = (data ?? []) as Exercise[];
-        setLibrary(exerciseListRef.current);
-        return exerciseListRef.current;
+      exercisesRef.current = fetchExercises().then((list) => {
+        exerciseListRef.current = list;
+        setLibrary(list);
+        return list;
       });
       exercisesRef.current.catch(() => {
         exercisesRef.current = null; // let the next attempt retry
@@ -273,6 +279,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     intentRef.current = resolveIntent(prompt).then((parsed) => ({
       ...parsed,
       rounds: parseRounds(prompt) ?? parsed.rounds ?? null,
+      exercisesPerRound: parseExercisesPerRound(prompt) ?? parsed.exercisesPerRound ?? null,
     }));
     const pending = questionsFor(prompt);
     if (pending.length > 0) {
@@ -307,11 +314,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       setClipDone(true);
     }
 
+    let list: Exercise[];
     try {
-      const [list, parsed] = await Promise.all([
-        loadExercises(),
-        intentRef.current ?? resolveIntent(text),
-      ]);
+      list = await loadExercises();
+    } catch {
+      setError('No he podido cargar los ejercicios. Revisa la conexión e inténtalo otra vez.');
+      backToAsk();
+      return;
+    }
+
+    try {
+      const parsed = await (intentRef.current ?? resolveIntent(text));
       if (list.length === 0) {
         setError('Todavía no hay vídeos subidos. Añádelos desde el estudio.');
         backToAsk();
@@ -326,7 +339,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         ),
       };
       setIntent(next);
-      setBuilt(buildRoutine(list, next));
+      setBuilt(buildFor(list, next));
     } catch {
       setError('No he podido crear la rutina. Revisa la conexión e inténtalo otra vez.');
       backToAsk();
@@ -349,15 +362,15 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     if (list.length === 0) return undefined;
     const intent = base ?? { ...parseIntentKeywords(text), rounds: parseRounds(text) };
     const { meta } = buildRoutine(list, { ...intent, targetMinutes: minutes }, () => 0.42);
-    // Before the rounds are chosen only the total is certain.
-    return base?.rounds || parseRounds(text)
+    // Before the blocks are chosen only the total is certain.
+    return base?.rounds || base?.exercisesPerRound || saysShape(text)
       ? blocksAndSeries(meta.rounds, meta.exercisesPerRound)
       : `≈ ${meta.rounds * meta.exercisesPerRound} series en total`;
   };
 
   const retouch = (next: RoutineIntent) => {
     setIntent(next);
-    setBuilt(buildRoutine(exerciseListRef.current, next));
+    setBuilt(buildFor(exerciseListRef.current, next));
   };
 
   const cycleGroup = (ids: MuscleId[]) => {
