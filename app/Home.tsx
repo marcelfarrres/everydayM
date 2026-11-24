@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ChevronRight, Loader2, Play, X } from 'lucide-react';
 import { useWorkoutRoutine } from '@/hooks/useWorkoutRoutine';
 import { MuscleSelector } from '@/components/workout/MuscleSelector';
-import { WorkoutPlayer } from '@/components/workout/WorkoutPlayer';
+import { WorkoutPlayer } from '@/components/workout/player/WorkoutPlayer';
 import { RoutineComposer } from '@/components/workout/RoutineComposer';
 import { TiktokExport } from '@/components/workout/TiktokExport';
 import { DifficultyScale } from '@/components/ui/DifficultyScale';
@@ -51,7 +51,6 @@ export function Home({ studio }: { studio: boolean }) {
     currentItem,
     timeLeft,
     totalItemDuration,
-    elapsedSeconds,
     totalSeconds,
     isPaused,
     togglePause,
@@ -63,12 +62,12 @@ export function Home({ studio }: { studio: boolean }) {
     startBuiltRoutine,
     nextItem,
     prevItem,
-    extendItem,
     handleVideoTimeUpdate,
   } = useWorkoutRoutine();
 
   const [currentTrackId, setCurrentTrackId] = useState(0);
   const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(0.8);
   const [tiktokOpen, setTiktokOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
 
@@ -87,6 +86,11 @@ export function Home({ studio }: { studio: boolean }) {
       if (step === 'config') bgAudio.currentTime = 0;
     }
   }, [step, musicPlaying, isPaused, currentTrackId]);
+
+  // Volume from the player's menu. (iPhone ignores it; the audio engine will use a GainNode.)
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = musicVolume;
+  }, [musicVolume]);
 
   const handleStartPrepared = (builtQueue: RoutineItem[], builtMeta: RoutineMeta, intent: RoutineIntent, text: string) => {
     lastIntentRef.current = intent;
@@ -162,7 +166,7 @@ export function Home({ studio }: { studio: boolean }) {
 
               <details className="group rounded-3xl bg-ink/5 p-4">
                 <summary className={`cursor-pointer list-none text-lg font-semibold [&::-webkit-details-marker]:hidden ${FOCUS}`}>
-                  Modo manual <span className="text-ink/50">· elige rondas y músculos</span>
+                  Modo manual <span className="text-ink/60">· elige bloques y músculos</span>
                 </summary>
                 <form
                   onSubmit={(e) => {
@@ -172,16 +176,16 @@ export function Home({ studio }: { studio: boolean }) {
                 >
                   <div className="grid grid-cols-2 gap-3">
                     <NumberStepper
-                      label="Ejercicios por ronda"
-                      unit={filters.exercisesPerRound === 1 ? 'ejercicio' : 'ejercicios'}
+                      label="Series por bloque"
+                      unit={filters.exercisesPerRound === 1 ? 'serie' : 'series'}
                       value={filters.exercisesPerRound}
                       min={1}
                       max={12}
                       onChange={(exercisesPerRound) => setFilters({ ...filters, exercisesPerRound })}
                     />
                     <NumberStepper
-                      label="Rondas totales"
-                      unit={filters.totalRounds === 1 ? 'ronda' : 'rondas'}
+                      label="Bloques"
+                      unit={filters.totalRounds === 1 ? 'bloque' : 'bloques'}
                       value={filters.totalRounds}
                       min={1}
                       max={5}
@@ -221,21 +225,18 @@ export function Home({ studio }: { studio: boolean }) {
           timeLeft={timeLeft}
           totalItemDuration={totalItemDuration}
           videoRef={videoRef}
-          playlist={PLAYLIST}
-          currentTrackId={currentTrackId}
-          onSelectTrack={setCurrentTrackId}
-          musicPlaying={musicPlaying}
+          musicOn={musicPlaying}
           onToggleMusic={() => setMusicPlaying((prev) => !prev)}
+          musicVolume={musicVolume}
+          onMusicVolume={setMusicVolume}
           onExit={() => setStep('config')}
           onNext={nextItem}
           onPrev={prevItem}
           onRepeat={handleRepeatRoutine}
-          onExtend={extendItem}
           isPaused={isPaused}
           onTogglePause={togglePause}
           meta={meta}
           timeline={timeline}
-          elapsedSeconds={elapsedSeconds}
           totalSeconds={totalSeconds}
           onVideoTimeUpdate={handleVideoTimeUpdate}
           onOpenTiktok={studio ? () => setTiktokOpen(true) : undefined}
