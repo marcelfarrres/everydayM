@@ -77,12 +77,6 @@ export const pill = (x: number, y: number, label: string, bg: string, fg: string
   )}`;
 };
 
-/** Dark gradient from the top or the bottom, so white words read over any clip. */
-export const shade = (id: string, from: 'top' | 'bottom', y: number, height: number, opacity: number) =>
-  `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="${
-    from === 'top' ? opacity : 0
-  }"/><stop offset="1" stop-color="#000" stop-opacity="${from === 'top' ? 0 : opacity}"/></linearGradient></defs><rect y="${y}" width="${W}" height="${height}" fill="url(#${id})"/>`;
-
 const PNG_TIMEOUT_MS = 60_000;
 
 /** One overlay image. Never waits forever: a stuck render must fail and free the queue. */

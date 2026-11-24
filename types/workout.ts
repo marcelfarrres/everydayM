@@ -30,7 +30,7 @@ export interface MuscleRegion {
 
 export type ExerciseType = 'workout' | 'warmup' | 'intro' | 'filler';
 
-/** Marcel talking to camera about an exercise (~15 s, with voice). Row of public.exercise_talks. */
+/** Marcel talking to camera about an exercise (~15 s, with voice). Stored in the catalog under its exercise. */
 export interface ExerciseTalk {
   id: string;
   exercise_id: string;
@@ -144,8 +144,3 @@ export interface WorkoutFilters {
   includeWarmup: boolean;
 }
 
-export interface PlaylistTrack {
-  id: number;
-  label: string;
-  url: string;
-}

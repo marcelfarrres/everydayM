@@ -33,8 +33,6 @@ export interface Avoid {
   talkIds: string[];
 }
 
-export const NO_AVOID: Avoid = { exerciseIds: [], talkIds: [] };
-
 export function cleanHandle(raw: unknown): string {
   const handle = typeof raw === 'string' ? raw.replace(/[^\w.@]/g, '').slice(0, 30) : '';
   return handle ? (handle.startsWith('@') ? handle : `@${handle}`) : '@everydaym';

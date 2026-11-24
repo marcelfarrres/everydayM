@@ -7,7 +7,6 @@ import type { Journey } from '@/components/workout/CloudTransition';
  */
 
 export type ExerciseItem = Extract<RoutineItem, { kind: 'warmup' | 'workout' }>;
-export type WorkoutItem = Extract<RoutineItem, { kind: 'workout' }>;
 export type RestItem = Extract<RoutineItem, { kind: 'rest' }>;
 
 export const isExercise = (item: RoutineItem | undefined): item is ExerciseItem =>
@@ -61,11 +60,6 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
 export function nextExerciseAfter(queue: RoutineItem[], index: number): Exercise | undefined {
   const next = queue.find((q, i) => i > index && isExercise(q));
   return isExercise(next) ? next.exercise : undefined;
-}
-
-/** "Bloque 2" for the long rest before a block, otherwise the exercise that comes next. */
-export function restHeadline(item: RestItem): string {
-  return item.restKind === 'long' ? `Bloque ${item.nextRound}` : item.nextExercise.title;
 }
 
 /** The words on the clouds as a rest begins: where you are going. */

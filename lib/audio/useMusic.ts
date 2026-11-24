@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { fetchMusic } from '@/lib/data/exercises';
-import type { MusicTrack } from '@/types/catalog';
 import { MusicEngine, getMusicEngine, type MusicSnapshot } from './music';
 import { releaseTalkVideo } from './talkVideo';
 
@@ -39,13 +38,6 @@ export function usePlayerMusic(paused: boolean) {
   useEffect(() => {
     getMusicEngine()?.setPaused(paused);
   }, [paused]);
-}
-
-/** Hands a playlist to the engine (an empty list means a silent player). */
-export function useMusicTracks(tracks: MusicTrack[]) {
-  useEffect(() => {
-    getMusicEngine()?.setTracks(tracks);
-  }, [tracks]);
 }
 
 /** Loads the playlist from the catalogue (the same download as the exercises). */
