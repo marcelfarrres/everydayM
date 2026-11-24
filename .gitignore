@@ -26,3 +26,6 @@ tsconfig.tsbuildinfo
 # Medios locales del Estudio en desarrollo (sin Bunny) y salidas del script de mudanza
 /.media/
 /scripts/migrate-media.out/
+
+# Cola de clips de TikTok del Estudio (vídeos montados, manifiesto y caché de originales)
+/.clips/
