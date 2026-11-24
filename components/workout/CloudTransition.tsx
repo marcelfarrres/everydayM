@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
-import { Rocket } from '@/components/workout/Rocket';
+import { BLUNT_HEIGHT_RATIO, Rocket } from '@/components/workout/Rocket';
 import { CLOUDS, CLOUD_TIMING, FLIGHT } from '@/components/workout/rocketFlight';
 
 /*
@@ -230,7 +230,12 @@ export function CloudTransition({
           )}
           {/* the rocket: its nose is where you are. Its box is the screen's height (see `below`). */}
           <div className="cl-rocket absolute left-0 top-0 h-full w-0">
-            <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />
+            {/* on a phone, with the blunt nose of the widget rocket (the same size on screen) */}
+            <Rocket
+              blunt={phone}
+              className={`cl-ship absolute w-auto max-w-none -translate-x-1/2 ${phone ? '' : 'h-[min(58vh,36rem)]'}`}
+              style={{ top: `${top}%`, height: phone ? `min(${58 * BLUNT_HEIGHT_RATIO}vh, ${36 * BLUNT_HEIGHT_RATIO}rem)` : undefined }}
+            />
           </div>
           {/* the words, beside the nose */}
           <div
