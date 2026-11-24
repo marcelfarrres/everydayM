@@ -5,7 +5,7 @@ import { uniqueExercises } from '@/lib/routine';
 /*
  * Help for posting every day with the least effort:
  *  - captionFor(): a ready-to-paste TikTok description (searchable words + a few hashtags)
- *    for each kind of video the Studio exports.
+ *    for each kind of clip the Studio renders (stored with each clip in the queue).
  *  - ideaForToday(): an idea for an organic clip Marcel records himself, with a shot list that
  *    takes a few minutes to film in one spot. Gemini writes it; a built-in bank covers failures.
  */
@@ -34,12 +34,18 @@ function focusTag(focus: string): string {
 /** Description to paste in TikTok: the words people search for first, then 4-5 hashtags. */
 export function captionFor(kind: VideoKind, brief: RoutineBrief): string {
   const f = brief.focus.toLowerCase();
+  const blocks = `${brief.rounds} ${brief.rounds === 1 ? 'bloque' : 'bloques'}`;
+  const series = `${brief.perRound} ${brief.perRound === 1 ? 'serie' : 'series'}`;
+  const first = brief.exercises[0] ?? 'este ejercicio';
   const lines: Record<VideoKind, string> = {
-    summary: `Rutina de ${f} en casa en ${brief.minutes} minutos, sin material. ${brief.rounds} vueltas de ${brief.perRound} ejercicios. La entera está en mi perfil. ¿La haces hoy?`,
-    full: `Rutina completa de ${f} en casa · ${brief.minutes} min, hazla conmigo de principio a fin. Calentamiento + ${brief.rounds} vueltas. ¿Hasta qué vuelta llegas?`,
+    summary: `Rutina de ${f} en casa en ${brief.minutes} minutos, sin material. ${blocks} de ${series}. La entera está en mi perfil. ¿La haces hoy?`,
+    full: `Rutina completa de ${f} en casa · ${brief.minutes} min, hazla conmigo de principio a fin. Calentamiento + ${blocks}. ¿Hasta qué bloque llegas?`,
     top3: `3 ejercicios de ${f} que puedes hacer en casa sin material: ${brief.exercises.slice(0, 3).join(', ')}. ¿Cuál te cuesta más?`,
     challenge: `Reto de 1 minuto de ${f}: aguanta conmigo sin parar. ¿Lo has aguantado entero?`,
     carousel: `Rutina de ${f} en casa (${brief.minutes} min). Desliza para ver los ejercicios. ¿Con cuál empiezas?`,
+    talk: `${first} en casa: te cuento cómo hacerlo bien. ¿Lo hacías así?`,
+    intro_talk: `Hoy toca ${first}. Te lo explico en un momento. ¿Lo hacías así?`,
+    random_mix: `${brief.exercises.length} ejercicios de ${f} para hacer en casa sin material: ${brief.exercises.join(', ')}. ¿Cuál te cuesta más?`,
   };
   return `${lines[kind]}\n\n${[focusTag(brief.focus), ...BASE_TAGS].join(' ')}`;
 }
@@ -162,7 +168,7 @@ const SCHEMA = {
 
 function prompt(b: RoutineBrief, avoid: string[]): string {
   return `Eres el guionista de TikTok de Marcel, entrenador que publica cada día rutinas en casa sin material (España, público hispanohablante).
-Hoy su app ha creado esta rutina: ${b.focus}, ${b.minutes} min, ${b.rounds} vueltas de ${b.perRound} ejercicios: ${b.exercises.join(', ')}.
+Hoy su app ha creado esta rutina: ${b.focus}, ${b.minutes} min, ${b.rounds} bloques de ${b.perRound} series: ${b.exercises.join(', ')}.
 Propón UNA idea de vídeo orgánico que él grabe solo, con el móvil en un trípode en un mismo sitio, en menos de 5 minutos de grabación.
 Reglas: gancho de texto para el primer segundo (máx. 8 palabras), 1 a 4 tomas cortas (total 7-30 s; un reto puede durar 60 s), texto en pantalla breve, descripción con palabras que la gente busca + 4-5 hashtags en español. Nada de música con derechos. Escribe en español de España, cercano y directo.
 ${avoid.length ? `No repitas estas ideas: ${avoid.join(' | ')}.` : ''}

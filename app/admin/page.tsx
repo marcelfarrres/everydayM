@@ -8,18 +8,20 @@ import type { StudioExercise } from '@/types/studio';
 import { LibraryView } from '@/components/studio/LibraryView';
 import { TalksView } from '@/components/studio/TalksView';
 import { MusicView } from '@/components/studio/MusicView';
+import { ClipsView } from '@/components/studio/ClipsView';
 import { Banner, FOCUS, type BannerMessage } from '@/components/studio/StudioUi';
 import { StudioAuthError, studioJson } from '@/components/studio/studioClient';
 
-type View = 'videos' | 'hablados' | 'musica';
+type View = 'videos' | 'hablados' | 'musica' | 'clips';
 
 const VIEWS: Array<{ id: View; label: string }> = [
   { id: 'videos', label: 'Vídeos' },
   { id: 'hablados', label: 'Vídeos hablados' },
   { id: 'musica', label: 'Música' },
+  { id: 'clips', label: 'Clips' },
 ];
 
-/** The open view lives in the URL hash (#hablados, #musica): reload and the back button keep it. */
+/** The open view lives in the URL hash (#hablados, #musica, #clips): reload and the back button keep it. */
 function useHashView(): View {
   return useSyncExternalStore(
     (onChange) => {
@@ -28,7 +30,7 @@ function useHashView(): View {
     },
     () => {
       const hash = window.location.hash.replace('#', '');
-      return hash === 'hablados' || hash === 'musica' ? hash : 'videos';
+      return hash === 'hablados' || hash === 'musica' || hash === 'clips' ? hash : 'videos';
     },
     () => 'videos',
   );
@@ -175,7 +177,7 @@ export default function AdminStudioPage() {
 
         {banner && <Banner message={banner} onClose={() => setBanner(null)} />}
 
-        {/* All three stay mounted (only hidden), so uploads in progress keep their state. */}
+        {/* All views stay mounted (only hidden), so uploads in progress keep their state. */}
         <div hidden={view !== 'videos'}>
           <LibraryView
             exercises={exercises}
@@ -202,6 +204,9 @@ export default function AdminStudioPage() {
         </div>
         <div hidden={view !== 'musica'}>
           <MusicView notify={setBanner} handleError={handleError} />
+        </div>
+        <div hidden={view !== 'clips'}>
+          <ClipsView exercises={exercises} notify={setBanner} handleError={handleError} />
         </div>
       </div>
     </main>
