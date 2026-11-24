@@ -19,13 +19,21 @@ export function useLagged<T>(value: T, ms: number): T {
  * the clouds of a rest that just began are still on screen.
  */
 export function useBusyAfter(key: unknown, ms: number, enabled: boolean): boolean {
-  // The key whose busy time is over. Starts as the first key: nothing plays on mount.
-  const [settled, setSettled] = useState(key);
+  // Every change of key counts, also a return to an earlier key (rest -> back -> same rest again
+  // within `ms`): the clouds play on each change, so comparing keys alone would miss it.
+  const [seen, setSeen] = useState(key);
+  const [changes, setChanges] = useState(0);
+  if (seen !== key) {
+    setSeen(key);
+    setChanges((n) => n + 1);
+  }
+  // The change whose busy time is over. Starts at the first: nothing plays on mount.
+  const [settled, setSettled] = useState(0);
   useEffect(() => {
-    const t = setTimeout(() => setSettled(key), enabled ? ms : 0);
+    const t = setTimeout(() => setSettled(changes), enabled ? ms : 0);
     return () => clearTimeout(t);
-  }, [key, ms, enabled]);
-  return enabled && settled !== key;
+  }, [changes, ms, enabled]);
+  return enabled && settled !== changes;
 }
 
 /**
