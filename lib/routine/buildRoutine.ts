@@ -16,6 +16,7 @@ import {
   getDefaultSlotSeconds,
   getLongRestBase,
   getRestDuration,
+  getTalkRestSeconds,
 } from './duration';
 import { RECENT_PENALTY, pickWeighted, type ScoredExercise } from './select';
 import { solveForMinutes } from './solveForMinutes';
@@ -420,8 +421,9 @@ export function buildRoutine(
     const talks = pickTalks(block, usedTalkIds, rng);
     return {
       kind: 'rest',
-      // Never shorter than a plain end-of-block rest, and long enough for every talk to finish.
-      duration: Math.max(getLongRestBase(restSec) + prepSeconds, talksSeconds(talks)),
+      // Never shorter than a plain end-of-block rest, and long enough for every talk to finish
+      // after the clouds open (the talks start then, TALK_LEAD_MS into the rest).
+      duration: Math.max(getLongRestBase(restSec) + prepSeconds, getTalkRestSeconds(talksSeconds(talks))),
       prepSeconds,
       nextExercise: block[0],
       nextRound: round,

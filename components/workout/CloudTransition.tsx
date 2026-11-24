@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
+import { TALK_LEAD_MS } from '@/lib/routine/duration';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -32,13 +33,15 @@ export type Journey = {
 
 const CLOSE_MS = 800;
 const STAGGER_S = 0.07;
-const HOLD_MS = 1650;
+// The clouds open TALK_LEAD_MS after a rest begins: the engine sizes long rests with the same
+// constant (a talk starts as they open), so the hold is whatever is left after closing.
+const HOLD_MS = TALK_LEAD_MS - CLOSE_MS - STAGGER_S * 1000;
 const OPEN_S = 1.6;
 
 /** When the screen is fully covered, and when the clouds start to open (ms after `playKey` changes). */
 export const CLOUDS = {
   coveredMs: CLOSE_MS + 100,
-  openingMs: CLOSE_MS + STAGGER_S * 1000 + HOLD_MS,
+  openingMs: TALK_LEAD_MS,
 } as const;
 
 type Layer = { src: string; side: 'l' | 'r'; top: string; left: string; flip?: boolean };

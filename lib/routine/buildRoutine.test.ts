@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildRoutine } from './buildRoutine';
 import { cheerFor } from './cheers';
-import { getItemDuration, getLongRestBase, getRestDuration } from './duration';
+import {
+  TALK_LEAD_MS,
+  getItemDuration,
+  getLongRestBase,
+  getRestDuration,
+  getTalkRestSeconds,
+} from './duration';
 import { solveForMinutes } from './solveForMinutes';
 import {
   exercise,
@@ -138,8 +144,9 @@ describe('talks in long rests', () => {
     expect(counts).toEqual(new Set([1, 2]));
   });
 
-  it('makes a long rest last at least its usual time and at least its talks', () => {
+  it('makes a long rest last at least its usual time and at least its talks after the clouds open', () => {
     const base = getLongRestBase(getRestDuration(5));
+    let stretched = 0;
     for (let seed = 1; seed <= 20; seed++) {
       const { queue } = buildRoutine(
         library({ talks: [25, 31.5] }),
@@ -149,10 +156,19 @@ describe('talks in long rests', () => {
       for (const rest of rests(queue).filter((r) => r.restKind === 'long')) {
         const talkSum = rest.talks.reduce((acc, t) => acc + t.duration_seconds, 0);
         expect(rest.duration).toBeGreaterThanOrEqual(base + rest.prepSeconds);
-        expect(rest.duration).toBeGreaterThanOrEqual(talkSum);
+        // the talks start TALK_LEAD_MS into the rest, when the clouds open
+        expect(rest.duration * 1000).toBeGreaterThanOrEqual(TALK_LEAD_MS + talkSum * 1000);
         expect(Number.isInteger(rest.duration)).toBe(true);
+        if (rest.talks.length > 0 && rest.duration > base + rest.prepSeconds) stretched++;
       }
     }
+    expect(stretched).toBeGreaterThan(0); // the talks really set the length somewhere
+  });
+
+  it('adds the lead time only when there are talks', () => {
+    expect(getTalkRestSeconds(0)).toBe(0);
+    expect(getTalkRestSeconds(25)).toBe(Math.ceil(25 + TALK_LEAD_MS / 1000));
+    expect(getTalkRestSeconds(30) * 1000).toBeGreaterThanOrEqual(30_000 + TALK_LEAD_MS);
   });
 
   it('leaves long rests without talks when the library has none', () => {

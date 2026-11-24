@@ -30,6 +30,18 @@ export function getLongRestBase(restSeconds: number): number {
   return restSeconds + LONG_REST_EXTRA_SECONDS;
 }
 
+/**
+ * ms from the start of a rest until the clouds open. A long rest's talks start speaking then,
+ * not under the clouds. CloudTransition times its opening from this same constant, so the
+ * engine's long-rest durations and the animation cannot drift apart.
+ */
+export const TALK_LEAD_MS = 2520;
+
+/** Whole seconds a long rest needs so `talkSeconds` of talks finish: the lead time plus the talks. */
+export function getTalkRestSeconds(talkSeconds: number): number {
+  return talkSeconds > 0 ? Math.ceil(talkSeconds + TALK_LEAD_MS / 1000) : 0;
+}
+
 export function getDefaultSlotSeconds(difficulty: number): number {
   const clamped = Math.min(10, Math.max(1, Math.round(difficulty)));
   const raw = 40 + ((clamped - 1) * 20) / 9;

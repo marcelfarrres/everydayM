@@ -6,6 +6,7 @@ import {
   getDefaultSlotSeconds,
   getLongRestBase,
   getRestDuration,
+  getTalkRestSeconds,
 } from './duration';
 
 export interface SolveForMinutesOptions {
@@ -47,7 +48,7 @@ function estimateCircuitDuration(
   exercisesPerRound: number,
   { slotSeconds, restSec, candidateExercises, fixedOverheadSeconds, hasWarmup, longRestTalkSeconds }: EstimateParams,
 ): number {
-  const longRest = (base: number) => Math.max(base, Math.ceil(longRestTalkSeconds));
+  const longRest = (base: number) => Math.max(base, getTalkRestSeconds(longRestTalkSeconds));
   let total = fixedOverheadSeconds + (hasWarmup ? longRest(getLongRestBase(restSec)) : 0);
 
   for (let r = 1; r <= rounds; r++) {

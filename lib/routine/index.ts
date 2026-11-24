@@ -2,11 +2,13 @@ export {
   DEFAULT_CLIP_SECONDS,
   LONG_REST_EXTRA_SECONDS,
   OUTRO_DURATION_SECONDS,
+  TALK_LEAD_MS,
   getClipDuration,
   getDefaultSlotSeconds,
   getItemDuration,
   getLongRestBase,
   getRestDuration,
+  getTalkRestSeconds,
 } from './duration';
 
 export { buildTimeline } from './timeline';
