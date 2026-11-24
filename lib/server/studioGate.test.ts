@@ -3,6 +3,7 @@ import {
   STUDIO_SESSION_COOKIE,
   createLanSessionToken,
   getStudioAccess,
+  isCrossSiteWrite,
   isLanSessionSecretConfigured,
   isValidLanSessionToken,
   verifyLanPin,
@@ -75,5 +76,26 @@ describe('studioGate con STUDIO_SESSION_SECRET', () => {
     vi.stubEnv('STUDIO_SESSION_SECRET', '');
     vi.stubEnv('STUDIO_LAN_PIN', '');
     expect(getStudioAccess(headers('localhost:3000'), cookies())).toBe('local');
+  });
+});
+
+describe('isCrossSiteWrite (CSRF)', () => {
+  const from = (values: Record<string, string>) => ({ get: (name: string) => values[name] ?? null });
+
+  it('deja pasar lo que envía el propio Estudio', () => {
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000', origin: 'http://localhost:3000', 'sec-fetch-site': 'same-origin' }))).toBe(false);
+    expect(isCrossSiteWrite('DELETE', from({ host: '192.168.1.20:3000', origin: 'http://192.168.1.20:3000' }))).toBe(false);
+  });
+
+  it('rechaza escrituras desde otra página', () => {
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000', origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }))).toBe(true);
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000', origin: 'http://localhost:5173' }))).toBe(true);
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000', 'sec-fetch-site': 'same-site' }))).toBe(true);
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000', origin: 'null' }))).toBe(true);
+  });
+
+  it('las lecturas y las peticiones sin navegador no cambian', () => {
+    expect(isCrossSiteWrite('GET', from({ host: 'localhost:3000', origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }))).toBe(false);
+    expect(isCrossSiteWrite('POST', from({ host: 'localhost:3000' }))).toBe(false);
   });
 });

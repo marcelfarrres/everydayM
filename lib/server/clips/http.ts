@@ -45,6 +45,7 @@ export async function fileResponse(
     'Content-Type': o.contentType,
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   };
   if (o.downloadName) headers['Content-Disposition'] = `attachment; filename="${o.downloadName}"`;
 

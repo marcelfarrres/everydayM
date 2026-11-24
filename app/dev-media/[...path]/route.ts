@@ -56,6 +56,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ path: strin
     'Content-Type': CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
     'Access-Control-Allow-Origin': '*',
   });
 

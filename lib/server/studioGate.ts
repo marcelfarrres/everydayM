@@ -177,8 +177,30 @@ export function isStudioRequestAllowed(headers: HeaderReader, cookies: CookieRea
   return access === 'local' || access === 'lan';
 }
 
+/**
+ * A write sent by another site's page (CSRF). On localhost the Studio needs no PIN, so any page
+ * open in the same browser could otherwise POST to it: a <form> or a no-cors fetch with a
+ * text/plain body reaches the route without a preflight. Browsers mark such requests with
+ * Sec-Fetch-Site and Origin; requests without either (curl, scripts) are not from a page.
+ */
+export function isCrossSiteWrite(method: string, headers: HeaderReader): boolean {
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+  const fetchSite = headers.get('sec-fetch-site');
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') return true;
+  const origin = headers.get('origin');
+  if (!origin) return false;
+  try {
+    return new URL(origin).host.toLowerCase() !== (headers.get('host') ?? '').trim().toLowerCase();
+  } catch {
+    return true; // "null" or garbage
+  }
+}
+
 export function guardStudioApi(req: NextRequest): NextResponse | null {
   const access = getStudioAccess(req.headers, req.cookies);
+  if ((access === 'local' || access === 'lan') && isCrossSiteWrite(req.method, req.headers)) {
+    return NextResponse.json({ error: 'Petición rechazada: viene de otra página.' }, { status: 403 });
+  }
   if (access === 'local' || access === 'lan') return null;
   if (access === 'lan-login-required') {
     return NextResponse.json({ error: 'PIN requerido' }, { status: 401 });
