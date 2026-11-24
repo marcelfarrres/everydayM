@@ -20,12 +20,17 @@ Vocabulario: **bloque** = lo que el código llama `round`; **serie** = un ejerci
 - Desaparecen: el botón «Salir» suelto, la campana suelta, la barra de porcentaje superior y el texto «Quedan…».
 
 ### 1.2 El cohete (el widget del móvil)
-En móvil la barra inferior **es el cohete** de `Rocket.tsx` tumbado, con la punta a la derecha (mismo dibujo: blanco, línea de tinta, llama roja), casi de lado a lado y dentro del área segura. Lo que antes iba en la barra va dentro de su cuerpo; nada del dibujo (aletas, bandas, ojo de buey, punta) toca el texto. Es el mismo personaje que el cohete grande de las nubes: **nunca hay dos cohetes en pantalla** (tiempos en `components/workout/rocketFlight.ts`, derivados de las mismas constantes que las nubes y `TALK_LEAD_MS`).
-- **Serie**: el hilo y debajo el nombre (16–17 px) y el tiempo (19–21 px). El **ojo de buey** (en la punta) es pausa/reanudar. Tocar el cuerpo abre la lista (§1.3).
+En móvil la barra inferior **es el cohete** de `Rocket.tsx` tumbado, con la punta a la derecha (mismo dibujo: blanco, línea de tinta, llama roja), casi de lado a lado y dentro del área segura. Lo que antes iba en la barra va dentro de su cuerpo; nada del dibujo (aletas, bandas, punta) toca el texto ni el hilo. Es el mismo personaje que el cohete grande de las nubes: **nunca hay dos cohetes en pantalla** (tiempos en `components/workout/rocketFlight.ts`, derivados de las mismas constantes que las nubes y `TALK_LEAD_MS`). Revisado con Marcel el 24-11-2026:
+- **Punta corta y roma** («no le pongas punta»): una sección de morro redondeada, separada del cuerpo por una costura, con **el tiempo dentro, grande** (27 px en 320, 30 px desde 360). Sin ojo de buey. El cohete grande de las nubes en el móvil lleva la misma punta roma (`Rocket blunt`); en el ordenador sigue el de siempre.
+- **Serie**: el hilo grande (líneas de 6 px, la serie en curso roja y de 10 px, huecos claros entre bloques) a todo el ancho del cuerpo, y debajo el nombre (18–20 px, con «…» si no cabe). Tocar el cuerpo abre la lista (§1.3).
+- **Cápsula de controles**: al posarse, de su barriga sale con un «¡boom!» elástico una cápsula colgada de un cuello corto (mismo trazo: blanco y tinta) con **Anterior, Pausa/Reanudar y Siguiente** (botones de 44 px; un 40–50 % del largo del cohete en el móvil). En los descansos solo «Saltar». Se recoge al empezar el despegue y vuelve a salir tras posarse.
+- **Calentamiento**: entre un clip y el siguiente, el cohete «intenta despegar y no puede»: tose el motor, una bocanada de gas, un saltito con temblor y vuelve a su sitio (~1 s, sin nubes; los controles siguen funcionando).
 - **Ignición**: en los últimos 3 s de una serie que va seguida de descanso o del final, se enciende el motor: la llama crece cada segundo, sale cada vez más gas y tiembla.
-- **Despegue**: a cero se encoge hacia atrás (anticipación) y despega girando hacia dentro de la pantalla (se aleja y se hace pequeño) mientras su contenido se desvanece. Luego las nubes, con el cohete grande subiendo desde abajo y saliendo con una S, encogiéndose.
-- **Vuelta**: cuando el grande se ha ido, vuelve desde la izquierda y desde el fondo, se pasa un poco de su sitio, vuelve, se aplasta al posarse y se apaga la llama; entonces aparece su contenido. Al acabar un descanso (sin nubes), un pequeño «¡pam!». Al empezar la rutina llega y se posa; al terminar despega una última vez antes de la pantalla final.
-- Cualquier salto, pausa o pestaña en segundo plano lo deja en una pose definida (posado o fuera), nunca a medio vuelo ni duplicado. Mientras está fuera no se puede tocar. Con movimiento reducido no vuela: fundidos.
+- **Despegue**: a cero se recoge la cápsula, se encoge hacia atrás (anticipación) y despega girando hacia dentro de la pantalla hasta salir por arriba (a los ~1,2 s) mientras su contenido se desvanece. **Un respiro** (~0,45 s) solo con nubes, y entonces el cohete grande sube desde abajo y sale con una S, encogiéndose.
+- **Vuelta**: cuando el grande se ha ido, otro respiro (~0,5 s) y vuelve desde la izquierda y desde el fondo, se pasa un poco de su sitio, vuelve, se aplasta al posarse y se apaga la llama; entonces aparece su contenido y sale la cápsula. Al empezar la rutina llega y se posa; al terminar despega una última vez antes de la pantalla final.
+- **Descanso**: se llena de agua y **se hunde** poco a poco (hasta 7 px, la cola hacia abajo 2°) como si pesara; la cápsula con «Saltar» no se mueve. Al acabar, «¡pam!»: el agua desaparece de golpe y el cohete salta de vuelta a su sitio con un aplastón.
+- Cualquier salto, pausa o pestaña en segundo plano lo deja en una pose definida (posado con la cápsula fuera, o fuera del todo), nunca a medio vuelo ni duplicado. Mientras está fuera no se puede tocar (`inert`, que un solo efecto mantiene al paso del vuelo). Con movimiento reducido no vuela ni se hunde: fundidos.
+- Arreglado: tras la llegada al empezar la rutina los controles se quedaban bloqueados (`inert`) hasta el primer descanso: el temporizador que los devolvía lo borraba la limpieza de otro efecto en el doble montaje de React.
 - En el ordenador sigue la barra de siempre bajo la pizarra (§1.7).
 
 ### 1.2.1 Barra inferior durante una serie (ordenador)
@@ -39,7 +44,7 @@ En móvil la barra inferior **es el cohete** de `Rocket.tsx` tumbado, con la pun
 - Contenido: «Calentamiento» y después cada bloque con sus series. Hecho = tachado y gris; en curso = rojo; pendiente = blanco. Al abrirse queda colocada en la serie en curso. Se puede deslizar arriba y abajo.
 - Se cierra con animación: 5 s después del último toque o deslizamiento, al tocar el vídeo, o al tocar la barra otra vez. Tocar los botones de la barra no la cierra, reinicia los 5 s.
 - Es solo de lectura: tocar un ejercicio no salta a él.
-- En móvil lleva debajo una fila con **Anterior / Pausa / Siguiente** (no caben en el cohete).
+- En móvil ya no lleva fila de controles: están siempre en la cápsula bajo el cohete (§1.2); nunca hay dos juegos iguales a la vista.
 - Se puede tocar cualquier parte de la barra, no solo la flecha.
 
 ### 1.4 Descansos
@@ -52,7 +57,7 @@ Hay dos tipos. En ambos: **marco azul** alrededor de la pantalla y la barra en *
 
 Barra en modo descanso:
 - Mismo tamaño que en una serie. **Sin hilo.**
-- Se **llena de agua azul de abajo arriba** con una ola en la superficie; llena = empieza la serie. En el móvil se llena el cohete entero (cuerpo y punta): dos olas a distinta velocidad, unas burbujas y la superficie que se calma al llegar arriba; en descansos largos con vídeos hablados el tiempo va en el ojo de buey y el mini vídeo asoma sobre el cuerpo, a la derecha de la aleta.
+- Se **llena de agua azul de abajo arriba** con una ola en la superficie; llena = empieza la serie. En el móvil se llena el cohete entero (cuerpo y punta): dos olas a distinta velocidad, unas burbujas y la superficie que se calma al llegar arriba; en descansos largos con vídeos hablados el tiempo va en la punta y el mini vídeo asoma sobre el cuerpo, a la derecha de la aleta. «Saltar» va en la cápsula de debajo.
 - Texto: «Descanso», el tiempo, «Luego: <ejercicio>» en pequeño, y el botón «Saltar». Sin botón de pausa.
 - Cuando el vídeo ya enseña la cuenta atrás gigante (descanso sin vídeos hablados), la barra no repite el tiempo ni «Luego»: solo «Descanso» y «Saltar». El número aparece cuando las nubes se han ido; con movimiento reducido no se anima cada segundo. (Decidido por Marcel tras probarlo, 24-11-2026.)
 - No se usa la palabra «tutorial» en ningún sitio.
