@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import sharp from 'sharp';
+import type { ClipType } from '@/lib/clips/types';
 import { REST_LINES, cheerFor, getItemDuration, uniqueExercises } from '@/lib/routine';
 import type { Exercise, RoutineItem, RoutineMeta } from '@/types/workout';
 
@@ -28,7 +29,8 @@ const C = { paper: '#e9e9e7', ink: '#131313', heat: '#ff3b30', warm: '#ff9f0a', 
 // Runtime temp paths: tell the bundler not to trace them (it would ship the whole project).
 const join = (...parts: string[]) => path.join(/* turbopackIgnore: true */ ...parts);
 
-export type ExportMode = 'summary' | 'full' | 'top3' | 'challenge' | 'carousel';
+// The ids come from the one registry of clip types; only implemented ones reach here.
+export type ExportMode = ClipType;
 export interface ExportJob {
   status: 'running' | 'done' | 'error';
   progress: number; // 0..1

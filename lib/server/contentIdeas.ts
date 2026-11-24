@@ -1,4 +1,5 @@
 import 'server-only';
+import { IMPLEMENTED_CLIP_TYPES, clipTypesForPrompt, type ClipType } from '@/lib/clips/types';
 import { uniqueExercises } from '@/lib/routine';
 
 /*
@@ -17,7 +18,7 @@ export type RoutineBrief = {
   exercises: string[]; // unique, in order
 };
 
-export type VideoKind = 'summary' | 'full' | 'top3' | 'challenge' | 'carousel';
+export type VideoKind = ClipType;
 
 const BASE_TAGS = ['#rutinaencasa', '#entrenamientoencasa', '#fitnessespaña', '#gymtok'];
 
@@ -154,7 +155,7 @@ const SCHEMA = {
     },
     filmMinutes: { type: 'NUMBER' },
     caption: { type: 'STRING' },
-    pairWith: { type: 'STRING', enum: ['summary', 'full', 'top3', 'challenge', 'carousel'] },
+    pairWith: { type: 'STRING', enum: [...IMPLEMENTED_CLIP_TYPES] },
   },
   required: ['title', 'hook', 'why', 'shots', 'filmMinutes', 'caption', 'pairWith'],
 };
@@ -165,7 +166,7 @@ Hoy su app ha creado esta rutina: ${b.focus}, ${b.minutes} min, ${b.rounds} vuel
 Propón UNA idea de vídeo orgánico que él grabe solo, con el móvil en un trípode en un mismo sitio, en menos de 5 minutos de grabación.
 Reglas: gancho de texto para el primer segundo (máx. 8 palabras), 1 a 4 tomas cortas (total 7-30 s; un reto puede durar 60 s), texto en pantalla breve, descripción con palabras que la gente busca + 4-5 hashtags en español. Nada de música con derechos. Escribe en español de España, cercano y directo.
 ${avoid.length ? `No repitas estas ideas: ${avoid.join(' | ')}.` : ''}
-pairWith = el vídeo de su app que conviene publicar ese mismo día: summary (resumen 15 s), full (rutina completa), top3 (3 ejercicios), challenge (reto 1 min) o carousel (fotos).`;
+pairWith = el vídeo de su app que conviene publicar ese mismo día: ${clipTypesForPrompt()}.`;
 }
 
 export async function ideaForToday(b: RoutineBrief, avoid: string[] = []): Promise<{ idea: Idea; source: 'gemini' | 'bank' }> {

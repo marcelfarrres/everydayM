@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guardStudioApi } from '@/lib/server/studioGate';
-import { briefFrom, captionFor, ideaForToday, type VideoKind } from '@/lib/server/contentIdeas';
+import { DEFAULT_CLIP_TYPE, isClipType } from '@/lib/clips/types';
+import { briefFrom, captionFor, ideaForToday } from '@/lib/server/contentIdeas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const KINDS: VideoKind[] = ['summary', 'full', 'top3', 'challenge', 'carousel'];
 
 /**
  * POST { meta, avoid? } → { idea, source } : an idea for today's organic clip.
@@ -28,7 +27,7 @@ export async function POST(req: NextRequest) {
   const brief = briefFrom(body.meta as Parameters<typeof briefFrom>[0]);
 
   if (typeof body.caption === 'string') {
-    const kind = KINDS.includes(body.caption as VideoKind) ? (body.caption as VideoKind) : 'summary';
+    const kind = isClipType(body.caption) ? body.caption : DEFAULT_CLIP_TYPE;
     return NextResponse.json({ caption: captionFor(kind, brief) });
   }
 

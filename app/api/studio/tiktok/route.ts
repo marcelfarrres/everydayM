@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { NextRequest, NextResponse } from 'next/server';
+import { DEFAULT_CLIP_TYPE, isClipType } from '@/lib/clips/types';
 import { guardStudioApi } from '@/lib/server/studioGate';
 import { cleanPrompt, runExport, validateExport, type ExportJob, type ExportMode } from '@/lib/server/tiktokExport';
 import type { RoutineItem, RoutineMeta } from '@/types/workout';
@@ -28,8 +29,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Petición inválida.' }, { status: 400 });
   }
-  const MODES: ExportMode[] = ['summary', 'full', 'top3', 'challenge', 'carousel'];
-  const mode: ExportMode = MODES.includes(body.mode as ExportMode) ? (body.mode as ExportMode) : 'summary';
+  const mode: ExportMode = isClipType(body.mode) ? body.mode : DEFAULT_CLIP_TYPE;
   const queue = body.queue as RoutineItem[];
   const meta = body.meta as RoutineMeta;
   const problem = validateExport(mode, queue, meta);

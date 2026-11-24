@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Copy, Download, Film, Images, Lightbulb, ListOrdered, RefreshCw, Sparkles, Timer, X } from 'lucide-react';
+import { CLIP_TYPE_DESCRIPTIONS, CLIP_TYPE_NAMES, IMPLEMENTED_CLIP_TYPES, type ClipType } from '@/lib/clips/types';
 import type { RoutineItem, RoutineMeta } from '@/types/workout';
 
-type Mode = 'summary' | 'full' | 'top3' | 'challenge' | 'carousel';
+type Mode = ClipType;
 type Idea = {
   title: string;
   hook: string;
@@ -25,13 +26,9 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
 const ENDPOINT = '/api/studio/tiktok';
 
-const NAMES: Record<Mode, string> = {
-  summary: 'Resumen',
-  full: 'Rutina completa',
-  top3: '3 ejercicios',
-  challenge: 'Reto 1 minuto',
-  carousel: 'Carrusel de fotos',
-};
+const NAMES: Record<Mode, string> = CLIP_TYPE_NAMES;
+// What only this dialog needs per type; names and descriptions live in lib/clips/types.ts.
+const ICONS: Record<Mode, typeof Film> = { summary: Sparkles, full: Film, top3: ListOrdered, challenge: Timer, carousel: Images };
 
 /** Copy to the clipboard, falling back to selecting the text when the browser refuses. */
 function CopyBox({ text }: { text: string }) {
@@ -167,13 +164,13 @@ export function TiktokExport({
     }
   };
 
-  const options: { mode: Mode; icon: typeof Film; length: string; detail: string }[] = [
-    { mode: 'summary', icon: Sparkles, length: '≈ 20 s', detail: 'Tu frase escribiéndose, tú, el plan y un vistazo a cada ejercicio.' },
-    { mode: 'full', icon: Film, length: `${minutes} min`, detail: 'Entera, para seguirla: reloj, vueltas, descansos y lo siguiente.' },
-    { mode: 'top3', icon: ListOrdered, length: '≈ 16 s', detail: '«3 ejercicios para…»: número grande, nombre y tiempo. Se guarda mucho.' },
-    { mode: 'challenge', icon: Timer, length: '≈ 65 s', detail: '«Aguanta 1 minuto conmigo»: 3 ejercicios seguidos con reloj.' },
-    { mode: 'carousel', icon: Images, length: 'Fotos', detail: 'Portada, una foto por ejercicio y el plan. Para el modo foto de TikTok.' },
-  ];
+  const lengths: Record<Mode, string> = { summary: '≈ 20 s', full: `${minutes} min`, top3: '≈ 16 s', challenge: '≈ 65 s', carousel: 'Fotos' };
+  const options: { mode: Mode; icon: typeof Film; length: string; detail: string }[] = IMPLEMENTED_CLIP_TYPES.map((mode) => ({
+    mode,
+    icon: ICONS[mode],
+    length: lengths[mode],
+    detail: CLIP_TYPE_DESCRIPTIONS[mode],
+  }));
 
   const percent = phase.at === 'running' ? Math.round(phase.progress * 100) : 0;
   const ring = 2 * Math.PI * 52;
