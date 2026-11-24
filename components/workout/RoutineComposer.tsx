@@ -20,12 +20,12 @@ import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import { Hilo } from '@/components/workout/player/Hilo';
 import { useRocketWidth } from '@/components/workout/player/hooks';
-import { CREATOR, SuggestionRocket, WaitingRocket, launchRocket, towRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
+import { CREATOR, ChoiceRocket, RandomRocket, RiseIn, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
 import { RocketFigure } from '@/components/workout/RocketShip';
 import { HOP, riseKeyframes } from '@/components/workout/rocketFlight';
 import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { BAR_TEXT, SHIP, barLines, barThickness } from '@/components/workout/rocketShape';
-import { pickSuggestions } from '@/lib/intent/suggestions';
+import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
 import type {
   Exercise,
   MuscleId,
@@ -174,10 +174,11 @@ function minutesFlame(minutes: number): number {
   return Math.round((0.3 + share * 0.7) * 100) / 100;
 }
 
-const SERVER_SUGGESTIONS = EXAMPLES.slice(0, 3);
+// phone: this many suggestions in their list (it scrolls), at random once per page load
+const SUGGESTION_COUNT = 9;
+const SERVER_SUGGESTIONS: string[] = SUGGESTIONS.slice(0, SUGGESTION_COUNT);
 let picked: string[] | null = null;
-/** Three suggestions at random, once per page load. */
-const browserSuggestions = () => (picked ??= pickSuggestions(3));
+const browserSuggestions = () => (picked ??= pickSuggestions(SUGGESTION_COUNT));
 
 function intensityLabel(difficulty: number): string {
   return difficulty <= 4 ? 'suave' : difficulty <= 6 ? 'media' : 'alta';
@@ -245,7 +246,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // it grows a line at a time as the sentence wraps (up to BAR_TEXT.MAX_LINES; then it scrolls inside)
   const [lines, setLines] = useState(1);
   const barShip = useCreatorShip(barPx + hang, barK, barThickness(lines, barK));
-  // three suggestions at random, chosen in the browser (the server, and hydration, use the first three)
+  // suggestions at random, chosen in the browser (the server, and hydration, use the first ones)
   const suggestions = useSyncExternalStore(subscribeNoop, browserSuggestions, () => SERVER_SUGGESTIONS);
 
   const speechSupported = useSyncExternalStore(
@@ -357,14 +358,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     return () => rise.cancel();
   }, [view, barRises, reducedMotion]);
 
-  const submit = (raw: string, towed?: HTMLElement | null) => {
+  const submit = (raw: string, picked?: HTMLElement | null) => {
     const prompt = raw.trim();
     if (!prompt) return;
-    // the bar takes off with the sentence (phone), towing the suggestion picked, if one was; the
-    // next step is already here
+    // what takes off (phone): the suggestion picked (or "Random", standing), or else the bar with the
+    // sentence; the next step is already here
     setHop(
-      towed
-        ? towRocket(barRef.current, towed, { hookX: barShip.xe * barK - hang, text: prompt })
+      picked
+        ? launchRocket(picked, { ms: HOP.launchMs, tilt: picked.dataset.upright ? -90 : 0 })
         : launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }),
     );
     recognitionRef.current?.stop();
@@ -391,8 +392,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const launchQuestion = (last: boolean) =>
     setHop(launchRocket(waitRef.current, { ms: last ? HOP.launchMs : HOP.hopMs, tilt: CREATOR.tilt }));
 
-  const answer = (patch: Partial<RoutineIntent>) => {
-    launchQuestion(asked + 1 >= questions.length);
+  const answer = (patch: Partial<RoutineIntent>, picked?: HTMLElement | null) => {
+    // the option tapped takes off (its own rocket), or the waiting one ("Seguir")
+    if (picked) setHop(launchRocket(picked, { ms: asked + 1 >= questions.length ? HOP.launchMs : HOP.hopMs }));
+    else launchQuestion(asked + 1 >= questions.length);
     const next = { ...answers, ...patch };
     setAnswers(next);
     setAsked(asked + 1);
@@ -691,7 +694,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 }
               }}
               placeholder="Hombros, 20 minutos"
-              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-hidden max-lg:overflow-y-auto max-lg:rounded-lg max-lg:py-[10px] max-lg:leading-6 max-lg:[field-sizing:fixed] max-lg:[scrollbar-width:none] max-lg:focus-visible:bg-ink/[0.04]"
+              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-hidden max-lg:overflow-y-auto max-lg:rounded-lg max-lg:py-[10px] max-lg:leading-6 max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:focus-visible:bg-ink/[0.04]"
             />
             {speechSupported && (
               <button
@@ -733,11 +736,26 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               </button>
             ))}
           </div>
-          {/* phone: three suggestions at random, as small rockets; the bar tows the one picked */}
-          <div className="-ml-1 flex flex-col items-start gap-1 lg:hidden">
-            {suggestions.map((example) => (
-              <SuggestionRocket key={example} text={example} onClick={(e) => submit(example, e.currentTarget)} />
-            ))}
+          {/* phone: suggestions as small rockets, one above the other, in a list of their own that
+              scrolls (faded at its edges), and "Random" standing at its right; the one tapped takes off */}
+          <div className="-mt-2 flex items-start gap-2 lg:hidden">
+            <div
+              data-suggestions=""
+              className="-ml-1 max-h-[max(8.5rem,22dvh)] min-w-0 flex-1 overflow-y-auto overscroll-contain py-3 [mask-image:linear-gradient(to_bottom,transparent,black_12px,black_calc(100%-28px),transparent)] [scrollbar-width:none]"
+            >
+              <div className="flex flex-col items-start gap-3">
+                {suggestions.map((example) => (
+                  <ChoiceRocket key={example} text={example} room={rocketWidth - 74} onClick={(e) => submit(example, e.currentTarget)} />
+                ))}
+              </div>
+            </div>
+            <RandomRocket
+              px={170}
+              onClick={(e) => {
+                e.currentTarget.dataset.upright = '1';
+                submit(SUGGESTIONS[Math.floor(Math.random() * SUGGESTIONS.length)], e.currentTarget);
+              }}
+            />
           </div>
 
           {error && (
@@ -789,7 +807,19 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                       </motion.button>
                     </div>
                   ) : (
-                  <div className={`grid gap-2.5 sm:flex sm:flex-wrap ${q.options.length > 4 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <>
+                  {/* phone: each option is a rocket, one above the other; the one tapped takes off */}
+                  <RiseIn delay={Math.min(hop, 300)} className="flex flex-col items-start gap-3 lg:hidden">
+                    {q.options.map((option) => (
+                      <ChoiceRocket
+                        key={option.label}
+                        text={option.label}
+                        minChars={Math.max(...q.options.map((o) => o.label.length))}
+                        onClick={(e) => answer(option.patch, e.currentTarget)}
+                      />
+                    ))}
+                  </RiseIn>
+                  <div className={`grid gap-2.5 max-lg:hidden sm:flex sm:flex-wrap ${q.options.length > 4 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     {q.options.map((option, i) => (
                       <motion.button
                         key={option.label}
@@ -805,24 +835,22 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                       </motion.button>
                     ))}
                   </div>
+                  </>
                   )}
                 </motion.div>
               ))}
           </AnimatePresence>
-          {/* phone: the rocket waits for the tap; on the minutes it is the "Seguir" button */}
-          {questions[asked] && (
+          {/* phone: on the minutes the rocket waits for the tap: it is the "Seguir" button (on the
+              other questions the options are the rockets) */}
+          {questions[asked]?.id === 'minutes' && (
             <WaitingRocket
               key={asked}
               ref={waitRef}
               riseDelay={hop}
-              {...(questions[asked].id === 'minutes'
-                ? {
-                    label: 'Seguir',
-                    onClick: () => answer({ targetMinutes: draftMinutes }),
-                    // the more minutes, the bigger its flame
-                    flame: minutesFlame(draftMinutes),
-                  }
-                : {})}
+              label="Seguir"
+              onClick={() => answer({ targetMinutes: draftMinutes })}
+              // the more minutes, the bigger its flame
+              flame={minutesFlame(draftMinutes)}
             />
           )}
           <button
@@ -844,7 +872,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               setStage(4); // tap anywhere to skip the build
             }
           }}
-          className={`mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-5 px-5 pb-8 sm:px-8 lg:px-16 ${ready ? 'max-lg:pb-36' : ''}`}
+          className={`mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-5 px-5 pb-8 sm:px-8 lg:px-16 ${ready ? 'max-lg:justify-start max-lg:pb-48 max-lg:pt-4' : ''}`}
         >
           <div>
             <p aria-live="polite" className="h-6 text-[15px] font-medium text-ink/60">

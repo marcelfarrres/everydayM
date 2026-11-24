@@ -171,24 +171,43 @@ export function WaitingRocket({
 }
 
 // ---------------------------------------------------------------------------------------------
-// The suggestions under the bar: small rockets, the sentence in the body.
+// Small rockets to pick from: the suggestions under the bar, and the options of a question. Each is
+// a real button with its words in the body; the one tapped takes off (launchRocket).
 
 // px per character of the label (15 px semibold), and the rocket around it (rocket units at scale 1)
-const CHAR_PX = 7.6;
+const CHAR_PX = 8.2;
 const AROUND = { tail: 46, nose: SHIP.NOSE + 8, flameRoom: 14 } as const;
 
-/** A suggestion as a small rocket (the same drawing, at its own size): a real button, 56 px tall. */
-export function SuggestionRocket({ ref, text, onClick }: { ref?: Ref<HTMLButtonElement | null>; text: string; onClick: (e: MouseEvent<HTMLButtonElement>) => void }) {
+/** How long a choice rocket is for a label of `chars` characters (px, at most the room there is). */
+const choicePx = (chars: number, room: number) => Math.min(room + AROUND.flameRoom, Math.round(chars * CHAR_PX + 12 + AROUND.tail + AROUND.nose));
+
+/** A choice as a small rocket, lying (nose right): 56 px tall, as long as its words (or `minChars`). */
+export function ChoiceRocket({
+  ref,
+  text,
+  minChars = 0,
+  room,
+  onClick,
+  className = '',
+}: {
+  ref?: Ref<HTMLButtonElement | null>;
+  text: string;
+  /** the same length for a set of them (the options of a question) */
+  minChars?: number;
+  /** px it may take across (the screen less the margins, by default) */
+  room?: number;
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  className?: string;
+}) {
   const width = useRocketWidth();
-  const px = Math.min(width - 28 + AROUND.flameRoom, Math.round(text.length * CHAR_PX + 12 + AROUND.tail + AROUND.nose));
-  const g = useCreatorShip(px, 1);
+  const g = useCreatorShip(choicePx(Math.max(minChars, text.length), room ?? width - 28), 1);
   return (
     <button
       ref={ref}
       type="button"
       onClick={onClick}
-      data-suggestion=""
-      className="relative shrink-0 cursor-pointer rounded-full transition-transform active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden"
+      data-choice=""
+      className={`relative shrink-0 cursor-pointer rounded-full transition-transform active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden ${className}`}
       style={{ width: g.W - AROUND.flameRoom, height: g.H }}
     >
       <RocketFigure g={g} className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />
@@ -203,107 +222,41 @@ export function SuggestionRocket({ ref, text, onClick }: { ref?: Ref<HTMLButtonE
 }
 
 /**
- * The bar picks a suggestion up: it shoots a cable from its tail to the small rocket's nose, hooks
- * it and pulls it in behind its tail, and takes off with it hanging below. Copies of both fly (the
- * step has already changed under them). `hookX`: the bar's nozzle, px from its left edge. Returns
- * how long until they are out of sight (0 when nothing flies).
+ * "Random": a rocket standing on its tail (the same drawing, turned nose up) with its word along
+ * the body. `px`: how tall it stands. The button inside is the turned rocket, so a launch takes it
+ * off from where it stands.
  */
-export function towRocket(bar: HTMLElement | null, towed: HTMLElement | null, { hookX, text }: { hookX: number; text: string }): number {
-  if (!bar || !towed || typeof window === 'undefined') return 0;
-  if (window.matchMedia(DESKTOP).matches || window.matchMedia(REDUCED).matches) return 0;
-  const b = bar.getBoundingClientRect();
-  const t = towed.getBoundingClientRect();
-  if (b.width === 0 || t.width === 0) return 0;
-  const { shootMs, pullMs } = TOW;
-  const total = shootMs + pullMs + HOP.launchMs;
-  const at = (ms: number) => Math.round((ms / total) * 1000) / 1000;
-
-  // the bar's copy flies as a plain launch, after the cable and the pull
-  const ship = flyingCopy(bar, b, text);
-  const hook = { x: hookX, y: b.height / 2 };
-  // The small rocket's copy goes inside the bar's (so it goes wherever the bar goes), hanging from
-  // an arm that turns about the hook: the cable runs along the arm and the copy's nose is always
-  // at its end (the copy turns back by as much, so it stays level). One move for all three.
-  const nose0 = { x: t.left - b.left + t.width - 2, y: t.top - b.top + t.height / 2 };
-  const d0 = Math.max(1, Math.hypot(nose0.x - hook.x, nose0.y - hook.y));
-  const a0 = (Math.atan2(nose0.y - hook.y, nose0.x - hook.x) * 180) / Math.PI;
-  // pulled in behind the tail: its nose a short cable away, level with the tail
-  const d1 = TOW.cablePx;
-  const a1 = a0 > 0 ? 180 : -180;
-  const place = (node: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(node.style, { position: 'absolute', margin: '0', ...style });
-  const arm = document.createElement('div');
-  place(arm, { left: `${hook.x}px`, top: `${hook.y}px`, width: '0px', height: '0px', transformOrigin: '0 0' });
-  const cable = document.createElement('div');
-  place(cable, { left: '0px', top: '-1px', width: `${d0}px`, height: '2px', background: '#131313', borderRadius: '1px', transformOrigin: '0 50%' });
-  const holder = document.createElement('div');
-  place(holder, { left: '0px', top: '0px', width: '0px', height: '0px' });
-  const copy = towed.cloneNode(true) as HTMLElement;
-  copy.removeAttribute('data-suggestion');
-  place(copy, {
-    left: `${-(t.width - 2)}px`,
-    top: `${-t.height / 2}px`,
-    width: `${t.width}px`,
-    height: `${t.height}px`,
-    transformOrigin: `${t.width - 2}px ${t.height / 2}px`,
-  });
-  holder.append(copy);
-  arm.append(holder, cable);
-  ship.prepend(arm);
-  document.body.appendChild(ship);
-
-  const hold = at(shootMs + 60);
-  const pulled = at(shootMs + pullMs);
-  const deg = (n: number) => `${n.toFixed(2)}deg`;
-  const options = { duration: total, fill: 'forwards' as const };
-  arm.animate(
-    [
-      { offset: 0, transform: `rotate(${deg(a0)})` },
-      { offset: hold, transform: `rotate(${deg(a0)})`, easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
-      { offset: pulled, transform: `rotate(${deg(a1)})` },
-      { offset: 1, transform: `rotate(${deg(a1)})` },
-    ],
-    options,
+export function RandomRocket({ px, onClick }: { px: number; onClick: (e: MouseEvent<HTMLButtonElement>) => void }) {
+  const g = useCreatorShip(px + AROUND.flameRoom, 1);
+  const long = g.W - AROUND.flameRoom;
+  return (
+    <div className="relative shrink-0 lg:hidden" style={{ width: g.H, height: long }}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label="Random: una frase al azar"
+        className="absolute cursor-pointer rounded-full transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+        style={{ width: long, height: g.H, left: (g.H - long) / 2, top: (long - g.H) / 2, transform: 'rotate(-90deg)' }}
+      >
+        <RocketFigure g={g} flame={0.25} className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />
+        <span
+          className="pointer-events-none absolute flex items-center justify-center text-[15px] font-semibold uppercase leading-none tracking-[0.12em] text-ink"
+          style={{ ...scaledBox(g.content, 1), left: g.content.left - AROUND.flameRoom }}
+        >
+          Random
+        </span>
+      </button>
+    </div>
   );
-  cable.animate(
-    [
-      { offset: 0, transform: 'scaleX(0)', easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
-      { offset: at(shootMs), transform: 'scaleX(1)' },
-      { offset: hold, transform: 'scaleX(1)', easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
-      { offset: pulled, transform: `scaleX(${(d1 / d0).toFixed(4)})` },
-      { offset: 1, transform: `scaleX(${(d1 / d0).toFixed(4)})` },
-    ],
-    options,
-  );
-  holder.animate(
-    [
-      { offset: 0, transform: `translateX(${d0.toFixed(1)}px)` },
-      { offset: hold, transform: `translateX(${d0.toFixed(1)}px)`, easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
-      { offset: pulled, transform: `translateX(${d1}px)` },
-      { offset: 1, transform: `translateX(${d1}px)` },
-    ],
-    options,
-  );
-  copy.animate(
-    [
-      { offset: 0, transform: `rotate(${deg(-a0)})` },
-      // hooked: a jolt, then pulled in
-      { offset: at(shootMs), transform: `rotate(${deg(-a0)})`, easing: 'cubic-bezier(0.3, 0, 0.2, 1)' },
-      { offset: hold, transform: `rotate(${deg(-a0 - 7)})`, easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
-      { offset: pulled, transform: `rotate(${deg(-a1)})` },
-      { offset: 1, transform: `rotate(${deg(-a1)})` },
-    ],
-    options,
-  );
-  const launch = launchKeyframes();
-  const flight = ship.animate(
-    [{ offset: 0, transform: launch[0].transform, opacity: 1 }, ...launch.map((k) => ({ ...k, offset: at(shootMs + pullMs + k.offset * HOP.launchMs) }))],
-    { duration: total, fill: 'forwards' },
-  );
-  const done = () => ship.remove();
-  flight.onfinish = done;
-  flight.oncancel = done;
-  return shootMs + pullMs + HOP.launchMs * LAUNCH_OFFSCREEN_AT;
 }
 
-/** The tow: the cable shoots out, then pulls the small rocket in behind the tail (ms, px). */
-export const TOW = { shootMs: 240, pullMs: 220, cablePx: 26 } as const;
+/** A group of rockets (the options of a question) that comes up from below `delay` ms after it mounts. */
+export function RiseIn({ delay, className = '', children }: { delay: number; className?: string; children: ReactNode }) {
+  const el = useRef<HTMLDivElement>(null);
+  useRise(el, 0, delay);
+  return (
+    <div ref={el} className={className}>
+      {children}
+    </div>
+  );
+}

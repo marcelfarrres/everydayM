@@ -193,29 +193,34 @@ describe('the rocket moving in its place', () => {
 });
 
 describe("the routine creator's bar", () => {
-  it('stays the usual rocket with one line, and grows a line at a time up to four', () => {
+  it('stays the usual rocket with one line, and grows a line at a time up to three', () => {
     const k = 1.15;
     expect(barThickness(1, k)).toBe(SHIP.T);
-    const t = [1, 2, 3, 4].map((n) => barThickness(n, k));
+    const t = [1, 2, 3].map((n) => barThickness(n, k));
     for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1]);
-    expect(barThickness(9, k)).toBe(t[3]);
+    expect(BAR_TEXT.MAX_LINES).toBe(3);
+    expect(barThickness(9, k)).toBe(t[2]);
     // every line fits inside the body, clear of its outline
-    [1, 2, 3, 4].forEach((n) => {
+    [1, 2, 3].forEach((n) => {
       const inner = (barThickness(n, k) - SHIP.STROKE) * k; // (half a stroke each side)
       expect(inner).toBeGreaterThanOrEqual(n * BAR_TEXT.LINE + 2 * BAR_TEXT.AIR - 0.5);
     });
-    // the drawing follows: thicker body, same nose length and content room along it
-    const thin = shipGeometry(300);
-    const thick = shipGeometry(300, t[2]);
+    // the drawing follows: a thicker body, and a nose that grows with it so it keeps its point
+    const thin = shipGeometry(330);
+    const thick = shipGeometry(330, t[2]);
     expect(thick.H - thin.H).toBeCloseTo(t[2] - SHIP.T, 5);
-    expect(thick.tip - thick.xs).toBe(thin.tip - thin.xs);
-    expect(thick.content.right - thick.content.left).toBe(thin.content.right - thin.content.left);
+    expect((thick.tip - thick.xs) / thick.T).toBeGreaterThanOrEqual(1.75);
+    expect(hullHalfAt(thick, thick.tip - (thick.tip - thick.xs) / 4)).toBeLessThan(thick.T / 4);
+    // still long and slim, with room for the sentence
+    expect((thick.tip - thick.xe) / thick.T).toBeGreaterThanOrEqual(4);
+    expect(thick.content.right - thick.content.left).toBeGreaterThanOrEqual(140);
   });
 
   it('counts the lines of the field from its content height', () => {
     expect(barLines(44)).toBe(1);
     expect(barLines(68)).toBe(2);
     expect(barLines(92)).toBe(3);
+    expect(barLines(116)).toBe(3);
     expect(barLines(300)).toBe(BAR_TEXT.MAX_LINES);
     expect(barLines(0)).toBe(1);
   });

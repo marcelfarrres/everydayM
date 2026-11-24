@@ -36,6 +36,8 @@ export const SHIP = {
 
 const { T, F, STROKE, FLAME_ROOM, NOZZLE, BAND_AT, BAND_GAP, NOSE, CONTENT_GAP, FLAME_LENGTH } = SHIP;
 const T_BASE = T;
+// a thick body's nose: this many body thicknesses long (the thin one keeps its 2.6)
+const NOSE_PER_T = 1.8;
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -124,8 +126,8 @@ export function hullHalfAt(g: Pick<ShipGeometry, 'xs' | 'tip'> & { T?: number },
 
 /**
  * The rocket, `width` px long from the flame's room to the tip; `thickness` makes its body thicker
- * than SHIP.T (the creator's bar, one more line of text at a time): the fins, nozzle and the nose's
- * curve follow it, the nose keeps its length.
+ * than SHIP.T (the creator's bar, one more line of text at a time): the nozzle and the nose's curve
+ * follow it, and the nose grows longer (1.8 thicknesses) so it keeps its point.
  */
 export function shipGeometry(width: number, thickness: number = T_BASE): ShipGeometry {
   const T = Math.max(T_BASE, thickness);
@@ -135,7 +137,9 @@ export function shipGeometry(width: number, thickness: number = T_BASE): ShipGeo
   const xe = FLAME_ROOM;
   const x0 = xe + NOZZLE;
   const tip = W - STROKE / 2;
-  const xs = tip - NOSE;
+  // a thicker body (the creator's bar) gets a longer nose, so it still reads as the same slim rocket
+  const nose = Math.max(NOSE, Math.round(T * NOSE_PER_T));
+  const xs = tip - nose;
 
   const fin = (dir: 1 | -1) => {
     const edge = dir === 1 ? F : F + T;
@@ -155,9 +159,9 @@ export function shipGeometry(width: number, thickness: number = T_BASE): ShipGeo
   const edgeFin = `M${ef.front} ${cy - 1.4} L${ef.front} ${cy + 1.4} L${ef.back} ${cy + 2.2} L${ef.back} ${cy - 2.2} Z`;
 
   const bands = [x0 + BAND_AT, x0 + BAND_AT + BAND_GAP, xs];
-  const hull = `M${x0} ${F} L${xs} ${F} ${nosePath(xs, NOSE, cy, T / 2)} L${x0} ${F + T} Z`;
+  const hull = `M${x0} ${F} L${xs} ${F} ${nosePath(xs, nose, cy, T / 2)} L${x0} ${F + T} Z`;
   const i = STROKE / 2;
-  const inside = `M${x0 + i} ${F + i} L${xs} ${F + i} ${nosePath(xs, NOSE - i, cy, T / 2 - i)} L${x0 + i} ${F + T - i} Z`;
+  const inside = `M${x0 + i} ${F + i} L${xs} ${F + i} ${nosePath(xs, nose - i, cy, T / 2 - i)} L${x0 + i} ${F + T - i} Z`;
 
   const content: Box = {
     left: bands[1] + STROKE / 2 + CONTENT_GAP,
@@ -286,8 +290,8 @@ export const BAR_TEXT = {
   PAD: 10,
   /** air between the lines and the body's outline, px */
   AIR: 4,
-  /** it grows up to this many lines; then it scrolls inside */
-  MAX_LINES: 4,
+  /** it grows up to this many lines; then it scrolls inside (more would make it a bullet) */
+  MAX_LINES: 3,
 } as const;
 
 /** The bar's body thickness (rocket units) for `lines` lines of text, drawn `k` times its size. */
