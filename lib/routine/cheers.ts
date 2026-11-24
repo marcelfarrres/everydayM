@@ -1,7 +1,11 @@
 import type { RoutineItem } from '@/types/workout';
+import { getItemDuration } from './duration';
 
 /*
- * Words of encouragement, shared by the player and the TikTok export.
+ * Words of encouragement.
+ *   cheerFor / REST_LINES   the lines written on the TikTok clips (lib/server/clips).
+ *   planCheerHits           the player's comic "golpes": a short exclamation bursting onto the
+ *                           video now and then during a serie (see the bottom of this file).
  * Each moment has its own list and the pick depends on where in the routine you are, so two
  * exercises in a row almost never say the same thing.
  */
@@ -85,4 +89,97 @@ export function cheerFor(queue: RoutineItem[], index: number, elapsed: number, t
   if (total >= 30 && index % 4 === 1 && Math.abs(left - total / 2) <= 1.5) return at(HALFWAY, index, 3);
   if ((roundEnd || last) && left <= 10 && left > 6) return at(LAST_SECONDS, index, 5);
   return null;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Golpes: comic-book hits of encouragement in the player.
+ *
+ * Which series get one (the rule, decided once per routine):
+ *   - always the last serie of the routine;
+ *   - walking back from it, the next hit is 2 or 3 series earlier (even odds), and so on while
+ *     there are series left. So never two consecutive series, at most one per serie, and about
+ *     one serie in every two or three (between ceil(n/3) and ceil(n/2) hits for n series).
+ * When: around the middle of the serie or with 10 s left (even odds; the middle only when the
+ * clip is shorter than 20 s), and never so late that it would overlap the 3-2-1 beeps.
+ * Which word: the last serie of the routine and the last serie of a block have their own lists;
+ * any other serie takes the list of its moment ("10 s" words only with 10 s left). A word is not
+ * used twice in a routine while its list has others left, and never twice in a row.
+ * --------------------------------------------------------------------------------------------- */
+
+export type HitMoment = 'mid' | 'ten';
+export type HitGroup = 'mid' | 'ten' | 'blockEnd' | 'routineEnd';
+
+/** Short enough for the burst: at most 10 characters each, ¡! included. */
+export const HIT_WORDS: Readonly<Record<HitGroup, readonly string[]>> = {
+  mid: ['¡Vamos!', '¡Dale!', '¡Aprieta!', '¡Fuerte!', '¡Sigue!', '¡Eso es!', '¡Bien!', '¡Arriba!', '¡Con todo!', '¡Venga!', '¡Así sí!'],
+  ten: ['¡10 seg!', '¡Ya casi!', '¡Aguanta!', '¡No pares!', '¡Resiste!', '¡Empuja!'],
+  blockEnd: ['¡Remata!', '¡A tope!', '¡Termina!', '¡Con alma!', '¡Muy bien!'],
+  routineEnd: ['¡Última!', '¡Todo!', '¡Remátalo!', '¡Final!', '¡Ahora sí!'],
+};
+
+export interface CheerHit {
+  queueIndex: number;
+  moment: HitMoment;
+  group: HitGroup;
+  word: string;
+  /** Drives the look of this hit (tilt, place, the star's points), so it is stable across renders. */
+  seed: number;
+}
+
+/** How long a hit is on screen. */
+export const HIT_MS = 1500;
+/** A serie needs at least this many seconds for a "10 s left" hit (else it goes in the middle). */
+export const TEN_MIN_SERIE_SECONDS = 20;
+/** No hit may start with fewer seconds left: it would still be showing when the 3-2-1 beeps. */
+export const HIT_MIN_SECONDS_LEFT = 6;
+// A hit that could not show at its second (the list was open, say) may still come this late.
+const HIT_GRACE_SECONDS = 3;
+
+/** The series of the routine that get a hit, when, and with which word. `random` returns [0, 1). */
+export function planCheerHits(queue: RoutineItem[], random: () => number = Math.random): CheerHit[] {
+  const series = queue.flatMap((item, index) => (item.kind === 'workout' ? [index] : []));
+  if (series.length === 0) return [];
+
+  const chosen: number[] = [];
+  for (let p = series.length - 1; p >= 0; p -= random() < 0.5 ? 2 : 3) chosen.unshift(series[p]);
+
+  const used = new Set<string>();
+  let previous: string | null = null;
+  const pickWord = (group: HitGroup): string => {
+    const list = HIT_WORDS[group];
+    const fresh = list.filter((w) => !used.has(w));
+    const others = list.filter((w) => w !== previous);
+    const pool = fresh.length > 0 ? fresh : others.length > 0 ? others : list;
+    const word = pool[Math.floor(random() * pool.length)];
+    used.add(word);
+    previous = word;
+    return word;
+  };
+
+  return chosen.map((queueIndex) => {
+    const item = queue[queueIndex];
+    const round = item.kind === 'workout' ? item.round : 0;
+    const nextSerie = queue.find((q, i) => i > queueIndex && q.kind === 'workout');
+    const lastOfRoutine = !nextSerie;
+    const lastOfBlock = lastOfRoutine || (nextSerie.kind === 'workout' && nextSerie.round !== round);
+    const moment: HitMoment = getItemDuration(item) >= TEN_MIN_SERIE_SECONDS && random() < 0.5 ? 'ten' : 'mid';
+    const group: HitGroup = lastOfRoutine ? 'routineEnd' : lastOfBlock ? 'blockEnd' : moment;
+    return { queueIndex, moment, group, word: pickWord(group), seed: Math.floor(random() * 2 ** 32) };
+  });
+}
+
+/** The second (time left) at which a hit of `moment` shows in a serie of `total` seconds. */
+export function hitSecond(moment: HitMoment, total: number): number {
+  return moment === 'ten' ? 10 : Math.floor(total / 2);
+}
+
+/**
+ * True while a hit of `moment` may start, with `timeLeft` of `total` seconds left in its serie:
+ * from its second for a short grace, at least 2 s into the serie, and never so late that it would
+ * overlap the countdown beeps of the last 3 s.
+ */
+export function hitIsDue(moment: HitMoment, timeLeft: number, total: number): boolean {
+  if (total <= 0) return false;
+  const at = hitSecond(moment, total);
+  return timeLeft <= at && timeLeft > at - HIT_GRACE_SECONDS && timeLeft >= HIT_MIN_SECONDS_LEFT && total - timeLeft >= 2;
 }

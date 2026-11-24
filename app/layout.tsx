@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Caveat, Geist, Geist_Mono } from "next/font/google";
+import { Bangers, Caveat, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,6 +25,13 @@ const chalk = Caveat({
   subsets: ["latin"],
 });
 
+// Comic display face (SIL Open Font License), only for the player's "golpes" of encouragement.
+const comic = Bangers({
+  variable: "--font-comic",
+  weight: "400",
+  subsets: ["latin"],
+});
+
 // viewport-fit=cover: the iPhone app and the home-screen web app draw edge to edge; pages keep
 // their content clear of the notch with env(safe-area-inset-*).
 export const viewport: Viewport = {
@@ -41,7 +48,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${chalk.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} ${chalk.variable} ${comic.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
