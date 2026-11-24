@@ -33,10 +33,15 @@ function build(seed: number): { queue: RoutineItem[]; meta: RoutineMeta } {
 
 const HIT_WORD_LIST = Object.values(HIT_WORDS).flat();
 
+function seekNearEnd(video: HTMLVideoElement | null) {
+  if (video && Number.isFinite(video.duration)) video.currentTime = Math.max(0, video.duration - 4.2);
+}
+
 type Jump ={ label: string; find: (item: RoutineItem) => boolean };
 const JUMPS: Jump[] = [
   { label: 'Calentamiento', find: (q) => q.kind === 'warmup' },
   { label: 'Serie', find: (q) => q.kind === 'workout' },
+  { label: 'Última serie (antes del final)', find: (q) => q.kind === 'outro' },
   { label: 'Descanso corto', find: (q) => q.kind === 'rest' && q.restKind === 'short' },
   { label: 'Descanso largo con vídeos hablados', find: (q) => q.kind === 'rest' && q.restKind === 'long' && q.talks.length > 0 },
   { label: 'Descanso largo sin vídeos hablados', find: (q) => q.kind === 'rest' && q.restKind === 'long' && q.talks.length === 0 },
@@ -112,6 +117,8 @@ export function PlayerFixture() {
       hit: { queueIndex: currentIndex, moment: 'mid', group: 'mid', word, seed: Math.floor(Math.random() * 2 ** 32) },
     }));
   };
+  // The rocket's ignition and takeoff: the clip on screen jumps to its last 4 s.
+  const ignite = () => seekNearEnd(routine.videoRef.current);
   const describe = item?.kind === 'rest' ? `descanso ${item.restKind === 'long' ? 'largo' : 'corto'} · ${item.talks.length} hablados` : item?.kind;
 
   return (
@@ -160,6 +167,15 @@ export function PlayerFixture() {
           ))}
         </select>
         {item?.kind !== 'workout' && <p className="w-28 rounded-xl bg-white/90 px-2 py-1 text-[11px] text-ink">Solo se ve en una serie</p>}
+        {/* the clip jumps to its last 4 s: the rocket lights up and takes off (before a rest or the end) */}
+        <button
+          type="button"
+          onClick={ignite}
+          disabled={item?.kind !== 'workout' && item?.kind !== 'warmup'}
+          className="min-h-11 rounded-full bg-[#ffe27a] px-3 font-semibold text-ink shadow disabled:opacity-50"
+        >
+          Ignición
+        </button>
       </div>
 
       {/* DEV: jump between states */}
@@ -178,7 +194,8 @@ export function PlayerFixture() {
               Ahora: {currentIndex + 1}/{queue.length} · {describe}
             </p>
             {JUMPS.map((jump) => {
-              const index = queue.findIndex(jump.find);
+              const found = queue.findIndex(jump.find);
+              const index = jump.label.startsWith('Última serie') && found > 0 ? found - 1 : found;
               return (
                 <button
                   key={jump.label}
