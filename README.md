@@ -26,6 +26,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 ### 3. Reproductor Encadenado HTML5 (`components/workout/player/`)
 - **Transiciones Sin Cortes**: Orquesta la reproducción secuencial de clips verticales (`9:16`) alojados en Bunny (Storage + CDN), en su versión ligera (720 px) con el original como reserva, sincronizando el temporizador con los eventos nativos `onTimeUpdate` y `onEnded` del elemento `<video>`.
 - **Un solo widget**: En el móvil el vídeo ocupa la pantalla y la barra inferior lleva el hilo de la rutina por bloques, la lista desplegable y, en los descansos, el agua que sube hasta la siguiente serie. Al entrar en cada descanso, nubes y un cohete dibujado a línea.
+- **Ordenador**: El vídeo centrado sobre una pizarra con bombilla; la rutina y el reloj escritos con tiza a sus lados y la misma barra abajo.
 - **Descansos largos con voz**: Antes de cada bloque suenan 1 o 2 vídeos hablados de sus ejercicios, con un mini vídeo de la primera serie en la barra.
 - **Sonido (`lib/audio/`)**: Música de fondo en aleatorio desde el catálogo, con Web Audio (`GainNode`) para el volumen en iPhone, bajada automática mientras habla un vídeo y desbloqueo en el toque de «Empezar».
 
@@ -56,6 +57,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 │       ├── MuscleSelector.tsx     # Mapa anatómico SVG interactivo frontal y posterior
 │       ├── RoutineComposer.tsx    # Pantalla de creación de la rutina
 │       ├── CloudTransition.tsx    # Nubes y cohete al entrar en cada descanso
+│       ├── ChalkBoard.tsx         # Pizarra del reproductor en ordenador
 │       └── player/                # Reproductor: WorkoutPlayer, barra, hilo, lista, descansos, menú
 ├── hooks/
 │   └── useWorkoutRoutine.ts       # Estado de la sesión: cola, reloj, pausa, anterior/siguiente

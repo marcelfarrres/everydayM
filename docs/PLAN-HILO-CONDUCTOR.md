@@ -57,9 +57,10 @@ Barra en modo descanso:
 - En la pantalla de rutina lista (`RoutineComposer`), bajo los minutos, se dibuja el mismo hilo por bloques junto a «3 bloques de 4 series». Es el mismo dibujo que luego vive en la barra.
 
 ### 1.7 Ordenador
-- Decidido por Marcel tras probarlo en su PC (24-11-2026): **fuera la pizarra** (panel de tiza, bombilla y fondo de pizarra). Fondo liso oscuro.
-- El vídeo 9:16 va **centrado y a toda la altura** de la ventana, sin márgenes. **El mismo widget** del móvil va justo a su derecha, alineado abajo, con ancho fijo (22 rem); el «···» arriba en esa misma columna, fuera del vídeo. El marco azul del descanso rodea el vídeo.
-- Se usa cuando la ventana tiene sitio para el vídeo y la columna del widget (ancho ≥ alto × 9/16 + 392 px) y al menos 480 px de alto; si no (ventanas estrechas, tablets en vertical, móvil en horizontal), la disposición del móvil.
+- **Se mantiene la pizarra** (fondo de pizarra con viñeta, bombilla colgando con su parpadeo, lo escrito con tiza, el marco que gira alrededor del vídeo, la barra abajo en el centro y el «···» arriba a la derecha). Se probó quitarla (24-11-2026) y Marcel pidió volver a ella: «había perdido todo su encanto».
+- Único cambio sobre la pizarra de antes (decidido por Marcel, 24-11-2026): el vídeo 9:16 va **centrado y tan alto como deja la barra** de abajo (antes iba a la izquierda con márgenes grandes arriba y abajo). La pizarra se escribe a los dos lados: la rutina a la izquierda y el reloj de tiza a la derecha, con la bombilla encima del reloj.
+- Los descansos cortos llevan también aquí el velo oscuro y la cuenta atrás gigante sobre el vídeo; el marco del descanso es el anillo azul que gira alrededor del vídeo (el marco azul de pantalla completa es solo del móvil).
+- Desde 1024 px de ancho (`lg`); por debajo, la disposición del móvil.
 - Con ratón, todo control tiene cursor de mano y cambio al pasar por encima; la barra se ilumina donde un clic abre la lista.
 
 ## 2. Vídeos hablados
@@ -173,7 +174,7 @@ Antes de la fase 2, prueba aislada del riesgo de §4 en un iPhone.
 1. **Cuenta de Bunny**: crearla, meter saldo, desactivar la recarga automática, crear la zona de almacenamiento (Europa) con su pull zone, fijar el tope mensual de GB y poner las claves en `.env.local`. Dejar las dos copias descargadas de Supabase (objetos y base de datos) en una carpeta fuera del repo para la mudanza. Poner `NEXT_PUBLIC_MEDIA_BASE_URL` también en Vercel.
 2. **Música**: Pixabay y Free Music Archive prohíben la descarga automática en lote, así que las pistas hay que bajarlas a mano. Lista corta recomendada en el anexo.
 3. Grabar al menos 3 o 4 vídeos hablados para poder probar los descansos largos.
-4. ~~Confirmar el supuesto de §1.7~~: decidido (sin pizarra, vídeo a toda altura con el widget al lado).
+4. ~~Confirmar el supuesto de §1.7~~: decidido (se mantiene la pizarra, con el vídeo centrado y más alto).
 
 ## Anexo — música candidata (≈56 min, comprobada el 24-11-2026)
 
