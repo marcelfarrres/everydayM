@@ -4,6 +4,7 @@ import {
   OUTRO_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
+  getLongRestBase,
   getRestDuration,
 } from './duration';
 
@@ -20,6 +21,8 @@ export interface SolveForMinutesOptions {
   maxRounds?: number;
   minExercisesPerRound?: number;
   maxExercisesPerRound?: number;
+  /** Expected talk time per long rest: a long rest lasts at least that long. */
+  longRestTalkSeconds?: number;
 }
 
 export interface SolveForMinutesResult {
@@ -29,15 +32,23 @@ export interface SolveForMinutesResult {
   estimatedSeconds: number;
 }
 
+interface EstimateParams {
+  slotSeconds: number;
+  restSec: number;
+  candidateExercises: Exercise[];
+  fixedOverheadSeconds: number;
+  hasWarmup: boolean;
+  longRestTalkSeconds: number;
+}
+
+// Mirrors the queue buildRoutine makes: short rests between series, a long one before each block.
 function estimateCircuitDuration(
   rounds: number,
   exercisesPerRound: number,
-  slotSeconds: number,
-  restSec: number,
-  candidateExercises: Exercise[],
-  fixedOverheadSeconds: number,
+  { slotSeconds, restSec, candidateExercises, fixedOverheadSeconds, hasWarmup, longRestTalkSeconds }: EstimateParams,
 ): number {
-  let total = fixedOverheadSeconds;
+  const longRest = (base: number) => Math.max(base, Math.ceil(longRestTalkSeconds));
+  let total = fixedOverheadSeconds + (hasWarmup ? longRest(getLongRestBase(restSec)) : 0);
 
   for (let r = 1; r <= rounds; r++) {
     for (let i = 0; i < exercisesPerRound; i++) {
@@ -54,9 +65,8 @@ function estimateCircuitDuration(
         total += clipSeconds;
       } else {
         const isEndOfRound = i === exercisesPerRound - 1;
-        const baseRest = isEndOfRound ? restSec + 10 : restSec;
         const prepSeconds = Math.min(MAX_PREP_SECONDS, Math.max(0, slotSeconds - clipSeconds));
-        total += clipSeconds + baseRest + prepSeconds;
+        total += clipSeconds + (isEndOfRound ? longRest(getLongRestBase(restSec) + prepSeconds) : restSec + prepSeconds);
       }
     }
   }
@@ -99,33 +109,26 @@ export function solveForMinutes(
   const maxRounds = Math.max(minRounds, opts.maxRounds ?? 8);
   const minEx = Math.max(1, opts.minExercisesPerRound ?? 1);
   const maxEx = Math.max(minEx, opts.maxExercisesPerRound ?? 12);
-  const candidates = opts.candidateExercises ?? [];
+  const estimate: EstimateParams = {
+    slotSeconds: resolvedSlotSeconds,
+    restSec,
+    candidateExercises: opts.candidateExercises ?? [],
+    fixedOverheadSeconds,
+    hasWarmup: warmupTotalSeconds > 0,
+    longRestTalkSeconds: Math.max(0, opts.longRestTalkSeconds ?? 0),
+  };
 
   let bestResult: SolveForMinutesResult = {
     rounds: 3,
     exercisesPerRound: 5,
     slotSeconds: resolvedSlotSeconds,
-    estimatedSeconds: estimateCircuitDuration(
-      3,
-      5,
-      resolvedSlotSeconds,
-      restSec,
-      candidates,
-      fixedOverheadSeconds,
-    ),
+    estimatedSeconds: estimateCircuitDuration(3, 5, estimate),
   };
   let bestCost = Number.POSITIVE_INFINITY;
 
   for (let rounds = minRounds; rounds <= maxRounds; rounds++) {
     for (let exPerRound = minEx; exPerRound <= maxEx; exPerRound++) {
-      const estimatedSeconds = estimateCircuitDuration(
-        rounds,
-        exPerRound,
-        resolvedSlotSeconds,
-        restSec,
-        candidates,
-        fixedOverheadSeconds,
-      );
+      const estimatedSeconds = estimateCircuitDuration(rounds, exPerRound, estimate);
       const timeDiff = Math.abs(estimatedSeconds - targetSeconds);
 
       // Shape matters more than the last seconds: a normal circuit is 3-4 rounds of 4-6 exercises.

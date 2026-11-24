@@ -23,6 +23,13 @@ export function getRestDuration(difficulty: number): number {
   return 20 - Math.round(((clamped - 1) * 10) / 9);
 }
 
+// A long rest (before a block) gets this much more than a short one, before any talks stretch it.
+export const LONG_REST_EXTRA_SECONDS = 10;
+
+export function getLongRestBase(restSeconds: number): number {
+  return restSeconds + LONG_REST_EXTRA_SECONDS;
+}
+
 export function getDefaultSlotSeconds(difficulty: number): number {
   const clamped = Math.min(10, Math.max(1, Math.round(difficulty)));
   const raw = 40 + ((clamped - 1) * 20) / 9;

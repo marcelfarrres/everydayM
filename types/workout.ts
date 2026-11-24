@@ -92,7 +92,7 @@ export type RoutineItem =
       totalRounds: number;
       isEndOfRound: boolean;
       restKind: RestKind; // 'long' before the first exercise of a block
-      talks: ExerciseTalk[]; // talks to play in a long rest (0-2); always [] for now
+      talks: ExerciseTalk[]; // talks to play in a long rest (0-2); [] in short rests
     }
   | {
       kind: 'outro';
@@ -118,8 +118,14 @@ export interface RoutineIntent {
   slotSeconds: number | null; // null => engine default by difficulty (40-60)
   includeWarmup: boolean;
   focusLabel: string;
-  rounds?: number | null; // said by the user ("3 rondas"); null => the engine picks
-  variation?: BlockVariation; // not read by the engine yet
+  rounds?: number | null; // blocks said by the user ("3 bloques"); null => the engine picks
+  exercisesPerRound?: number | null; // series per block said by the user ("de 4 series"); null => the engine picks
+  variation?: BlockVariation; // undefined => 'some'
+}
+
+/** Extra context for buildRoutine that does not come from the user's request. */
+export interface BuildRoutineOptions {
+  recentExerciseIds?: readonly string[]; // used in the last routines: penalised, not forbidden
 }
 
 export interface TimelineSegment {
