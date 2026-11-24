@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
+import { fetchExercises } from '@/lib/data/exercises';
+import { playbackUrl } from '@/lib/media';
 import {
   buildRoutine,
   buildTimeline,
   getItemDuration,
   getRestDuration,
+  recentExerciseIds,
+  rememberRoutine,
 } from '@/lib/routine';
 import type {
   Exercise,
@@ -79,6 +82,8 @@ export function useWorkoutRoutine() {
         builtQueue[0],
         builtMeta.slotSeconds,
       );
+      // Every routine that starts counts, whoever built it, so the next one leans elsewhere.
+      rememberRoutine(builtMeta);
       deadlineRef.current = null;
       remainingRef.current = initialDuration;
       setMeta(builtMeta);
@@ -102,25 +107,23 @@ export function useWorkoutRoutine() {
     setLoading(true);
 
     try {
-      const { data: allExercises, error } = await supabase
-        .from('exercises')
-        .select('*');
-
-      if (error) throw error;
-      if (!allExercises || allExercises.length === 0) {
-        alert('No hay ejercicios registrados. Sube clips en /admin primero.');
+      const allExercises = await fetchExercises();
+      if (allExercises.length === 0) {
+        alert('Todavía no hay vídeos subidos. Añádelos desde el estudio.');
         setLoading(false);
         return;
       }
 
       const { queue: builtQueue, meta: builtMeta } = buildRoutine(
-        allExercises as Exercise[],
+        allExercises,
         filters,
+        Math.random,
+        { recentExerciseIds: recentExerciseIds() },
       );
       startBuiltRoutine(builtQueue, builtMeta);
     } catch (err: unknown) {
       console.error(err);
-      alert('Error al generar la rutina');
+      alert(err instanceof Error && err.message ? err.message : 'Error al generar la rutina');
     } finally {
       setLoading(false);
     }
@@ -131,20 +134,18 @@ export function useWorkoutRoutine() {
       setLoading(true);
 
       try {
-        const { data: allExercises, error } = await supabase
-          .from('exercises')
-          .select('*');
-
-        if (error) throw error;
-        if (!allExercises || allExercises.length === 0) {
-          alert('No hay ejercicios registrados. Sube clips en /admin primero.');
+        const allExercises = await fetchExercises();
+        if (allExercises.length === 0) {
+          alert('Todavía no hay vídeos subidos. Añádelos desde el estudio.');
           setLoading(false);
           return;
         }
 
         const { queue: builtQueue, meta: builtMeta } = buildRoutine(
-          allExercises as Exercise[],
+          allExercises,
           intent,
+          Math.random,
+          { recentExerciseIds: recentExerciseIds() },
         );
 
         setFilters({
@@ -158,7 +159,7 @@ export function useWorkoutRoutine() {
         startBuiltRoutine(builtQueue, builtMeta);
       } catch (err: unknown) {
         console.error(err);
-        alert('Error al generar la rutina');
+        alert(err instanceof Error && err.message ? err.message : 'Error al generar la rutina');
       } finally {
         setLoading(false);
       }
@@ -246,7 +247,9 @@ export function useWorkoutRoutine() {
       current?.kind === 'warmup'
     ) {
       // The ref can still hold the previous clip for a moment after a change: only trust this item's video.
-      if (videoEl.getAttribute('src') !== current.exercise.video_url) return;
+      // The player may play the light copy or the original.
+      const src = videoEl.getAttribute('src');
+      if (src !== playbackUrl(current.exercise) && src !== current.exercise.video_url) return;
       if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
         const realDuration = Math.max(1, Math.ceil(videoEl.duration));
         const remaining = Math.max(
