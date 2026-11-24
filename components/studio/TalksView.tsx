@@ -195,7 +195,11 @@ export function TalksView({
         </p>
       ) : visible.length === 0 ? (
         <p className="py-16 text-center text-ink/55">
-          {filter === 'missing' && !query ? 'Todos los ejercicios tienen vídeo hablado.' : 'Nada con ese nombre.'}
+          {exercises.length === 0
+            ? 'Aún no hay ejercicios. Súbelos en «Vídeos».'
+            : filter === 'missing' && !query
+              ? 'Todos los ejercicios tienen vídeo hablado.'
+              : 'Nada con ese nombre.'}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
