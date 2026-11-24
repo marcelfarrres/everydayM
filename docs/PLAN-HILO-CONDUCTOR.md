@@ -7,7 +7,7 @@ Vocabulario: **bloque** = lo que el código llama `round`; **serie** = un ejerci
 
 ## 0. Principios
 
-- En móvil el vídeo ocupa toda la pantalla. La UI va superpuesta y es mínima: **un solo widget** (la barra inferior) y, arriba, solo el menú «···».
+- En móvil el vídeo ocupa toda la pantalla. La UI va superpuesta y es mínima: **un solo widget** (el cohete de abajo, §1.2) y, arriba, el menú «···» y un porcentaje discreto.
 - Estilo: **dibujo de línea, muy pocos colores**. Tinta y blanco como base; rojo para la serie en curso; azul para el descanso. El color se reserva para lo que tiene que impactar.
 - Nada debe dar tirones en un móvil de gama media: solo se animan `transform` y `opacity`.
 - Gastar la mínima transferencia de Supabase posible (ver §6).
@@ -15,20 +15,31 @@ Vocabulario: **bloque** = lo que el código llama `round`; **serie** = un ejerci
 ## 1. Reproductor (móvil)
 
 ### 1.1 Cabecera
-- Solo el botón «···» arriba a la derecha. Dentro: Salir, pitido de los últimos 3 s, música (silenciar + volumen) y, si el Estudio está activo, crear clip.
+- El botón «···» arriba a la derecha. Dentro: Salir, pitido de los últimos 3 s, música (silenciar + volumen) y, si el Estudio está activo, crear clip.
+- Arriba a la izquierda, pequeño y discreto, el **porcentaje de rutina hecho** («37 %», por tiempo). Se aparta cuando un vídeo hablado enseña «Activar sonido».
 - Desaparecen: el botón «Salir» suelto, la campana suelta, la barra de porcentaje superior y el texto «Quedan…».
 
-### 1.2 Barra inferior durante una serie
+### 1.2 El cohete (el widget del móvil)
+En móvil la barra inferior **es el cohete** de `Rocket.tsx` tumbado, con la punta a la derecha (mismo dibujo: blanco, línea de tinta, llama roja), casi de lado a lado y dentro del área segura. Lo que antes iba en la barra va dentro de su cuerpo; nada del dibujo (aletas, bandas, ojo de buey, punta) toca el texto. Es el mismo personaje que el cohete grande de las nubes: **nunca hay dos cohetes en pantalla** (tiempos en `components/workout/rocketFlight.ts`, derivados de las mismas constantes que las nubes y `TALK_LEAD_MS`).
+- **Serie**: el hilo y debajo el nombre (16–17 px) y el tiempo (19–21 px). El **ojo de buey** (en la punta) es pausa/reanudar. Tocar el cuerpo abre la lista (§1.3).
+- **Ignición**: en los últimos 3 s de una serie que va seguida de descanso o del final, se enciende el motor: la llama crece cada segundo, sale cada vez más gas y tiembla.
+- **Despegue**: a cero se encoge hacia atrás (anticipación) y despega girando hacia dentro de la pantalla (se aleja y se hace pequeño) mientras su contenido se desvanece. Luego las nubes, con el cohete grande subiendo desde abajo y saliendo con una S, encogiéndose.
+- **Vuelta**: cuando el grande se ha ido, vuelve desde la izquierda y desde el fondo, se pasa un poco de su sitio, vuelve, se aplasta al posarse y se apaga la llama; entonces aparece su contenido. Al acabar un descanso (sin nubes), un pequeño «¡pam!». Al empezar la rutina llega y se posa; al terminar despega una última vez antes de la pantalla final.
+- Cualquier salto, pausa o pestaña en segundo plano lo deja en una pose definida (posado o fuera), nunca a medio vuelo ni duplicado. Mientras está fuera no se puede tocar. Con movimiento reducido no vuela: fundidos.
+- En el ordenador sigue la barra de siempre bajo la pizarra (§1.7).
+
+### 1.2.1 Barra inferior durante una serie (ordenador)
 - Fila 1, **el hilo**: una línea por serie, agrupadas por bloque, con más separación entre bloques que entre series. Hecha = blanco, en curso = rojo, pendiente = gris. **Sin tramo de calentamiento.** Al final de la fila, una flecha hacia arriba (`chevron-up`) como pista de que se abre.
 - Fila 2: nombre del ejercicio, tiempo, anterior, pausa, siguiente.
 - Sin textos del tipo «Ronda 2 · 3 de 4».
 - Durante el calentamiento: hilo entero en gris y el nombre «Calentamiento».
 
-### 1.3 Lista desplegable (al tocar la barra)
+### 1.3 Lista desplegable (al tocar la barra o el cohete)
 - Se abre con animación hacia arriba; ocupa menos de media pantalla contando la barra (unas 5 filas visibles). Fondo translúcido.
 - Contenido: «Calentamiento» y después cada bloque con sus series. Hecho = tachado y gris; en curso = rojo; pendiente = blanco. Al abrirse queda colocada en la serie en curso. Se puede deslizar arriba y abajo.
 - Se cierra con animación: 5 s después del último toque o deslizamiento, al tocar el vídeo, o al tocar la barra otra vez. Tocar los botones de la barra no la cierra, reinicia los 5 s.
 - Es solo de lectura: tocar un ejercicio no salta a él.
+- En móvil lleva debajo una fila con **Anterior / Pausa / Siguiente** (no caben en el cohete).
 - Se puede tocar cualquier parte de la barra, no solo la flecha.
 
 ### 1.4 Descansos
@@ -41,7 +52,7 @@ Hay dos tipos. En ambos: **marco azul** alrededor de la pantalla y la barra en *
 
 Barra en modo descanso:
 - Mismo tamaño que en una serie. **Sin hilo.**
-- Se **llena de agua azul de abajo arriba** con una ola en la superficie; llena = empieza la serie.
+- Se **llena de agua azul de abajo arriba** con una ola en la superficie; llena = empieza la serie. En el móvil se llena el cohete entero (cuerpo y punta): dos olas a distinta velocidad, unas burbujas y la superficie que se calma al llegar arriba; en descansos largos con vídeos hablados el tiempo va en el ojo de buey y el mini vídeo asoma sobre el cuerpo, a la derecha de la aleta.
 - Texto: «Descanso», el tiempo, «Luego: <ejercicio>» en pequeño, y el botón «Saltar». Sin botón de pausa.
 - Cuando el vídeo ya enseña la cuenta atrás gigante (descanso sin vídeos hablados), la barra no repite el tiempo ni «Luego»: solo «Descanso» y «Saltar». El número aparece cuando las nubes se han ido; con movimiento reducido no se anima cada segundo. (Decidido por Marcel tras probarlo, 24-11-2026.)
 - No se usa la palabra «tutorial» en ningún sitio.
