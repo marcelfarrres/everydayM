@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
+import { resolveFfmpegBin } from '@/lib/server/ffmpegBin.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,7 +30,7 @@ const sdrChain = (width: number) => `scale=${width}:-2,format=yuv420p`;
 
 let zscaleCheck: Promise<boolean> | null = null;
 function hasZscale(): Promise<boolean> {
-  zscaleCheck ??= execFileAsync('ffmpeg', ['-hide_banner', '-filters'], { windowsHide: true })
+  zscaleCheck ??= execFileAsync(resolveFfmpegBin('ffmpeg'), ['-hide_banner', '-filters'], { windowsHide: true })
     .then(({ stdout }) => /\szscale\s/.test(stdout))
     .catch(() => false);
   return zscaleCheck;
@@ -120,7 +121,7 @@ export async function probeVideo(targetPathOrUrl: string): Promise<VideoProbeInf
     targetPathOrUrl,
   ];
 
-  const { stdout } = await execFileAsync('ffprobe', args, {
+  const { stdout } = await execFileAsync(resolveFfmpegBin('ffprobe'), args, {
     maxBuffer: 10 * 1024 * 1024,
     windowsHide: true,
   });
@@ -180,7 +181,7 @@ export async function probeVideo(targetPathOrUrl: string): Promise<VideoProbeInf
 }
 
 async function runFfmpeg(args: string[]): Promise<void> {
-  await execFileAsync('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
+  await execFileAsync(resolveFfmpegBin('ffmpeg'), ['-hide_banner', '-loglevel', 'error', ...args], {
     maxBuffer: 20 * 1024 * 1024,
     windowsHide: true,
   });

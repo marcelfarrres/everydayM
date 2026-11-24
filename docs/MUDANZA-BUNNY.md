@@ -20,7 +20,7 @@ Sin las variables `BUNNY_STORAGE_*` y con `npm run dev`, el Estudio guarda todo 
 
 ## 3. Mudar los vídeos existentes
 
-Necesitas `ffmpeg` y `ffprobe` en el PATH y la copia descargada de Supabase:
+Necesitas `ffmpeg` y `ffprobe` (en el PATH, en la instalación de winget o donde digan `FFMPEG_PATH` / `FFPROBE_PATH`) y la copia descargada de Supabase:
 
 ```
 <copia>/workout-videos/videos/*.mp4      vídeos (nombre = el de la URL antigua)

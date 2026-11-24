@@ -1,6 +1,7 @@
 import 'server-only';
 import { planMusicBed } from '@/lib/clips/musicBed';
 import { AUDIO_OUT, AUDIO_RATE, FFMPEG_TIMEOUT_MS, execFileAsync, ff } from '@/lib/server/clips/run';
+import { resolveFfmpegBin } from '@/lib/server/ffmpegBin.mjs';
 
 /*
  * The final pass over the joined parts. The video stream is always copied; only the sound changes.
@@ -61,7 +62,7 @@ interface Measured {
  */
 async function measure(inputs: string[], graph: string): Promise<Measured | null> {
   const { stderr } = await execFileAsync(
-    'ffmpeg',
+    resolveFfmpegBin('ffmpeg'),
     [
       '-hide_banner',
       '-nostdin',

@@ -2,7 +2,7 @@
 /*
  * One-off move of the existing exercise videos from the Supabase backup to Bunny, building the
  * first catalog (catalog/catalog.json). Plain Node (>= 20), no new dependencies; needs ffmpeg and
- * ffprobe on the PATH. How-to in Spanish: docs/MUDANZA-BUNNY.md.
+ * ffprobe (found like the app does: FFMPEG_PATH / FFPROBE_PATH, the PATH or the winget install). How-to in Spanish: docs/MUDANZA-BUNNY.md.
  *
  *   node scripts/migrate-media.mjs --backup <folder> [--dump <file>] [--dry-run]
  *        [--to-local] [--overwrite-catalog] [--out <folder>]
@@ -37,6 +37,7 @@ import { createGunzip } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolveFfmpegBin } from '../lib/server/ffmpegBin.mjs';
 
 const execFileAsync = promisify(execFile);
 const SUPABASE_MARKER = '/storage/v1/object/public/workout-videos/';
@@ -348,11 +349,17 @@ function makeStore(toLocal) {
 // ---------------------------------------------------------------- ffmpeg
 
 async function hasTool(name) {
-  return execFileAsync(name, ['-version'], { windowsHide: true }).then(() => true, () => false);
+  let bin;
+  try {
+    bin = resolveFfmpegBin(name);
+  } catch {
+    return false;
+  }
+  return execFileAsync(bin, ['-version'], { windowsHide: true }).then(() => true, () => false);
 }
 
 async function ffmpeg(args) {
-  await execFileAsync('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
+  await execFileAsync(resolveFfmpegBin('ffmpeg'), ['-hide_banner', '-loglevel', 'error', ...args], {
     maxBuffer: 20 * 1024 * 1024,
     windowsHide: true,
   });
@@ -360,7 +367,7 @@ async function ffmpeg(args) {
 
 async function probe(file) {
   const { stdout } = await execFileAsync(
-    'ffprobe',
+    resolveFfmpegBin('ffprobe'),
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file],
     { maxBuffer: 10 * 1024 * 1024, windowsHide: true },
   );
@@ -518,7 +525,7 @@ async function main() {
 
   const ffmpegReady = (await hasTool('ffmpeg')) && (await hasTool('ffprobe'));
   if (args.dryRun) {
-    log(`\nffmpeg/ffprobe en el PATH: ${ffmpegReady ? 'sí' : 'NO (hace falta para la ejecución real)'}`);
+    log(`\nffmpeg/ffprobe: ${ffmpegReady ? 'sí' : 'NO (hace falta para la ejecución real; ver FFMPEG_PATH en .env.example)'}`);
     let storeLabel;
     try {
       storeLabel = makeStore(args.toLocal).label;
@@ -532,7 +539,11 @@ async function main() {
     return;
   }
 
-  if (!ffmpegReady) throw new Error('No encuentro ffmpeg y ffprobe en el PATH.');
+  if (!ffmpegReady) {
+    resolveFfmpegBin('ffmpeg');
+    resolveFfmpegBin('ffprobe');
+    throw new Error('ffmpeg o ffprobe no arrancan.');
+  }
   const store = makeStore(args.toLocal);
   log(`\nDestino: ${store.label}`);
 

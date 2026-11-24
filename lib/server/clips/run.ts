@@ -2,6 +2,7 @@ import 'server-only';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { resolveFfmpegBin } from '@/lib/server/ffmpegBin.mjs';
 
 /*
  * FFmpeg plumbing shared by every clip part: the call itself, the encoder and the one set of
@@ -29,7 +30,7 @@ export const join = (...parts: string[]) => path.join(/* turbopackIgnore: true *
 export const FFMPEG_TIMEOUT_MS = 30 * 60 * 1000;
 
 export async function ff(args: string[]): Promise<void> {
-  await execFileAsync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], {
+  await execFileAsync(resolveFfmpegBin('ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], {
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
     timeout: FFMPEG_TIMEOUT_MS,
@@ -40,7 +41,7 @@ let encoderCheck: Promise<boolean> | null = null;
 
 /** Apple's hardware encoder when there is one (≈10× faster), otherwise x264. */
 export async function pickEncoder(long: boolean): Promise<string[]> {
-  encoderCheck ??= execFileAsync('ffmpeg', ['-hide_banner', '-encoders'], { windowsHide: true })
+  encoderCheck ??= execFileAsync(resolveFfmpegBin('ffmpeg'), ['-hide_banner', '-encoders'], { windowsHide: true })
     .then(({ stdout }) => /h264_videotoolbox/.test(stdout))
     .catch(() => false);
   // ~2.4 MB/min for the full routine (a 30 min video ≈ 700 MB), crisper for short clips.

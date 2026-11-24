@@ -75,7 +75,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 
 ### 1. Requisitos Previos
 - **Node.js** `>= 20.x` y `npm`
-- `ffmpeg` y `ffprobe` en el PATH (solo para el Estudio).
+- `ffmpeg` y `ffprobe` (solo para el Estudio): se buscan en `FFMPEG_PATH` / `FFPROBE_PATH`, después en el PATH y, en Windows, en la instalación de winget (`winget install Gyan.FFmpeg`).
 - Opcional: una zona de [Bunny Storage](https://bunny.net/) con su pull zone (ver `docs/MUDANZA-BUNNY.md`). Sin Bunny, en desarrollo los archivos se guardan en `.media/` y se sirven en `/dev-media`.
 
 ### 2. Clonar el Repositorio e Instalar Dependencias
