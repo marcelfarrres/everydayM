@@ -54,6 +54,8 @@ export function PlayerFixture() {
   const [seed, setSeed] = useState(7);
   const [target, setTarget] = useState<number | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  // The dev controls stay folded behind a small dot, so the page looks like the real player.
+  const [devOpen, setDevOpen] = useState(false);
   const [withMusic, setWithMusic] = useState(true);
   const [demo, setDemo] = useState<CheerDemo | null>(null);
   const [demoWord, setDemoWord] = useState('');
@@ -144,8 +146,25 @@ export function PlayerFixture() {
         cheerDemo={demo ?? undefined}
       />
 
+      {/* DEV: one small dot opens the controls below; folded by default */}
+      <button
+        type="button"
+        onClick={() => {
+          setDevOpen((v) => !v);
+          setPanelOpen(false);
+        }}
+        aria-expanded={devOpen}
+        aria-label={devOpen ? 'Ocultar controles de prueba' : 'Mostrar controles de prueba'}
+        className="fixed left-1 top-16 z-[80] flex h-11 w-11 cursor-pointer items-center justify-center"
+      >
+        <span aria-hidden="true" className={`h-3 w-3 rounded-full ${devOpen ? 'bg-[#ffe27a]' : 'bg-[#ffe27a]/60'} shadow`} />
+      </button>
+
       {/* DEV: fire a comic hit now (it shows only during a serie, as in the app) */}
-      <div className="fixed bottom-1/4 left-1 z-[80] flex flex-col gap-1 font-[family-name:var(--font-display)] text-[13px]">
+      <div
+        hidden={!devOpen}
+        className={`fixed bottom-1/4 left-1 z-[80] flex-col gap-1 font-[family-name:var(--font-display)] text-[13px] ${devOpen ? 'flex' : ''}`}
+      >
         <button
           type="button"
           onClick={fireHit}
@@ -179,7 +198,10 @@ export function PlayerFixture() {
       </div>
 
       {/* DEV: jump between states */}
-      <div className="fixed left-1 top-1/2 z-[80] -translate-y-1/2 font-[family-name:var(--font-display)] text-[13px]">
+      <div
+        hidden={!devOpen}
+        className="fixed left-1 top-1/2 z-[80] -translate-y-1/2 font-[family-name:var(--font-display)] text-[13px]"
+      >
         <button
           type="button"
           onClick={() => setPanelOpen((v) => !v)}
