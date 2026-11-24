@@ -3,7 +3,7 @@
 import { useState, type RefObject } from 'react';
 import { motion } from 'motion/react';
 import { CLOUDS } from '@/components/workout/CloudTransition';
-import { playbackUrl } from '@/lib/media';
+import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { Exercise, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
 import { TalkReel } from './TalkReel';
@@ -83,6 +83,11 @@ export function Stage({
           onEnded={() => {
             if (live) onClipEnded();
           }}
+          // A clip that can't load would stop the clock (it follows the video): try the original,
+          // and if that fails too, go on to what comes next.
+          onError={(e) => {
+            if (!retryWithOriginal(e.currentTarget, exercise) && live) onClipEnded();
+          }}
           className="h-full w-full object-cover"
         />
       </motion.div>
@@ -135,6 +140,7 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
       muted
       playsInline
       aria-hidden="true"
+      onError={(e) => retryWithOriginal(e.currentTarget, exercise)}
       className="absolute inset-0 h-full w-full object-cover"
     />
   );

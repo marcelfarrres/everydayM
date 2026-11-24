@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CLOUDS } from '@/components/workout/CloudTransition';
-import { playbackUrl } from '@/lib/media';
+import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { RoutineItem } from '@/types/workout';
 import { ExerciseBar } from './ExerciseBar';
 import { RestBar } from './RestBar';
@@ -112,6 +112,7 @@ export function PlayerWidget({
             muted
             playsInline
             aria-hidden="true"
+            onError={(e) => retryWithOriginal(e.currentTarget, preview)}
             className="pointer-events-none absolute bottom-2.5 left-2.5 z-10 h-[106px] w-[60px] rounded-[12px] bg-black object-cover ring-2 ring-white"
           />
         )}
