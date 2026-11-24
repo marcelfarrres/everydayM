@@ -17,9 +17,6 @@ import { BAR_FILL, BAR_HOVER } from './ui';
  * routine opening above it. The list closes 5 s after the last touch or scroll inside the widget,
  * when the video is tapped, or when the bar is tapped again; the bar's buttons keep working and
  * only restart those 5 s.
- *
- * On a phone it floats at the bottom of the screen, over the video. On a computer (`wide:`) it
- * sits in the column right of the video, aligned to its bottom, at a fixed width.
  */
 
 const CLOSE_AFTER_MS = 5000;
@@ -93,7 +90,7 @@ export function PlayerWidget({
       onPointerDownCapture={bump}
       onWheelCapture={bump}
       onKeyDownCapture={bump}
-      className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 flex flex-col gap-1.5 font-[family-name:var(--font-display)] text-white wide:static wide:w-[22rem]"
+      className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 flex flex-col gap-1.5 font-[family-name:var(--font-display)] text-white lg:bottom-7 lg:left-1/2 lg:right-auto lg:w-[34rem] lg:-translate-x-1/2"
     >
       <AnimatePresence initial={false}>
         {open && (
@@ -127,7 +124,7 @@ export function PlayerWidget({
         <div
           data-bar={resting ? undefined : ''}
           onClick={resting ? undefined : () => onListOpenChange(!listOpen)}
-          className={`relative h-[86px] overflow-hidden rounded-[22px] pb-2 pr-2 pt-2.5 shadow-[0_18px_36px_-22px_rgba(0,0,0,0.9)] transition-colors duration-150 ${BAR_FILL} wide:bg-[#1d1d1d] ${resting ? '' : `cursor-pointer ${BAR_HOVER}`} ${preview ? 'pl-[82px]' : 'pl-4'}`}
+          className={`relative h-[86px] overflow-hidden rounded-[22px] pb-2 pr-2 pt-2.5 shadow-[0_18px_36px_-22px_rgba(0,0,0,0.9)] transition-colors duration-150 ${BAR_FILL} ${resting ? '' : `cursor-pointer ${BAR_HOVER}`} ${preview ? 'pl-[82px]' : 'pl-4'}`}
         >
           {resting && item.kind === 'rest' ? (
             <RestBar

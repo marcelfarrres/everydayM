@@ -37,7 +37,7 @@ export function EndScreen({
         };
 
   return (
-    <div className="relative flex h-full w-full flex-col justify-between bg-ink px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[calc(max(0.75rem,env(safe-area-inset-top))+4.5rem)] text-white wide:px-8 wide:pb-8 wide:pt-12">
+    <div className="relative flex h-full w-full flex-col justify-between bg-ink px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[calc(max(0.75rem,env(safe-area-inset-top))+4.5rem)] text-white lg:px-8 lg:pb-8 lg:pt-20">
       <div>
         <motion.h2 {...rise(0)} className="text-[min(18cqw,4.5rem)] font-bold leading-none tracking-[-0.04em]">
           Hecho

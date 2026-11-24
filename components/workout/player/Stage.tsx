@@ -136,7 +136,7 @@ export function Stage({
     <div
       data-testid="workout-stage-916"
       onPointerDown={onTap}
-      className="relative h-full w-full overflow-hidden bg-black text-white @container"
+      className="relative h-full w-full overflow-hidden bg-black text-white @container lg:rounded-[28px]"
     >
       {content}
     </div>

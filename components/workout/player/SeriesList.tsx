@@ -43,7 +43,7 @@ export function SeriesList({
       ref={scroller}
       id={id}
       onScroll={onScroll}
-      className="relative max-h-[min(15.5rem,calc(50dvh-7.5rem))] overflow-y-auto overscroll-contain rounded-[22px] bg-[rgb(14_14_14/0.84)] px-4 wide:bg-[#1d1d1d] py-2 text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="relative max-h-[min(15.5rem,calc(50dvh-7.5rem))] overflow-y-auto overscroll-contain rounded-[22px] bg-[rgb(14_14_14/0.84)] px-4 py-2 text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <ol aria-label="La rutina" className="flex flex-col">
         {warmup && (

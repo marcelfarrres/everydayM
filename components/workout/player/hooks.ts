@@ -1,23 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { playCountdownBeep } from '@/lib/audio';
-import { isWideLayout } from './model';
-
-const onResize = (notify: () => void) => {
-  window.addEventListener('resize', notify);
-  return () => window.removeEventListener('resize', notify);
-};
-
-/** True while the window has room for the computer layout (see isWideLayout). */
-export function useWideLayout(): boolean {
-  return useSyncExternalStore(
-    onResize,
-    () => isWideLayout(window.innerWidth, window.innerHeight),
-    () => false,
-  );
-}
 
 /** `value`, but `ms` later (at once when `ms` is 0): lets a change happen behind the clouds instead of before them. */
 export function useLagged<T>(value: T, ms: number): T {
