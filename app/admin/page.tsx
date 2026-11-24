@@ -36,11 +36,6 @@ function useHashView(): View {
   );
 }
 
-function isLocalHostname(): boolean {
-  const host = window.location.hostname.toLowerCase();
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-}
-
 export default function AdminStudioPage() {
   const router = useRouter();
   const view = useHashView();
@@ -50,12 +45,6 @@ export default function AdminStudioPage() {
   const [banner, setBanner] = useState<BannerMessage | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [talksOpenId, setTalksOpenId] = useState<string | null>(null);
-
-  const isLanSession = useSyncExternalStore(
-    () => () => {},
-    () => !isLocalHostname(),
-    () => false,
-  );
 
   /** The message to show for an error; null when the session expired (already redirecting). */
   const handleError = useCallback(
@@ -115,7 +104,7 @@ export default function AdminStudioPage() {
     }
   };
 
-  const handleLanLogout = async () => {
+  const handleLogout = async () => {
     await fetch('/api/admin/session', { method: 'DELETE' }).catch(() => {});
     router.replace('/studio-login');
   };
@@ -141,11 +130,9 @@ export default function AdminStudioPage() {
                 {recalculating && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 {recalculating ? 'Recalculando…' : 'Recalcular duraciones'}
               </button>
-              {isLanSession && (
-                <button type="button" onClick={() => void handleLanLogout()} className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-ink/6 ${FOCUS}`}>
-                  Cerrar sesión
-                </button>
-              )}
+              <button type="button" onClick={() => void handleLogout()} className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left hover:bg-ink/6 ${FOCUS}`}>
+                Cerrar sesión
+              </button>
             </div>
           </details>
         </header>

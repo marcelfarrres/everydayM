@@ -1,6 +1,6 @@
 import type { StudioProgressEvent } from '@/types/studio';
 
-/** Thrown when the LAN session expired: the page sends the user back to the PIN screen. */
+/** Thrown when the Studio session expired: the page sends the user back to the PIN screen. */
 export class StudioAuthError extends Error {
   constructor() {
     super('PIN requerido');

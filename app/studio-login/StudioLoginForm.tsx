@@ -46,7 +46,7 @@ export function StudioLoginForm() {
       <div>
         <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">EverydayM</p>
         <h1 className="mt-1 text-4xl font-semibold tracking-[-0.03em]">Estudio</h1>
-        <p className="mt-2 text-[16px] leading-snug text-ink/60">Escribe el PIN para subir vídeos desde el móvil.</p>
+        <p className="mt-2 text-[16px] leading-snug text-ink/60">Escribe el PIN del Estudio para entrar.</p>
       </div>
 
       <label className="block">

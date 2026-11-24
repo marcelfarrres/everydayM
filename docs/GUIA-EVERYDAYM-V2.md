@@ -33,9 +33,9 @@ STUDIO_ENABLED=true
 BUNNY_STORAGE_ZONE=tu-zona
 BUNNY_STORAGE_HOST=storage.bunnycdn.com
 BUNNY_STORAGE_KEY=contraseña_de_la_zona_de_storage
-# Opcional: PIN (mín. 6 caracteres) para abrir el Studio desde el móvil en la misma WiFi
+# Obligatorio: PIN (mín. 6 caracteres) del Studio. Se pide siempre, en el PC y en el móvil
 STUDIO_LAN_PIN=tu_pin_seguro_123
-# Obligatorio si usas el PIN: secreto que firma la sesión (mín. 32 caracteres). Genéralo con:
+# Obligatorio: secreto que firma la sesión (mín. 32 caracteres). Genéralo con:
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 STUDIO_SESSION_SECRET=
 
@@ -45,7 +45,8 @@ GEMINI_API_KEY=tu_api_key_de_google_ai_studio
 
 > **Importante de seguridad:**
 > - **Nunca** pongas `BUNNY_STORAGE_KEY`, `STUDIO_SESSION_SECRET` ni `STUDIO_ENABLED=true` en Vercel, ni con el prefijo `NEXT_PUBLIC_`. Gracias a esto, en la web pública de Vercel tanto `/admin` como `/api/admin/*` y `/api/studio/*` devuelven **`404 Not Found`**.
-> - Sin `STUDIO_SESSION_SECRET` (o si es más corto de 32 caracteres) el acceso con PIN desde el móvil no funciona y la pantalla del PIN explica cómo generarlo; desde `localhost` el Estudio se abre igual.
+> - El Estudio pide **siempre** el PIN, también en el propio ordenador (`localhost`): cualquier aparato de la WiFi puede hacerse pasar por `localhost`, así que no hay excepción. Sin `STUDIO_LAN_PIN` (mín. 6 caracteres) o sin `STUDIO_SESSION_SECRET` (mín. 32) el Estudio no abre para nadie y la pantalla del PIN dice cuál falta.
+> - Tras 5 PIN incorrectos seguidos (vengan de donde vengan) no se acepta ningún PIN durante 15 minutos, ni el correcto; cada bloqueo seguido dura el doble, hasta 24 h. Reiniciar el Estudio en el PC lo desbloquea. La sesión dura 12 h; «Cerrar sesión» la anula y cambiar el PIN o el secreto cierra todas.
 > - `GEMINI_API_KEY` solo se lee en el servidor (`app/api/routine-intent/route.ts`), nunca llega al navegador.
 
 ---
@@ -60,13 +61,13 @@ Con la prueba real sobre tus clips `.MOV` de iPhone (HEVC HDR HLG `1920×1080` v
    powershell -ExecutionPolicy Bypass -File .\scripts\studio\install-shortcut.ps1
    ```
 2. Verás un nuevo icono **"EverydayM Studio"** en tu Escritorio.
-3. Al hacer doble clic en **EverydayM Studio**, el script [`EverydayM-Studio.ps1`](file:///C:/Users/marce/fitness-app/scripts/studio/EverydayM-Studio.ps1) arranca el servidor local con `STUDIO_ENABLED=true` y abre automáticamente `http://localhost:3000/admin`.
+3. Al hacer doble clic en **EverydayM Studio**, el script [`EverydayM-Studio.ps1`](file:///C:/Users/marce/fitness-app/scripts/studio/EverydayM-Studio.ps1) arranca el servidor local con `STUDIO_ENABLED=true` y abre automáticamente `http://localhost:3000/admin`, que pide el PIN.
 
 ### Opción B: Desde la terminal
-1. Con `STUDIO_ENABLED=true` en tu `.env.local`, ejecuta `npm run dev` y abre `http://localhost:3000/admin`.
+1. Con `STUDIO_ENABLED=true`, `STUDIO_LAN_PIN` y `STUDIO_SESSION_SECRET` en tu `.env.local`, ejecuta `npm run dev`, abre `http://localhost:3000/admin` y escribe el PIN.
 
 ### Opción C: Subir vídeos nuevos directamente desde el móvil (misma WiFi)
-1. Añade `STUDIO_LAN_PIN=tu_pin_min_6_caracteres` y `STUDIO_SESSION_SECRET` (mín. 32 caracteres, ver §2.1) a tu `.env.local` (nunca en Vercel).
+1. Asegúrate de tener `STUDIO_LAN_PIN=tu_pin_min_6_caracteres` y `STUDIO_SESSION_SECRET` (mín. 32 caracteres, ver §2.1) en tu `.env.local` (nunca en Vercel); son los mismos que pide el Estudio en el PC.
 2. Abre **EverydayM Studio** en tu PC (icono del escritorio o `powershell -ExecutionPolicy Bypass -File .\scripts\studio\EverydayM-Studio.ps1`).
    - Al detectar el PIN, el lanzador escucha en la red local (`-H 0.0.0.0`) e imprime en amarillo la dirección exacta, por ejemplo `http://192.168.1.25:3000/admin`.
    - Si Windows pregunta por el Firewall la primera vez, permite Node.js **solo en Redes privadas**.

@@ -23,8 +23,8 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 
 - `app/` — Rutas del App Router de Next.js:
   - `app/page.tsx`: Vista pública principal (configurador de entrenamiento y orquestación del reproductor).
-  - `app/admin/page.tsx`: Estudio (`/admin`, solo local o por la wifi de casa con PIN): biblioteca de ejercicios, vídeos hablados y música.
-  - `app/studio-login/`: Pantalla del PIN para abrir el Estudio desde el móvil.
+  - `app/admin/page.tsx`: Estudio (`/admin`, en el ordenador o por la wifi de casa, siempre con PIN): biblioteca de ejercicios, vídeos hablados y música.
+  - `app/studio-login/`: Pantalla del PIN del Estudio (se pide siempre, también en el ordenador).
   - `app/dev-media/`: Solo desarrollo: sirve los archivos de `.media/` cuando no hay Bunny.
   - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión del catálogo y la sesión del PIN, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/clips/*` (cola de clips para TikTok: crear, ver, aprobar, rechazar, regenerar y descargar, vía `lib/server/clips/`) y `studio/idea` (ideas y descripciones para TikTok). Toda ruta del Estudio llama primero a `guardStudioApi`.
 - `components/studio/` — Piezas del Estudio: `LibraryView.tsx`, `TalksView.tsx`, `MusicView.tsx`, `ClipsView.tsx` y `ClipsQueue.tsx` (clips), `ClipForm.tsx`, `StudioDialog.tsx`, `StudioUi.tsx` y `studioClient.ts` (llamadas a `/api/admin/*`).
@@ -51,7 +51,7 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
     - `catalog.ts`: Lectura y escritura del catálogo (`catalog/catalog.json`) por la API de Storage, con copias en `catalog/backups/` y un único escritor a la vez.
     - `mediaStore.ts`: Almacén de archivos: Bunny Storage, o `.media/` en desarrollo.
     - `mediaPipeline.ts`, `ffmpeg.ts`, `studioUpload.ts`: Compresión, versión ligera, miniaturas y subida. `ffmpegBin.mjs` dice dónde están `ffmpeg` y `ffprobe` (también lo usa `scripts/migrate-media.mjs`).
-    - `studioGate.ts`: Acceso al Estudio (localhost, o wifi con PIN y cookie firmada con `STUDIO_SESSION_SECRET`).
+    - `studioGate.ts`: Acceso al Estudio: siempre PIN (`STUDIO_LAN_PIN`) y cookie firmada con `STUDIO_SESSION_SECRET`, también desde localhost; sin ellos el Estudio no abre. Bloqueo global tras 5 PIN fallidos.
     - `clips/`: Generador de clips para TikTok: recetas por tipo (`recipes.ts`), partes (`parts/`), montaje y sonido con FFmpeg (`render.ts`, `run.ts`, `audio.ts`) y la cola en disco (`queue.ts`).
     - `contentIdeas.ts`: Ideas y descripciones para TikTok.
 - `types/` — Contratos e interfaces de TypeScript (`Exercise`, `RoutineItem`, `MuscleSelection`, `WorkoutFilters`, `Catalog`, etc.).

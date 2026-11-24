@@ -20,7 +20,7 @@
 | Dónde | Qué se ve |
 |---|---|
 | Web pública y app de iPhone | Solo la rutina. No aparecen el botón de Estudio ni TikTok. `/admin` y las API del Estudio responden 404. |
-| Tu ordenador, con `STUDIO_ENABLED=true` en `.env.local` | Además: Estudio, subir vídeos y TikTok. |
+| Tu ordenador, con `STUDIO_ENABLED=true` en `.env.local` | Además: Estudio, subir vídeos y TikTok, después de poner el PIN. |
 | Tu móvil en la WiFi de casa | El Estudio, después de poner el PIN. |
 
 En Vercel nunca se configuran `STUDIO_ENABLED`, `BUNNY_STORAGE_KEY` ni `STUDIO_SESSION_SECRET`. Sin esas variables, el código del Estudio está en GitHub pero no funciona.

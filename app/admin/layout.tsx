@@ -11,11 +11,12 @@ export default async function AdminLayout({
 }) {
   const access = getStudioAccess(await headers(), await cookies());
 
-  if (access === 'lan-login-required') {
-    redirect('/studio-login');
-  }
   if (access === 'denied') {
     notFound();
+  }
+  // No session (or the Studio is not configured): the PIN screen explains what to do.
+  if (access !== 'granted') {
+    redirect('/studio-login');
   }
 
   return <>{children}</>;

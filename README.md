@@ -43,7 +43,7 @@ En lugar de listas estáticas, la aplicación construye cada sesión mediante un
 │   │   └── studio/                # Cola de clips para TikTok (clips/*) e ideas de contenido (idea)
 │   ├── dev-media/                 # Solo desarrollo: sirve .media/ cuando no hay Bunny
 │   ├── preview/player/            # Solo desarrollo: el reproductor con ejercicios de prueba
-│   ├── studio-login/              # PIN para abrir el Estudio desde el móvil
+│   ├── studio-login/              # PIN del Estudio (se pide siempre)
 │   ├── globals.css                # Tema global y animaciones CSS (Tailwind v4)
 │   ├── layout.tsx                 # Root Layout con tipografías Geist y metadatos
 │   └── page.tsx                   # Vista principal: Configurador de rutina + Reproductor
@@ -111,7 +111,8 @@ STUDIO_ENABLED=true
 BUNNY_STORAGE_ZONE=tu-zona
 BUNNY_STORAGE_HOST=storage.bunnycdn.com
 BUNNY_STORAGE_KEY=contraseña-de-la-zona
-# Solo si abres el Estudio desde el móvil por la wifi:
+# Obligatorias para el Estudio: el PIN se pide siempre, también en este ordenador.
+# Sin ellas (o más cortas de 6 y 32 caracteres) el Estudio no abre.
 STUDIO_LAN_PIN=
 STUDIO_SESSION_SECRET=
 ```
@@ -123,7 +124,7 @@ npm run dev
 ```
 
 - **Generador y Reproductor de Entrenamientos**: [http://localhost:3000](http://localhost:3000)
-- **Panel de Administración (Subida de Clips)**: [http://localhost:3000/admin](http://localhost:3000/admin)
+- **Panel de Administración (Subida de Clips)**: [http://localhost:3000/admin](http://localhost:3000/admin) (pide el PIN de `STUDIO_LAN_PIN`; tras 5 PIN incorrectos se bloquea 15 min, el doble cada vez, hasta 24 h; reiniciar el servidor lo desbloquea)
 
 ### 5. Verificación de Calidad y Compilación de Producción
 
