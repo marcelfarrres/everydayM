@@ -122,13 +122,111 @@ export function validateExerciseMetadata(raw: unknown): ValidatedExerciseMetadat
   };
 }
 
-export function extractStorageObjectPath(videoUrl: string): string | null {
-  if (!videoUrl) return null;
-  const marker = '/storage/v1/object/public/workout-videos/';
-  const idx = videoUrl.indexOf(marker);
-  if (idx === -1) return null;
-  const objectPath = decodeURIComponent(
-    videoUrl.slice(idx + marker.length).split('?')[0],
-  );
-  return objectPath || null;
+/** Row ids from the URL (uuid or bigint as text): reject anything else before querying. */
+export function validateRowId(raw: unknown, label = 'el registro'): string {
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  if (!id || id.length > 64 || !/^[A-Za-z0-9-]+$/.test(id)) {
+    throw new Error(`Identificador no válido para ${label}.`);
+  }
+  return id;
+}
+
+function optionalText(
+  obj: Record<string, unknown>,
+  key: string,
+  label: string,
+  maxLength: number,
+): string | null {
+  const value = obj[key];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new Error(`${label} debe ser texto.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw new Error(`${label} admite como máximo ${maxLength} caracteres.`);
+  }
+  return trimmed || null;
+}
+
+function optionalHttpUrl(obj: Record<string, unknown>, key: string, label: string): string | null {
+  const text = optionalText(obj, key, label, 500);
+  if (!text) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    throw new Error(`${label} no es una dirección web válida.`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`${label} debe empezar por https://.`);
+  }
+  return parsed.toString();
+}
+
+function asObject(raw: unknown, what: string): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`Datos de ${what} inválidos.`);
+  }
+  return raw as Record<string, unknown>;
+}
+
+export interface ValidatedTalkMetadata {
+  note: string | null;
+}
+
+/** A vídeo hablado only carries an optional short note (what it is about). */
+export function validateTalkMetadata(raw: unknown): ValidatedTalkMetadata {
+  if (raw === undefined || raw === null) return { note: null };
+  const obj = asObject(raw, 'vídeo hablado');
+  return { note: optionalText(obj, 'note', 'La nota', 200) };
+}
+
+export interface ValidatedMusicMetadata {
+  title: string;
+  artist: string | null;
+  source_url: string | null;
+  license: string | null;
+}
+
+export function validateMusicMetadata(raw: unknown): ValidatedMusicMetadata {
+  const obj = asObject(raw, 'la pista');
+  const title = optionalText(obj, 'title', 'El título', 120);
+  if (!title) {
+    throw new Error('El título de la pista es obligatorio.');
+  }
+  return {
+    title,
+    artist: optionalText(obj, 'artist', 'El artista', 120),
+    source_url: optionalHttpUrl(obj, 'source_url', 'La página de origen'),
+    license: optionalText(obj, 'license', 'La licencia', 120),
+  };
+}
+
+export type ValidatedMusicPatch = Partial<ValidatedMusicMetadata> & { enabled?: boolean };
+
+/** Partial update: only the fields present are changed; at least one is required. */
+export function validateMusicPatch(raw: unknown): ValidatedMusicPatch {
+  const obj = asObject(raw, 'la pista');
+  const patch: ValidatedMusicPatch = {};
+
+  if ('title' in obj) {
+    const title = optionalText(obj, 'title', 'El título', 120);
+    if (!title) throw new Error('El título de la pista es obligatorio.');
+    patch.title = title;
+  }
+  if ('artist' in obj) patch.artist = optionalText(obj, 'artist', 'El artista', 120);
+  if ('source_url' in obj) patch.source_url = optionalHttpUrl(obj, 'source_url', 'La página de origen');
+  if ('license' in obj) patch.license = optionalText(obj, 'license', 'La licencia', 120);
+  if ('enabled' in obj) {
+    if (typeof obj.enabled !== 'boolean') {
+      throw new Error('«enabled» debe ser verdadero o falso.');
+    }
+    patch.enabled = obj.enabled;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error('No hay ningún cambio que guardar.');
+  }
+  return patch;
 }

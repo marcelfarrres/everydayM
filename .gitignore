@@ -22,3 +22,7 @@ tsconfig.tsbuildinfo
 
 # Copias de trabajo temporales de los agentes
 .claude/worktrees/
+
+# Medios locales del Estudio en desarrollo (sin Bunny) y salidas del script de mudanza
+/.media/
+/scripts/migrate-media.out/

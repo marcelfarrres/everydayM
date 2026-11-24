@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guardStudioApi } from '@/lib/server/studioGate';
-import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import {
-  extractStorageObjectPath,
-  validateExerciseMetadata,
-} from '@/lib/server/exerciseMetadata';
+import { validateExerciseMetadata, validateRowId } from '@/lib/server/exerciseMetadata';
+import { deleteObjects } from '@/lib/server/mediaStore';
+import { findExercise, updateCatalog } from '@/lib/server/catalog';
+import { studioErrorResponse } from '@/lib/server/studioHttp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,37 +16,32 @@ export async function PATCH(
   if (denied) return denied;
 
   try {
-    const { id } = await ctx.params;
-    const body = (await req.json()) as unknown;
-    const validated = validateExerciseMetadata(body);
+    const id = validateRowId((await ctx.params).id, 'el ejercicio');
+    const validated = validateExerciseMetadata((await req.json()) as unknown);
 
-    const supabaseAdmin = getSupabaseAdmin();
-    const { data, error } = await supabaseAdmin
-      .from('exercises')
-      .update({
+    const exercise = await updateCatalog((catalog) => {
+      const target = findExercise(catalog, id);
+      Object.assign(target, {
         title: validated.title,
         type: validated.type,
         difficulty: validated.difficulty,
         muscle: validated.muscle,
         muscles: validated.muscles,
         equipment: validated.equipment,
-      })
-      .eq('id', id)
-      .select('*')
-      .single();
+      });
+      return { ...target };
+    });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ exercise: data });
+    return NextResponse.json({ exercise });
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : 'Error al actualizar el ejercicio';
-    return NextResponse.json({ error: message }, { status: 400 });
+    return studioErrorResponse(err, 'Error al actualizar el ejercicio');
   }
 }
 
+/**
+ * Delete an exercise and every file that belongs to it: original, lite copy, poster, and the
+ * three files of each of its vídeos hablados. The catalog is written first; the files go after.
+ */
 export async function DELETE(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
@@ -56,55 +50,32 @@ export async function DELETE(
   if (denied) return denied;
 
   try {
-    const { id } = await ctx.params;
-    const supabaseAdmin = getSupabaseAdmin();
+    const id = validateRowId((await ctx.params).id, 'el ejercicio');
 
-    const { data: existing, error: fetchError } = await supabaseAdmin
-      .from('exercises')
-      .select('id, video_url')
-      .eq('id', id)
-      .single();
+    const removed = await updateCatalog((catalog) => {
+      const target = findExercise(catalog, id);
+      catalog.exercises = catalog.exercises.filter((e) => e.id !== id);
+      return target;
+    });
 
-    if (fetchError || !existing) {
-      return NextResponse.json(
-        { error: fetchError?.message ?? 'Ejercicio no encontrado' },
-        { status: 404 },
-      );
-    }
-
-    const storagePath = extractStorageObjectPath(
-      typeof existing.video_url === 'string' ? existing.video_url : '',
-    );
-
-    const { error: deleteRowError } = await supabaseAdmin
-      .from('exercises')
-      .delete()
-      .eq('id', id);
-
-    if (deleteRowError) {
-      return NextResponse.json(
-        { error: deleteRowError.message },
-        { status: 400 },
-      );
-    }
-
-    let storageRemoved = false;
-    if (storagePath) {
-      const { error: storageError } = await supabaseAdmin.storage
-        .from('workout-videos')
-        .remove([storagePath]);
-      storageRemoved = !storageError;
-    }
+    const files = [
+      removed.video_url,
+      removed.video_lite_url,
+      removed.poster_url,
+      ...removed.talks.flatMap((t) => [t.video_url, t.video_lite_url, t.poster_url]),
+    ];
+    const expected = new Set(files.filter(Boolean)).size;
+    const filesRemoved = await deleteObjects(files);
 
     return NextResponse.json({
       deleted: true,
       id,
-      storagePath,
-      storageRemoved,
+      talksDeleted: removed.talks.length,
+      filesRemoved,
+      filesExpected: expected,
+      storageRemoved: filesRemoved === expected,
     });
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : 'Error al eliminar el ejercicio';
-    return NextResponse.json({ error: message }, { status: 400 });
+    return studioErrorResponse(err, 'Error al eliminar el ejercicio');
   }
 }
