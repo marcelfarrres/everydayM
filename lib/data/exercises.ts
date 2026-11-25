@@ -1,7 +1,7 @@
-import type { MusicTrack } from '@/types/catalog';
+import type { MusicTrack, RestVideo } from '@/types/catalog';
 import type { Exercise, ExerciseTalk } from '@/types/workout';
 
-// The catalogue the Studio publishes next to the media: { version, updatedAt, exercises, music }.
+// The catalogue the Studio publishes next to the media: { version, updatedAt, exercises, music, rests }.
 // Only what the app needs is read here; unknown fields are ignored.
 const CATALOG_PATH = '/catalog/catalog.json';
 // Without NEXT_PUBLIC_MEDIA_BASE_URL, development reads the local media folder (app/dev-media).
@@ -14,6 +14,7 @@ const FRESH_MS = 30_000;
 export interface PublicCatalog {
   exercises: Exercise[];
   music: MusicTrack[]; // only enabled tracks
+  rests: RestVideo[]; // only enabled rest videos ([] in catalogs without them)
 }
 
 type Row = Record<string, unknown>;
@@ -78,6 +79,23 @@ function toTrack(value: unknown): MusicTrack | null {
   };
 }
 
+/** One rest video, or null when it is switched off or has no file. */
+function toRest(value: unknown): RestVideo | null {
+  if (!isRow(value) || value.id == null || value.enabled === false) return null;
+  const videoUrl = text(value.video_url);
+  if (!videoUrl) return null;
+  const duration = Number(value.duration_seconds);
+  return {
+    id: String(value.id),
+    title: text(value.title) ?? '',
+    video_url: videoUrl,
+    video_lite_url: text(value.video_lite_url),
+    poster_url: text(value.poster_url),
+    duration_seconds: Number.isFinite(duration) && duration > 0 ? duration : 0,
+    enabled: true,
+  };
+}
+
 /** Parses a catalogue body; broken entries are dropped instead of failing the whole list. */
 export function exercisesFromCatalog(body: unknown): Exercise[] {
   if (!isRow(body) || !Array.isArray(body.exercises)) {
@@ -90,6 +108,12 @@ export function exercisesFromCatalog(body: unknown): Exercise[] {
 export function musicFromCatalog(body: unknown): MusicTrack[] {
   if (!isRow(body) || !Array.isArray(body.music)) return [];
   return body.music.map(toTrack).filter((t): t is MusicTrack => t !== null);
+}
+
+/** The rest videos: enabled ones with a file. A catalogue written before they existed has none. */
+export function restsFromCatalog(body: unknown): RestVideo[] {
+  if (!isRow(body) || !Array.isArray(body.rests)) return [];
+  return body.rests.map(toRest).filter((r): r is RestVideo => r !== null);
 }
 
 /** Where the media (and the catalogue) live, without a trailing slash. */
@@ -120,7 +144,7 @@ async function downloadCatalog(): Promise<PublicCatalog> {
   } catch {
     throw new Error('El catálogo de ejercicios no es un JSON válido.');
   }
-  return { exercises: exercisesFromCatalog(body), music: musicFromCatalog(body) };
+  return { exercises: exercisesFromCatalog(body), music: musicFromCatalog(body), rests: restsFromCatalog(body) };
 }
 
 let recent: { at: number; promise: Promise<PublicCatalog> } | null = null;
@@ -151,4 +175,9 @@ export async function fetchExercises(): Promise<Exercise[]> {
 /** The enabled music tracks, from the same catalogue download. */
 export async function fetchMusic(): Promise<MusicTrack[]> {
   return (await fetchCatalog()).music;
+}
+
+/** The enabled rest videos, from the same catalogue download. */
+export async function fetchRests(): Promise<RestVideo[]> {
+  return (await fetchCatalog()).rests;
 }

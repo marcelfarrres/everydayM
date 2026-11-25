@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { fetchExercises } from '@/lib/data/exercises';
+import { fetchExercises, fetchRests } from '@/lib/data/exercises';
 import { playbackUrl } from '@/lib/media';
 import {
   buildRoutine,
@@ -111,7 +111,7 @@ export function useWorkoutRoutine() {
     setLoading(true);
 
     try {
-      const allExercises = await fetchExercises();
+      const [allExercises, restClips] = await Promise.all([fetchExercises(), fetchRests()]);
       if (allExercises.length === 0) {
         alert('Todavía no hay vídeos subidos. Añádelos desde el estudio.');
         setLoading(false);
@@ -122,7 +122,7 @@ export function useWorkoutRoutine() {
         allExercises,
         filters,
         Math.random,
-        { recentExerciseIds: recentExerciseIds() },
+        { recentExerciseIds: recentExerciseIds(), restClips },
       );
       startBuiltRoutine(builtQueue, builtMeta);
     } catch (err: unknown) {
@@ -138,7 +138,7 @@ export function useWorkoutRoutine() {
       setLoading(true);
 
       try {
-        const allExercises = await fetchExercises();
+        const [allExercises, restClips] = await Promise.all([fetchExercises(), fetchRests()]);
         if (allExercises.length === 0) {
           alert('Todavía no hay vídeos subidos. Añádelos desde el estudio.');
           setLoading(false);
@@ -149,7 +149,7 @@ export function useWorkoutRoutine() {
           allExercises,
           intent,
           Math.random,
-          { recentExerciseIds: recentExerciseIds() },
+          { recentExerciseIds: recentExerciseIds(), restClips },
         );
 
         setFilters({

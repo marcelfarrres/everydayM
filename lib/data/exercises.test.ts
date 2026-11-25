@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearCatalogCache, exercisesFromCatalog, fetchCatalog, fetchExercises, fetchMusic, musicFromCatalog } from './exercises';
+import { clearCatalogCache, exercisesFromCatalog, fetchCatalog, fetchExercises, fetchMusic, fetchRests, musicFromCatalog, restsFromCatalog } from './exercises';
 
 const catalog = {
   version: 1,
@@ -9,6 +9,11 @@ const catalog = {
     { id: 'm2', title: 'Dos', audio_url: 'https://media.example.test/music/m2.m4a', enabled: false }, // off: dropped
     { id: 'm3', audio_url: '' }, // no file: dropped
     { id: 'm4', audio_url: '/dev-media/music/m4.m4a' }, // enabled unless it says otherwise
+  ],
+  rests: [
+    { id: 'r1', title: 'Estirando', video_url: 'r1.mp4', video_lite_url: 'r1-lite.mp4', duration_seconds: 30, enabled: true },
+    { id: 'r2', video_url: 'r2.mp4', enabled: false }, // off: dropped
+    { id: 'r3', video_url: '' }, // no file: dropped
   ],
   exercises: [
     { id: 'a', title: 'Puente', video_url: 'a.mp4', type: 'workout', muscle: '', difficulty: 5, duration_seconds: 40 },
@@ -83,9 +88,10 @@ describe('exercise catalogue', () => {
     vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', 'https://media.example.test');
     const fetchMock = ok();
     vi.stubGlobal('fetch', fetchMock);
-    const [exercises, music, whole] = await Promise.all([fetchExercises(), fetchMusic(), fetchCatalog()]);
+    const [exercises, music, rests, whole] = await Promise.all([fetchExercises(), fetchMusic(), fetchRests(), fetchCatalog()]);
     expect(exercises).toHaveLength(2);
     expect(music).toHaveLength(2);
+    expect(rests.map((r) => r.id)).toEqual(['r1']);
     expect(whole.music).toBe(music);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -98,5 +104,16 @@ describe('exercise catalogue', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(fetchMusic()).resolves.toHaveLength(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('rest videos', () => {
+  it('keeps enabled ones with a file, and a catalogue without them has none', () => {
+    const rests = restsFromCatalog(catalog);
+    expect(rests).toEqual([
+      { id: 'r1', title: 'Estirando', video_url: 'r1.mp4', video_lite_url: 'r1-lite.mp4', poster_url: null, duration_seconds: 30, enabled: true },
+    ]);
+    expect(restsFromCatalog({ ...catalog, rests: undefined })).toEqual([]);
+    expect(restsFromCatalog(null)).toEqual([]);
   });
 });

@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { AnimatePresence, animate, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, ChevronLeft, Mic, Play, SlidersHorizontal } from 'lucide-react';
-import { fetchExercises } from '@/lib/data/exercises';
+import { fetchExercises, fetchRests } from '@/lib/data/exercises';
 import { buildRoutine, recentExerciseIds, uniqueExercises } from '@/lib/routine';
 import { parseExercisesPerRound, parseIntentKeywords, parseRounds } from '@/lib/intent/keywords';
 import { MUSCLE_LABELS_ES, type RoutineIntentResponse } from '@/lib/intent/types';
@@ -29,6 +29,7 @@ import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
 import type {
   Exercise,
   MuscleId,
+  RestClip,
   RoutineIntent,
   RoutineItem,
   RoutineMeta,
@@ -112,8 +113,8 @@ type Tray = 'minutes' | 'focus' | 'intensity' | null;
 type Built = { queue: RoutineItem[]; meta: RoutineMeta };
 
 /** A real build (not the fixed-seed preview): exercises from the last routines weigh less. */
-function buildFor(list: Exercise[], intent: RoutineIntent): Built {
-  return buildRoutine(list, intent, Math.random, { recentExerciseIds: recentExerciseIds() });
+function buildFor(list: Exercise[], intent: RoutineIntent, restClips: readonly RestClip[]): Built {
+  return buildRoutine(list, intent, Math.random, { recentExerciseIds: recentExerciseIds(), restClips });
 }
 
 interface SpeechRecognitionLike {
@@ -228,6 +229,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const exercisesRef = useRef<Promise<Exercise[]> | null>(null);
   const clipRef = useRef<HTMLVideoElement>(null);
   const exerciseListRef = useRef<Exercise[]>([]);
+  // the catalog's rest videos (the same download): each long rest gets one
+  const restClipsRef = useRef<readonly RestClip[]>([]);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const minutesRef = useRef<HTMLSpanElement>(null);
   const intentRef = useRef<Promise<RoutineIntent> | null>(null);
@@ -259,8 +262,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   const loadExercises = useCallback(() => {
     if (!exercisesRef.current) {
-      exercisesRef.current = fetchExercises().then((list) => {
+      exercisesRef.current = Promise.all([fetchExercises(), fetchRests()]).then(([list, restClips]) => {
         exerciseListRef.current = list;
+        restClipsRef.current = restClips;
         setLibrary(list);
         return list;
       });
@@ -444,7 +448,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         ),
       };
       setIntent(next);
-      setBuilt(buildFor(list, next));
+      setBuilt(buildFor(list, next, restClipsRef.current));
     } catch {
       setError('No he podido crear la rutina. Revisa la conexión e inténtalo otra vez.');
       backToAsk();
@@ -485,7 +489,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   const retouch = (next: RoutineIntent) => {
     setIntent(next);
-    setBuilt(buildFor(exerciseListRef.current, next));
+    setBuilt(buildFor(exerciseListRef.current, next, restClipsRef.current));
   };
 
   const cycleGroup = (ids: MuscleId[]) => {

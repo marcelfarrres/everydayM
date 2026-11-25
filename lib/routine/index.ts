@@ -39,3 +39,5 @@ export { uniqueExercises } from './blocks';
 export { recentExerciseIds, rememberRoutine } from './history';
 
 export { talksSeconds } from './talks';
+
+export { assignRestClips, restClipOf, toRestClip } from './restClips';

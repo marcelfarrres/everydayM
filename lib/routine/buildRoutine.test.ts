@@ -14,6 +14,7 @@ import {
   getRestDuration,
   getTalkRestSeconds,
 } from './duration';
+import { restClipOf } from './restClips';
 import { solveForMinutes } from './solveForMinutes';
 import { talksSeconds } from './talks';
 import {
@@ -406,5 +407,56 @@ describe('the rest between blocks', () => {
     const { queue } = buildRoutine(library(), gluteIntent({ rounds: 2, exercisesPerRound: 3 }), seeded(2));
     const first = rests(queue).find((r) => r.restKind === 'long' && !r.isEndOfRound);
     if (first) expect(first.duration).toBe(getBlockEndRestBase(getRestDuration(5)));
+  });
+});
+
+describe('the rest video of each long rest', () => {
+  const clip = (id: string) => ({ id, video_url: `${id}.mp4`, video_lite_url: `${id}-lite.mp4`, poster_url: null, duration_seconds: 30 });
+  const shape = gluteIntent({ rounds: 4, exercisesPerRound: 2 });
+
+  it('every long rest gets one, in turn: none repeats until all have been used', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const { queue } = buildRoutine(library(), shape, seeded(seed), { restClips: [clip('r1'), clip('r2'), clip('r3')] });
+      const long = rests(queue).filter((r) => r.restKind === 'long');
+      expect(long).toHaveLength(4); // after the warm-up and between the 4 blocks
+      const picked = long.map((r) => r.restClip?.id);
+      expect(new Set(picked.slice(0, 3)).size).toBe(3);
+      expect(picked[3]).toBe(picked[0]);
+      expect(long[0].restClip).toEqual(clip(picked[0] ?? ''));
+      // short rests have none
+      expect(rests(queue).filter((r) => r.restKind === 'short').every((r) => r.restClip === undefined)).toBe(true);
+    }
+  });
+
+  it("without rest videos the routine's own warm-ups stand in, else any warm-up, else the next exercise", () => {
+    const { queue, meta } = buildRoutine(library(), shape, seeded(3));
+    const own = new Set(ids(meta.warmups));
+    for (const rest of rests(queue).filter((r) => r.restKind === 'long')) expect(own.has(rest.restClip?.id ?? '')).toBe(true);
+
+    const noWarmup = buildRoutine(library(), { ...shape, includeWarmup: false }, seeded(3)).queue;
+    for (const rest of rests(noWarmup).filter((r) => r.restKind === 'long')) expect(rest.restClip?.id).toMatch(/^w\d$/);
+
+    const bare = library().filter((e) => e.type !== 'warmup');
+    const plain = buildRoutine(bare, { ...shape, includeWarmup: false }, seeded(3)).queue;
+    for (const rest of rests(plain).filter((r) => r.restKind === 'long')) expect(rest.restClip?.id).toBe(rest.nextExercise.id);
+  });
+
+  it('changes nothing else of the routine', () => {
+    const plain = buildRoutine(library(), shape, seeded(5));
+    const withClips = buildRoutine(library(), shape, seeded(5), { restClips: [clip('r1')] });
+    const strip = (queue: RoutineItem[]) => queue.map((item) => (item.kind === 'rest' ? { ...item, restClip: undefined } : item));
+    expect(strip(withClips.queue)).toEqual(strip(plain.queue));
+    expect(withClips.meta.totalSeconds).toBe(plain.meta.totalSeconds);
+  });
+
+  it('a routine saved before rest videos still has one at play time', () => {
+    const { queue } = buildRoutine(library(), shape, seeded(2));
+    const old = queue.map((item) => (item.kind === 'rest' ? { ...item, restClip: undefined } : item));
+    const rest = rests(old).find((r) => r.restKind === 'long');
+    const firstWarmup = old.find((item) => item.kind === 'warmup');
+    if (!rest || firstWarmup?.kind !== 'warmup') throw new Error('fixture');
+    expect(restClipOf(old, rest).id).toBe(firstWarmup.exercise.id);
+    const noWarmups = old.filter((item) => item.kind !== 'warmup');
+    expect(restClipOf(noWarmups, rest).id).toBe(rest.nextExercise.id);
   });
 });

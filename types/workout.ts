@@ -69,6 +69,19 @@ export interface RoutineMeta {
   background?: Exercise; // filler video (type 'filler'; fallback: any clip)
 }
 
+/**
+ * What a long rest shows while no vídeo hablado is speaking (phone): Marcel resting on camera,
+ * looped and muted. From the catalog's rest videos (`RestVideo`), or, while there are none, a
+ * warm-up clip (the calmest) standing in.
+ */
+export interface RestClip {
+  id: string;
+  video_url: string;
+  video_lite_url: string | null;
+  poster_url: string | null;
+  duration_seconds: number;
+}
+
 /** Short: between two exercises of a block. Long: before a block starts. */
 export type RestKind = 'short' | 'long';
 
@@ -94,6 +107,8 @@ export type RoutineItem =
       isEndOfRound: boolean;
       restKind: RestKind; // 'long' before the first exercise of a block
       talks: ExerciseTalk[]; // talks to play in a long rest (0-2); [] in short rests
+      /** long rests: the rest video on stage while no talk speaks (absent in routines saved before it) */
+      restClip?: RestClip;
     }
   | {
       kind: 'outro';
@@ -127,6 +142,7 @@ export interface RoutineIntent {
 /** Extra context for buildRoutine that does not come from the user's request. */
 export interface BuildRoutineOptions {
   recentExerciseIds?: readonly string[]; // used in the last routines: penalised, not forbidden
+  restClips?: readonly RestClip[]; // the catalog's enabled rest videos; none => warm-up clips stand in
 }
 
 export interface TimelineSegment {

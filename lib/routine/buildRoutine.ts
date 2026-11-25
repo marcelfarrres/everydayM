@@ -16,6 +16,7 @@ import {
   getLongRestSeconds,
   getRestDuration,
 } from './duration';
+import { assignRestClips } from './restClips';
 import { RECENT_PENALTY, pickWeighted, type ScoredExercise } from './select';
 import { solveForMinutes } from './solveForMinutes';
 import { expectedTalkSeconds, fillTalks, pickTalks, talksSeconds } from './talks';
@@ -490,9 +491,12 @@ export function buildRoutine(
     });
   }
 
+  // The rest video of each long rest (last, so its one draw of `rng` changes nothing above).
+  const withClips = assignRestClips(queue, options.restClips ?? [], selectedWarmups, allExercises, rng);
+
   // The same per-item durations the player and the timeline use, so the total matches exactly.
-  const timeline = buildTimeline(queue, slotSeconds);
+  const timeline = buildTimeline(withClips, slotSeconds);
   meta.totalSeconds = timeline.reduce((sum, seg) => sum + seg.duration, 0);
 
-  return { queue, meta };
+  return { queue: withClips, meta };
 }
