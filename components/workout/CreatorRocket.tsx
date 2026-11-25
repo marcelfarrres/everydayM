@@ -116,14 +116,20 @@ export function WaitingRocket({
   onClick,
   riseDelay,
   flame = 0.3,
+  shake = 0.5,
+  pullUp = 0,
   className = '',
 }: {
   ref?: Ref<HTMLElement | null>;
   label?: ReactNode;
   ariaLabel?: string;
   onClick?: () => void;
-  /** how lit its engine is while it waits (0.3; more on the minutes, the more minutes) */
+  /** how lit its engine is while it waits (0.3; on the minutes from almost nothing to a long flare) */
   flame?: number;
+  /** how hard it trembles (0.5; on the minutes, harder the more minutes) */
+  shake?: number;
+  /** px it stands closer to what is above it (its tilt's margin is there anyway) */
+  pullUp?: number;
   /** null: it is there already; a number: it comes up from below after that many ms */
   riseDelay: number | null;
   className?: string;
@@ -142,9 +148,11 @@ export function WaitingRocket({
 
   // (tilted, it reaches above and below its box: the margin keeps it clear of what is around)
   const reach = Math.ceil((g.W * k * Math.sin((-CREATOR.tilt * Math.PI) / 180)) / 2);
-  const box: CSSProperties = { width: g.W * k, height: g.H * k, marginBlock: reach, transform: `rotate(${CREATOR.tilt}deg)` };
+  const box: CSSProperties = { width: g.W * k, height: g.H * k, marginBlock: reach, marginTop: reach - pullUp, transform: `rotate(${CREATOR.tilt}deg)` };
+  // (harder is also quicker)
+  const period = Math.max(0.07, 0.14 - Math.max(0, shake - 0.5) * 0.025);
   const drawing = (
-    <span aria-hidden="true" className="rw-shake pointer-events-none absolute inset-0" style={{ '--rw-amp': 0.5, '--rw-shake-s': '0.14s' } as CSSProperties}>
+    <span aria-hidden="true" className="rw-shake pointer-events-none absolute inset-0" style={{ '--rw-amp': shake, '--rw-shake-s': `${period.toFixed(3)}s` } as CSSProperties}>
       <RocketFigure g={g} scale={k} flame={flame} className="absolute left-0 top-0" />
       {label && (
         <span className="absolute flex items-center justify-center gap-2 text-[20px] font-semibold leading-none text-ink" style={scaledBox(g.content, k)}>

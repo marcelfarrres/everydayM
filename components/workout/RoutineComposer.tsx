@@ -22,7 +22,7 @@ import { Hilo } from '@/components/workout/player/Hilo';
 import { useRocketWidth } from '@/components/workout/player/hooks';
 import { CREATOR, ChoiceRocket, LaunchRocket, RandomRocket, RiseIn, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
 import { RocketFigure } from '@/components/workout/RocketShip';
-import { HOP, riseKeyframes } from '@/components/workout/rocketFlight';
+import { HOP, riseKeyframes, waitingEngine } from '@/components/workout/rocketFlight';
 import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { BAR_TEXT, SHIP, barLines, barThickness } from '@/components/workout/rocketShape';
 import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
@@ -168,10 +168,12 @@ function blocksAndSeries(blocks: number, series: number): string {
   return `${blocks} ${blocks === 1 ? 'bloque' : 'bloques'} de ${series} ${series === 1 ? 'serie' : 'series'}`;
 }
 
-/** The minutes question's rocket: a bigger flame the more minutes (0.3 at the least, 1 at the most). */
-function minutesFlame(minutes: number): number {
-  const share = (Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, minutes)) - MIN_MINUTES) / (MAX_MINUTES - MIN_MINUTES);
-  return Math.round((0.3 + share * 0.7) * 100) / 100;
+/**
+ * The minutes question's rocket: the more minutes, the more it burns and the harder it trembles,
+ * from almost nothing at the least to a long flare at the most (live with the slider).
+ */
+function minutesEngine(minutes: number): { flame: number; shake: number } {
+  return waitingEngine((minutes - MIN_MINUTES) / (MAX_MINUTES - MIN_MINUTES));
 }
 
 // phone: this many suggestions in their list (it scrolls), at random once per page load
@@ -850,8 +852,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               riseDelay={hop}
               label="Seguir"
               onClick={() => answer({ targetMinutes: draftMinutes })}
-              // the more minutes, the bigger its flame
-              flame={minutesFlame(draftMinutes)}
+              // the more minutes, the longer its flame and the harder it trembles
+              flame={minutesEngine(draftMinutes).flame}
+              shake={minutesEngine(draftMinutes).shake}
+              // (close under the slider: it is that step's button)
+              pullUp={40}
             />
           )}
           <button
