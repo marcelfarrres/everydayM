@@ -71,15 +71,19 @@ export function RocketShip({
   const { F, T, cy } = g;
   const { STROKE } = SHIP;
   const shows = (p: Piece) => !only || only.includes(p);
-  const svg = (piece: Piece, layer: 'back' | 'front', children: ReactNode, strokeWidth: number = STROKE) => (
+  // `part`: what a segment's layer is to the bar's stretch (RocketWidget): its body scales along
+  // the rocket (from the frame's left edge), what sits at either end of it moves with that end
+  const svg = (piece: Piece, layer: string, children: ReactNode, strokeWidth: number = STROKE, part?: 'body' | 'start' | 'end') => (
     <svg
       key={`${piece}-${layer}`}
       data-piece={piece}
+      data-part={part}
       aria-hidden="true"
       width={g.W}
       height={g.H}
       viewBox={`0 0 ${g.W} ${g.H}`}
       className="pointer-events-none absolute left-0 top-0 overflow-visible"
+      style={part === 'body' ? { transformOrigin: '0 0' } : undefined}
       fill="#fff"
       stroke={INK}
       strokeWidth={strokeWidth}
@@ -106,21 +110,36 @@ export function RocketShip({
   for (const seg of g.segments) {
     const piece: Piece = `seg-${seg.block}`;
     if (!shows(piece)) continue;
+    // its motor: only the tail's can be seen
+    if (seg === tail) back.push(svg(piece, 'nozzle', <path d={g.nozzle} />, STROKE, 'start'));
+    // its body: the white and its two long lines (its ends are drawn with them, below), so it can
+    // be stretched without any line getting thicker
     back.push(
-      svg(piece, 'back', [
-        // its motor: only the tail's can be seen
-        seg === tail && <path key="nz" d={g.nozzle} />,
-        <path key="body" d={`M${seg.start} ${F} L${seg.end} ${F} L${seg.end} ${F + T} L${seg.start} ${F + T} Z`} />,
-      ]),
+      svg(
+        piece,
+        'back',
+        [
+          <rect key="fill" x={seg.start} y={F} width={r1(seg.end - seg.start)} height={T} stroke="none" />,
+          <path key="lines" d={`M${seg.start} ${F} L${seg.end} ${F} M${seg.start} ${F + T} L${seg.end} ${F + T}`} fill="none" strokeLinecap="butt" />,
+        ],
+        STROKE,
+        'body',
+      ),
     );
     const joint = g.joints.find((j) => j.back === seg.block);
+    // a rivet at each end, top and bottom
+    const rivets = (x: number) => [
+      <circle key={`r${x}t`} cx={r1(x)} cy={F + 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
+      <circle key={`r${x}b`} cx={r1(x)} cy={F + T - 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
+    ];
+    const edge = (x: number) => <path key={`e${x}`} d={`M${x} ${F} L${x} ${F + T}`} fill="none" />;
+    // (its left end is the joint of the one behind it, unless it is the tail)
+    front.push(svg(piece, 'start', [seg === tail && edge(seg.start), ...rivets(seg.start + 5)], STROKE, 'start'));
     const details: ReactNode[] = [
-      // a scratch of wear near its top edge, and a rivet at each end, top and bottom
+      edge(seg.end),
+      // a scratch of wear near its top edge
       <path key="scratch" d={`M${r1(seg.end - 16)} ${F + 2.6} L${r1(seg.end - 11)} ${F + 4}`} strokeWidth={0.8} strokeOpacity={0.4} />,
-      ...[seg.start + 5, seg.end - 5].flatMap((x) => [
-        <circle key={`r${x}t`} cx={r1(x)} cy={F + 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
-        <circle key={`r${x}b`} cx={r1(x)} cy={F + T - 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
-      ]),
+      ...rivets(seg.end - 5),
     ];
     if (joint) {
       const x = joint.x;
@@ -135,11 +154,18 @@ export function RocketShip({
         ),
       );
     }
-    front.push(svg(piece, 'front', details));
+    front.push(svg(piece, 'front', details, STROKE, 'end'));
     const lines = hilo?.[seg.block - 1];
     if (lines) {
       front.push(
-        <div key={`${piece}-hilo`} data-piece={piece} data-rocket="hilo" className="pointer-events-none absolute flex items-center" style={boxStyle(seg.content)}>
+        <div
+          key={`${piece}-hilo`}
+          data-piece={piece}
+          data-part="body"
+          data-rocket="hilo"
+          className="pointer-events-none absolute flex items-center"
+          style={{ ...boxStyle(seg.content), transformOrigin: '0 0' }}
+        >
           <Hilo surface="light" size="lg" className="flex-1" blocks={[lines]} />
         </div>,
       );

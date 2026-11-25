@@ -35,6 +35,9 @@ import {
   riseKeyframes,
   PARKED,
   PARKED_AFTER_CLOUDS_MS,
+  DOCK,
+  PANELS_IN_MS,
+  PANELS_OUT_MS,
   PARKED_POSE,
   POD,
   RETURN_KEYFRAMES,
@@ -271,15 +274,17 @@ describe('the control pod and the controls', () => {
   it('is out while parked, goes in at the start of a takeoff and pops out once it has parked again', () => {
     expect(podShownAt(PARKED, 0)).toBe(true);
     const f = nextFlight(PARKED, 'clouds', 1000);
-    expect(podShownAt(f, 1000 + POD.outMs / 2)).toBe(true); // going in
-    expect(POD.outMs).toBeLessThanOrEqual(FLIGHT.anticipationMs); // in before the rocket moves off
-    expect(podShownAt(f, 1000 + POD.outMs + 1)).toBe(false);
+    // (the player's pod is its panels: DOCK; POD is the creator's banner)
+    expect(podShownAt(f, 1000 + PANELS_IN_MS / 2)).toBe(true); // going in
+    expect(PANELS_IN_MS).toBeLessThanOrEqual(FLIGHT.anticipationMs); // in before the rocket moves off
+    expect(podShownAt(f, 1000 + PANELS_IN_MS + 1)).toBe(false);
     expect(podShownAt(f, 1000 + FLIGHT.takeoffMs + 10)).toBe(false); // away
     expect(podShownAt(f, 1000 + FLIGHT.returnStartMs + 100)).toBe(false); // coming back
     const parked = parkedFrom(f);
-    expect(podShownAt(f, parked + 1)).toBe(false); // the squash first
-    expect(podShownAt(f, parked + POD.inDelayMs)).toBe(true);
-    expect(podOutFrom(f)).toBe(parked + POD.inDelayMs + POD.inMs);
+    expect(podShownAt(f, parked + 1)).toBe(false); // the squash, and the stretch, first
+    expect(podShownAt(f, parked + DOCK.outAtMs)).toBe(true);
+    expect(DOCK.outAtMs).toBe(POD.inDelayMs);
+    expect(podOutFrom(f)).toBe(parked + DOCK.outAtMs + PANELS_OUT_MS);
   });
 
   it('never shows the pod while the rocket fades, and keeps it in for good at the end', () => {

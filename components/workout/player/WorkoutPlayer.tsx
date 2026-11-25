@@ -6,7 +6,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition, PERCENT_SLOT } from '@/components/workout/CloudTransition';
 import { useCloudMoment, useCloudPainter } from '@/components/workout/cloudClock';
-import { FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, badgeAt, blockEnds, cloudExtraMs, cloudsFor, cloudsOpenAt, railTop } from '@/components/workout/rocketFlight';
+import { DOCK, FLIGHT, PARKED_AFTER_CLOUDS_MS, badgeAt, blockEnds, cloudExtraMs, cloudsFor, cloudsOpenAt, railTop } from '@/components/workout/rocketFlight';
 import { stopAllSfx } from '@/lib/audio/sfx';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
@@ -168,9 +168,9 @@ export function WorkoutPlayer({
   const cloudsStarting = useBusyAfter(cloudKey, clouds.openingMs, !reduced);
   const cloudsClosed = useCloudMoment((m) => (m.key === cloudKey ? m.t !== null && m.t < cloudsOpenAt(extra) : null));
   const inClouds = !reduced && (cloudsClosed ?? cloudsStarting);
-  // With talks it is a tab of the rocket's banner while they play (it fades out as the clouds
-  // open and comes back as the banner springs out); then the middle.
-  const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + POD.inDelayMs, !reduced);
+  // With talks it stands in the rocket's first panel while they play (it fades out as the clouds
+  // open and comes back as the panels slide out); then the middle.
+  const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + DOCK.outAtMs, !reduced);
   const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : bannerPending ? 'hidden' : 'side';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;

@@ -2,10 +2,10 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { motion } from 'motion/react';
-import { BANNER, widgetLayout, type Stack } from '@/components/workout/rocketShape';
+import { widgetLayout, type Stack } from '@/components/workout/rocketShape';
 import { rocketStack } from '@/components/workout/rocketStack';
 import { CLOUDS } from '@/components/workout/CloudTransition';
-import { POD, PREVIEW_OUT_AFTER_REST_MS, cloudExtraMs, podPopKeyframes } from '@/components/workout/rocketFlight';
+import { PREVIEW, PREVIEW_OUT_AFTER_REST_MS, cloudExtraMs } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import { restClipOf } from '@/lib/routine/restClips';
 import type { Exercise, RestClip, RoutineItem } from '@/types/workout';
@@ -13,7 +13,7 @@ import { EndScreen } from './EndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
-import { MINI, growKeyframes, handoffTimes, miniMast, miniPose, miniRect, swollenRect } from './miniHandoff';
+import { MINI, growKeyframes, handoffTimes, miniClipY, miniOutKeyframes, miniPose, miniRect, swollenRect } from './miniHandoff';
 import { isExercise, type RestScreen } from './model';
 
 /*
@@ -28,8 +28,8 @@ import { isExercise, type RestScreen } from './model';
  *   end               EndScreen
  * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
- * Phone, a long rest (talks or the rest video): the next exercise plays in a small window above the rocket's
- * banner, on its own mast out of the rocket's body. It is already that exercise's own <video>: in
+ * Phone, a long rest (talks or the rest video): the next exercise plays in a small window over the rocket's
+ * first panel, slid up out of the rocket like its panels. It is already that exercise's own <video>: in
  * the last seconds it swells a little and waits; when the rest ends the talk fades to black and
  * then the same element grows to the whole screen (transforms only, see miniHandoff) and goes on
  * as the clip. Two videos at most: the talk (or the rest video) and that one.
@@ -116,7 +116,7 @@ export function Stage({
       stack={stack}
       reduced={reduced}
       fadeIn={phone}
-      // the window springs out of the rocket just after its banner (it mounts as the clouds cover the screen)
+      // the window slides out of the rocket just after its panels (it mounts as the clouds cover the screen)
       popInMs={small ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS + cloudExtraMs(item) - CLOUDS.coveredMs) : null}
       // in its last moment it waits on its first frame, so growing into the exercise doesn't jump
       hold={small && live && timeLeft <= MINI.HOLD_S}
@@ -292,11 +292,11 @@ function ClipLayer({
   swell: boolean;
   /** from the window to the whole screen: it waits this long first (the talk fading to black) */
   growAfterMs: number;
-  /** the rocket below (where the window's mast comes out) */
+  /** the rocket below (where the window comes out of) */
   stack: Stack;
   reduced: boolean;
   fadeIn: boolean;
-  /** the window: ms until it springs out (from behind the banner, like the banner from the rocket) */
+  /** the window: ms until it slides out (from behind the rocket's first panel, like the panels from the hull) */
   popInMs: number | null;
   /** the window: wait on the first frame */
   hold: boolean;
@@ -305,7 +305,6 @@ function ClipLayer({
   const pop = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
-  const mastEl = useRef<HTMLDivElement>(null);
   const width = useRocketWidth();
   const vh = useWindowHeight();
   const vw = width + 12;
@@ -314,7 +313,8 @@ function ClipLayer({
   if (small && held !== stack) setHeld(stack);
   const L = useMemo(() => widgetLayout(width, held), [width, held]);
   const rect = miniRect(vw, vh, L);
-  const mast = miniMast(vw, vh, L);
+  // nothing of the window shows below the top of the rocket's first panel (it comes out from behind it)
+  const clipY = miniClipY(vw, vh, L);
   const pose = small ? miniPose(swell ? swollenRect(rect) : rect, vw, vh, 0) : null;
   const was = useRef<boolean | null>(null);
   // (whether it was swollen as it stopped being the window)
@@ -330,12 +330,12 @@ function ClipLayer({
     const o = outer.current;
     const i = inner.current;
     if (!o || !i || !pop.current) return;
-    // A new clip on the whole screen fades in (as the stage always did); the window springs out
-    // after the banner. (Not cancelled on cleanup: React's dev double mount would lose them.)
+    // A new clip on the whole screen fades in (as the stage always did); the window slides out of
+    // the rocket after its panels. (Not cancelled on cleanup: React's dev double mount would lose them.)
     if (before === null) {
       if (!fadeIn) return;
       if (small && popInMs !== null && !reduced) {
-        pop.current.animate(podPopKeyframes(), { duration: POD.inMs, delay: popInMs, fill: 'backwards' });
+        pop.current.animate(miniOutKeyframes(vw, vh, L), { duration: PREVIEW.outMs, delay: popInMs, fill: 'backwards' });
       } else if (!reduced) {
         o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
       }
@@ -364,10 +364,9 @@ function ClipLayer({
     const timing: KeyframeAnimationOptions = { duration: MINI.GROW_MS, delay: wait, easing: 'linear', fill: 'backwards' };
     const a = o.animate(keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })), timing);
     const b = i.animate(keys.map((k) => ({ offset: k.offset, transform: k.inner })), timing);
-    // its mast and frame stay while the talk fades, and go as it grows
+    // its frame stays while the talk fades, and goes as it grows
     const stay = wait / (wait + 120);
     const scale = swollen.current ? `scale(${MINI.SWELL})` : 'none';
-    const m = mastEl.current?.animate([{ opacity: 1 }, { opacity: 1, offset: stay }, { opacity: 0 }], { duration: wait + 120 });
     const f = ring.current?.animate(
       [
         { opacity: 1, transform: scale },
@@ -380,7 +379,6 @@ function ClipLayer({
       clearTimeout(go);
       a.cancel();
       b.cancel();
-      m?.cancel();
       f?.cancel();
     };
     // (only when it appears, and when it goes from the window to the whole screen)
@@ -395,22 +393,10 @@ function ClipLayer({
   }, [small, hold]);
 
   return (
-    // (the window and its mast spring out of the rocket's body, like its banner)
-    <div ref={pop} className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} style={{ transformOrigin: `${mast.x}px ${mast.bottom}px` }}>
-      {/* the mast: from the window's bottom down into the rocket (behind it) */}
-      <div
-        ref={mastEl}
-        aria-hidden="true"
-        className="pointer-events-none absolute border-x-2 border-ink bg-white"
-        style={{
-          left: mast.x - BANNER.MAST_W / 2,
-          top: mast.top - 2,
-          width: BANNER.MAST_W,
-          height: mast.bottom - mast.top + 2,
-          transformOrigin: '50% 100%',
-          opacity: small ? 1 : 0,
-        }}
-      />
+    // (the window slides up out of the rocket, from behind its first panel: clipped at the panel's
+    // top while it is the window; nothing is clipped once it grows to the whole screen)
+    <div className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} data-rw={small ? 'mini' : undefined} style={{ clipPath: small ? `inset(0 0 ${vh - clipY}px 0)` : 'none' }}>
+    <div ref={pop} className="absolute inset-0">
       <div
         ref={outer}
         className="absolute inset-0 overflow-hidden"
@@ -442,6 +428,7 @@ function ClipLayer({
           transition: small && !reduced ? `transform ${MINI.SWELL_MS}ms ease-in-out` : 'none',
         }}
       />
+    </div>
     </div>
   );
 }

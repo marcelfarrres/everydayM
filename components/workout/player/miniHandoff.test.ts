@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { widgetLayout } from '@/components/workout/rocketShape';
-import { MINI, growKeyframes, handoffTimes, miniMast, miniMastX, miniPose, miniRect, swollenRect } from './miniHandoff';
+import { panelLayout, widgetLayout } from '@/components/workout/rocketShape';
+import { MINI, growKeyframes, handoffTimes, miniClipY, miniOutKeyframes, miniPose, miniRect, swollenRect } from './miniHandoff';
 
 describe('the next exercise, from its window to the whole screen', () => {
   const vw = 390;
@@ -8,12 +8,13 @@ describe('the next exercise, from its window to the whole screen', () => {
   const L = widgetLayout(vw - 12);
   const rect = miniRect(vw, vh, L);
 
-  it('stands over the left end of the banner, 15 % bigger than the old preview, clear of it', () => {
+  it('stands over the left end of the first panel, 15 % bigger than the old preview, clear of it', () => {
     expect(MINI.W).toBe(Math.round(60 * 1.15));
     expect(MINI.H).toBe(Math.round(106 * 1.15));
-    const bannerTop = vh - MINI.BOTTOM - L.box + L.banner.top;
-    expect(rect.top + rect.height).toBeLessThanOrEqual(bannerTop - 4);
-    expect(rect.left).toBeGreaterThanOrEqual((vw - L.B) / 2 + L.banner.left);
+    const P = panelLayout(L);
+    const panelTop = vh - MINI.BOTTOM - L.box + P.top;
+    expect(rect.top + rect.height).toBeLessThanOrEqual(panelTop - 4);
+    expect(rect.left).toBeGreaterThanOrEqual((vw - L.B) / 2 + P.left);
     expect(rect.top).toBeGreaterThan(vh / 2);
   });
 
@@ -61,18 +62,32 @@ describe('the next exercise, from its window to the whole screen', () => {
     }
   });
 
-  it('stands on its own mast, out of the body of the rocket, whatever is left of it', () => {
-    for (const stack of [undefined, { blocks: 3, first: 3, boosters: false }, { blocks: 2, first: 1, boosters: true }]) {
-      const S = widgetLayout(vw - 12, stack);
-      const x = miniMastX(vw, S);
-      const ship = (vw - S.B) / 2 + S.ship.left + S.ship.shift;
-      expect(x).toBeGreaterThan(ship + S.g.x0);
-      expect(x).toBeLessThan(ship + S.g.xs);
-      const mast = miniMast(vw, vh, S);
-      const w = miniRect(vw, vh, S);
-      expect(mast.x).toBe(w.left + w.width / 2);
-      expect(mast.top).toBe(w.top + w.height);
-      expect(mast.bottom).toBeGreaterThan(vh - MINI.BOTTOM - S.box + S.ship.top);
+  it('slides up out of the rocket from behind its first panel (no mast), and never crosses the panel', () => {
+    for (const [w, h] of [
+      [390, 844],
+      [360, 740],
+      [320, 568],
+    ]) {
+      for (const stack of [undefined, { blocks: 3, first: 3, boosters: false }]) {
+        const S = widgetLayout(w - 12, stack);
+        const P = panelLayout(S);
+        const panelTop = h - MINI.BOTTOM - S.box + P.top;
+        const r = miniRect(w, h, S);
+        // over the panel's left end, inside the hull's straight part, whatever is left of the rocket
+        expect(r.left).toBe(Math.round((w - S.B) / 2 + P.left + MINI.INSET));
+        expect(r.left + r.width).toBeLessThan((w - S.B) / 2 + P.right);
+        // clear of the panel, and of the panel's top even swollen (it grows upward)
+        expect(miniClipY(w, h, S)).toBe(Math.round(panelTop));
+        expect(r.top + r.height).toBeLessThanOrEqual(miniClipY(w, h, S) - MINI.GAP + 0.5);
+        const big = swollenRect(r);
+        expect(big.top + big.height).toBeCloseTo(r.top + r.height, 6);
+        // it starts wholly under the panel's top (hidden), and ends in its place
+        const keys = miniOutKeyframes(w, h, S);
+        const down = Number(/translateY\(([-\d.]+)px\)/.exec(String(keys[0].transform))?.[1]);
+        expect(r.top + down).toBeGreaterThanOrEqual(miniClipY(w, h, S));
+        expect(keys.at(-1)?.transform).toBe('translateY(0px)');
+        expect(r.top).toBeGreaterThan(h / 3);
+      }
     }
   });
 

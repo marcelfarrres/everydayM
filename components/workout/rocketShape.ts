@@ -121,12 +121,15 @@ export function stackGeometry({
   first = 1,
   boosters = false,
   thickness = T_BASE,
+  stretch = false,
 }: {
   width: number;
   blocks?: number;
   first?: number;
   boosters?: boolean;
   thickness?: number;
+  /** the segments still on share the whole body (the phone's bar: the rocket always takes its whole length there) */
+  stretch?: boolean;
 }): ShipGeometry {
   const t = Math.max(T_BASE, thickness);
   const n = Math.max(1, Math.round(blocks));
@@ -138,7 +141,7 @@ export function stackGeometry({
   const cap = capLength(t);
   const xs = tip - PROBE - cap;
   const bodyFull = xs - (FLAME_ROOM + NOZZLE);
-  const segLen = bodyFull / n;
+  const segLen = bodyFull / (stretch ? n - f1 + 1 : n);
   const x0 = r1(xs - (n - f1 + 1) * segLen);
   const xe = r1(x0 - NOZZLE);
 
@@ -340,6 +343,113 @@ export function widgetLayout(width: number, stack: Stack = FULL_STACK): WidgetLa
     center: { x: r1(left + shift + (g.xe + g.tip) / 2), y: top + g.cy },
     body: { left: g.x0, right: g.tip, top: F, bottom: F + T },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The player's bar (phone): its panels. Parked in the bar the rocket always takes its whole length
+// (its segments stretched over the body); its panels slide up out of the hull, side by side on its
+// straight part, flush on its top line (on the boosters while the warm-up lasts), and back into
+// it. Each one reaches down into the hull (hidden behind it), so the rocket can squash, hop or sit
+// on its stands without a gap opening under them; they are clipped a little inside the hull.
+
+export const PANEL = {
+  /** what shows above the hull, outline included */
+  H: 52,
+  /** how far each one reaches into the hull, behind it (they are clipped there) */
+  SINK: 15,
+  /** between two panels */
+  SEAM: 4,
+  /** their top corners */
+  RADIUS: 12,
+  LINE: 1.5,
+  /** the text's room from the panel's left edge (inside its line) */
+  PAD: 12,
+} as const;
+
+/**
+ * The first panel holds two lines, centred in what shows of it: a line of 18 px (the name, or
+ * "Descanso · Luego: …") over the time (28 px). Where that time stands in the panel (px from its
+ * left edge and its top): the rest's countdown comes to stand there (RestClock).
+ */
+export const PANEL_TIME = {
+  left: PANEL.LINE + PANEL.PAD,
+  top: PANEL.LINE + (PANEL.H - PANEL.LINE - 18 - 28) / 2 + 18,
+} as const;
+
+export interface PanelLayout {
+  /** the hull's straight part (widget pixels): the panels, together, never pass it */
+  left: number;
+  right: number;
+  /** the panels' top; the hull's top line; where they are clipped (inside the hull) */
+  top: number;
+  base: number;
+  clip: number;
+}
+
+/** Where the panels stand in the widget, over the whole rocket (the bar's), `boosters` on or not. */
+export function panelLayout(L: Pick<WidgetLayout, 'frame' | 'ship'>, boosters = false): PanelLayout {
+  const whole = stackGeometry({ width: L.frame });
+  const base = L.ship.top + F;
+  return {
+    left: r1(L.ship.left + whole.x0),
+    right: r1(L.ship.left + whole.xs),
+    top: r1(base - (boosters ? F - STROKE / 2 : 0) - PANEL.H),
+    base,
+    clip: base + PANEL.SINK,
+  };
+}
+
+/**
+ * The stretch, as transforms (pure). The bar draws the rocket either at its real length (`real`,
+ * standing centred: moved by `shift`) or stretched over the whole body (`full`, not moved), and
+ * goes from one to the other through a look `u` (0: real, 1: stretched) that only moves things:
+ * a segment's body (its white and its two long lines) and its hilo scale along the rocket, so no
+ * line gets thicker; what sits at either end of a segment (its rivets, its joint, the nozzle)
+ * moves with that end; whatever hangs behind the tail (flames, puffs) moves with the tail; the
+ * nose never moves in the drawing, and the drawing moves by the shift. Every value is linear in
+ * `u`, so two keyframes with one easing play the whole of it.
+ */
+export interface LookPair {
+  real: ShipGeometry;
+  full: ShipGeometry;
+  /** how far the real rocket's drawing moves to stand centred */
+  shift: number;
+}
+
+export type LookPart =
+  | { kind: 'body'; block: number; left: number }
+  | { kind: 'start' | 'end'; block: number }
+  | { kind: 'tail' }
+  | { kind: 'shift' };
+
+const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
+const r2 = (n: number) => String(Math.round(n * 100) / 100);
+
+/** Where segment `block` stands at look `u` (null: it isn't on). */
+export function segmentAt(p: LookPair, block: number, u: number): { start: number; end: number } | null {
+  const a = p.real.segments.find((s) => s.block === block);
+  const b = p.full.segments.find((s) => s.block === block);
+  if (!a || !b) return null;
+  return { start: lerp(a.start, b.start, u), end: lerp(a.end, b.end, u) };
+}
+
+/**
+ * The transform that shows a part drawn with the geometry of look `drawn` (0: real, 1: full) as
+ * it stands at look `u`. A body part scales from its own left edge (`left`, frame px: its box's,
+ * with transform-origin 0 0); the shift is the drawing's whole move (its inline transform).
+ */
+export function lookTransform(p: LookPair, drawn: 0 | 1, u: number, part: LookPart): string {
+  if (part.kind === 'shift') return `translateX(${r2(p.shift * (1 - u))}px)`;
+  if (part.kind === 'tail') {
+    const x0 = (v: number) => lerp(p.real.x0, p.full.x0, v);
+    return `translateX(${r2(x0(u) - x0(drawn))}px)`;
+  }
+  const at = segmentAt(p, part.block, u);
+  const was = segmentAt(p, part.block, drawn);
+  if (!at || !was) return 'none';
+  if (part.kind !== 'body') return `translateX(${r2(part.kind === 'start' ? at.start - was.start : at.end - was.end)}px)`;
+  const k = (at.end - at.start) / (was.end - was.start);
+  return `translateX(${r2(at.start + k * (part.left - was.start) - part.left)}px) scaleX(${Math.round(k * 10000) / 10000})`;
 }
 
 // ---------------------------------------------------------------------------------------------

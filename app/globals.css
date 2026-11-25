@@ -257,15 +257,6 @@ body {
     transform: scale(1);
   }
 }
-/* ...and with a talk on, its tab springs out of the banner with it */
-@keyframes rc-tab {
-  from {
-    transform: translateY(14px) scale(0.4, 0.2);
-  }
-  to {
-    transform: none;
-  }
-}
 
 /* "Descansando…" (phone, RestCues): the three dots blink one after another */
 .rest-dot {

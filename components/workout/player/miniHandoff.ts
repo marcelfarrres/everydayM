@@ -1,8 +1,8 @@
-import { BANNER, SHIP, type WidgetLayout } from '@/components/workout/rocketShape';
+import { panelLayout, type WidgetLayout } from '@/components/workout/rocketShape';
 
 /*
- * Phone, a long rest with talks: the next exercise plays in a small window above the rocket's
- * banner, on its own mast that comes out of the rocket's body (like the banner's). In the talk's
+ * Phone, a long rest with talks: the next exercise plays in a small window over the rocket's first
+ * panel; it slides up out of the rocket just after the panels (from behind the first one). In the talk's
  * last seconds the window swells a little, calmly, and waits. When the talk ends it fades to black
  * (the picture only), and then that same video simply grows to the whole screen and the exercise
  * starts ("Saltar": a shorter fade, no swell). Pure geometry and keyframes; Stage plays them.
@@ -18,8 +18,8 @@ export const MINI = {
   H: 122,
   /** its corners, px on screen */
   RADIUS: 12,
-  /** between the window and the banner, and from the banner's left end */
-  GAP: 8,
+  /** between the window and the first panel, and from the panel's left end */
+  GAP: 4,
   INSET: 10,
   /** the widget's gap above the bottom of the screen (RocketWidget) */
   BOTTOM: 6,
@@ -44,41 +44,47 @@ export interface MiniRect {
   height: number;
 }
 
-type Layout = Pick<WidgetLayout, 'B' | 'box' | 'banner' | 'g' | 'ship'>;
+type Layout = Pick<WidgetLayout, 'B' | 'box' | 'frame' | 'ship'>;
 
-/**
- * Where the window's mast stands (screen x): under the window's middle, over the left end of the
- * banner, but always over the rocket's body (a short rocket stands centred), so it comes out of it.
- */
-export function miniMastX(vw: number, L: Layout): number {
-  const boxLeft = (vw - L.B) / 2;
-  const want = boxLeft + L.banner.left + MINI.INSET + MINI.W / 2;
-  const ship = boxLeft + L.ship.left + L.ship.shift;
-  const lo = ship + L.g.x0 + BANNER.MAST_W + 4;
-  const hi = ship + L.g.xs - BANNER.MAST_W - 4;
-  return Math.round(Math.min(hi, Math.max(lo, want)));
+/** The rocket's first panel on a `vw` × `vh` screen (no boosters in a rest): its left end and its top. */
+function firstPanel(vw: number, vh: number, L: Layout) {
+  const P = panelLayout(L);
+  return { left: (vw - L.B) / 2 + P.left, top: vh - MINI.BOTTOM - L.box + P.top };
 }
 
-/** Where the window stands on a `vw` × `vh` screen: over the left end of the banner, on its mast. */
+/** Where the window stands on a `vw` × `vh` screen: over the left end of the rocket's first panel. */
 export function miniRect(vw: number, vh: number, L: Layout): MiniRect {
+  const p = firstPanel(vw, vh, L);
   return {
-    left: Math.round(miniMastX(vw, L) - MINI.W / 2),
-    top: Math.round(vh - MINI.BOTTOM - L.box - MINI.GAP - MINI.H),
+    left: Math.round(p.left + MINI.INSET),
+    top: Math.round(p.top - MINI.GAP - MINI.H),
     width: MINI.W,
     height: MINI.H,
   };
 }
 
-/** The window's mast (screen px): from the window's bottom down into the rocket's body. */
-export function miniMast(vw: number, vh: number, L: Layout) {
+/**
+ * Where the window comes out of the rocket (screen y): the top of its first panel. It slides up
+ * from behind the panel (the rocket is drawn over the stage), and nothing of it shows below this
+ * line, so it never crosses the panel.
+ */
+export function miniClipY(vw: number, vh: number, L: Layout): number {
+  return Math.round(firstPanel(vw, vh, L).top);
+}
+
+/** Its way out: from wholly under that line up to its place (transforms of its outer layer, px). */
+export function miniOutKeyframes(vw: number, vh: number, L: Layout): Keyframe[] {
   const rect = miniRect(vw, vh, L);
-  const bodyTop = vh - MINI.BOTTOM - L.box + L.ship.top + SHIP.F;
-  return { x: rect.left + MINI.W / 2, top: rect.top + rect.height, bottom: Math.round(bodyTop + 6) };
+  const down = miniClipY(vw, vh, L) - rect.top;
+  return [
+    { offset: 0, transform: `translateY(${down}px)`, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
+    { offset: 1, transform: 'translateY(0px)' },
+  ];
 }
 
 const r = (n: number, d = 4) => Number(n.toFixed(d));
 
-/** The window swollen (`MINI.SWELL`), about the middle of its bottom edge (it stays on its mast). */
+/** The window swollen (`MINI.SWELL`), about the middle of its bottom edge (it stays over its panel). */
 export function swollenRect(rect: MiniRect, k: number = MINI.SWELL): MiniRect {
   const width = rect.width * k;
   const height = rect.height * k;

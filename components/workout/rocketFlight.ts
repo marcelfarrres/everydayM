@@ -21,8 +21,9 @@ import type { RoutineItem } from '@/types/workout';
  *   3370   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
  *   ~4070  it is out of the top of the screen (it fades only once out, at 4220)
  *   4470   ...after a beat, it comes back from the left, from the depth
- *   6070   parked (it ran past its place and pulled back; a squash)
- *   6570   half a second later the banner springs out of the body: controls work again
+ *   6070   parked, at its real length (it ran past its place and pulled back; a squash)
+ *   6310   it stretches to the bar's whole length (DOCK)...
+ *   6570   ...and its panels slide up out of the hull: controls work again
  * Desktop keeps its bar and the clouds as they were (their hold is as long); only the clouds'
  * constants are shared.
  */
@@ -347,26 +348,77 @@ export const POD = {
   outMs: FLIGHT.foldMs,
 } as const;
 
-/**
- * A long rest with talks: the window of the next exercise (Stage) springs out just after the
- * banner, with the same bounce, so it reads as coming out of the rocket too.
- */
-export const PREVIEW = { lagMs: 200 } as const;
-/** ms after the rest begins (the clouds start) when the window starts to spring out. */
-export const PREVIEW_OUT_AFTER_REST_MS = PARKED_AFTER_CLOUDS_MS + POD.inDelayMs + PREVIEW.lagMs;
+// ---------------------------------------------------------------------------------------------
+// The player's bar (phone): its DOCK. In the bar the rocket always takes its whole length; in
+// flight and in the clouds it has its real one (shorter once stages have come off). It lands at
+// its real length; a moment later (the settle's squash) it stretches to the whole length, and then
+// its panels (the banner's heirs: the name and time, the controls; in a rest "Descanso" and
+// "Saltar") slide up out of the hull. To leave it goes the other way: the panels slide back in,
+// it shrinks to its real length, and it takes off (all within the takeoff's lead: launchLeadMs).
+// The banner of the creator's bar keeps POD.
 
-/** When the banner is fully out again (-Infinity: it already is; Infinity: it stays in). */
-export function podOutFrom(f: Flight): number {
-  const parked = parkedFrom(f);
-  return Number.isFinite(parked) ? parked + POD.inDelayMs + POD.inMs : parked;
+const STRETCH_AT_MS = 240;
+const STRETCH_MS = 260;
+
+export const DOCK = {
+  /** after it parks: it stretches from here, this long... */
+  stretchAtMs: STRETCH_AT_MS,
+  stretchMs: STRETCH_MS,
+  /** ...then its panels slide out (the second a little later); its controls work from then */
+  outAtMs: STRETCH_AT_MS + STRETCH_MS,
+  outMs: 200,
+  outStaggerMs: 60,
+  /** leaving: they slide in (the same stagger, quicker)... */
+  inMs: 110,
+  inStaggerMs: 30,
+  /** ...and it shrinks to its real length */
+  compressMs: 260,
+} as const;
+
+/** All the panels out, and all of them in. */
+export const PANELS_OUT_MS = DOCK.outMs + DOCK.outStaggerMs;
+export const PANELS_IN_MS = DOCK.inMs + DOCK.inStaggerMs;
+
+/**
+ * As a flight starts from `start`, when it shrinks to its real length (ms after the flight's
+ * start) and how long it takes: after its panels have gone in, and done before it moves off.
+ * (From its crouch it already has: the last second shrank it, see `prelaunchCompress`.)
+ */
+export function compressTiming(start: LaunchStart): { delay: number; ms: number } {
+  if (start === 'open') return { delay: PANELS_IN_MS, ms: DOCK.compressMs };
+  if (start === 'folded') return { delay: 0, ms: Math.min(DOCK.compressMs, PRELAUNCH.quickMs - 20) };
+  return { delay: 0, ms: 100 };
 }
 
-/** The banner can be seen (all of it, or springing out, or folding in). */
+/** The serie's last second: its panels go in (from `foldLeadS` left), then it shrinks (paused with the routine). */
+export const prelaunchCompress = { delay: PANELS_IN_MS, ms: DOCK.compressMs } as const;
+
+/** When it starts to stretch after landing (-Infinity: it already has; Infinity: it stays away). */
+export function stretchFrom(f: Flight): number {
+  const parked = parkedFrom(f);
+  return Number.isFinite(parked) ? parked + DOCK.stretchAtMs : parked;
+}
+
+/**
+ * A long rest with talks: the window of the next exercise (Stage) slides out of the rocket just
+ * after its panels, the same way, so it reads as coming out of the rocket too.
+ */
+export const PREVIEW = { lagMs: 200, outMs: 280 } as const;
+/** ms after the rest begins (the clouds start) when the window starts to come out. */
+export const PREVIEW_OUT_AFTER_REST_MS = PARKED_AFTER_CLOUDS_MS + DOCK.outAtMs + PREVIEW.lagMs;
+
+/** When the panels are fully out again (-Infinity: they already are; Infinity: they stay in). */
+export function podOutFrom(f: Flight): number {
+  const parked = parkedFrom(f);
+  return Number.isFinite(parked) ? parked + DOCK.outAtMs + PANELS_OUT_MS : parked;
+}
+
+/** The panels can be seen (all of them, or sliding out, or sliding in). */
 export function podShownAt(f: Flight, now: number): boolean {
   const phase = phaseAt(f, now);
-  if (phase === 'parked') return f.leftAt === null || now >= parkedFrom(f) + POD.inDelayMs;
-  // it folds in during the first moment of a takeoff or of the way into the clouds (a fade takes it at once)
-  return phase === 'leaving' && f.how !== 'fade' && !f.placed && f.leftAt !== null && now < f.leftAt + POD.outMs;
+  if (phase === 'parked') return f.leftAt === null || now >= parkedFrom(f) + DOCK.outAtMs;
+  // they go in during the first moment of a takeoff or of the way into the clouds (a fade takes them at once)
+  return phase === 'leaving' && f.how !== 'fade' && !f.placed && f.leftAt !== null && now < f.leftAt + PANELS_IN_MS;
 }
 
 /**
@@ -410,14 +462,14 @@ export const POD_BUMP_KEYFRAMES: FlightKeyframe[] = [
 /** Its controls can be pressed. */
 export function controlsLiveAt(f: Flight, now: number): boolean {
   if (phaseAt(f, now) !== 'parked') return false;
-  return f.leftAt === null || now >= parkedFrom(f) + POD.inDelayMs;
+  return f.leftAt === null || now >= parkedFrom(f) + DOCK.outAtMs;
 }
 
 /** When its controls change from dead to live next (null: they are live, or never will be). */
 export function controlsLiveFrom(f: Flight, now: number): number | null {
   const parked = parkedFrom(f);
   if (!Number.isFinite(parked)) return null;
-  const at = parked + POD.inDelayMs;
+  const at = parked + DOCK.outAtMs;
   return at > now ? at : null;
 }
 

@@ -5,18 +5,29 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronUp, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import { FlameDrawing, RocketShip, boxStyle, flameBox, type Piece } from '@/components/workout/RocketShip';
 import { dropBetween, rocketStack } from '@/components/workout/rocketStack';
-import { BANNER, SHIP, stackGeometry, widgetLayout, type ShipGeometry, type Stack, type WidgetLayout } from '@/components/workout/rocketShape';
+import {
+  PANEL,
+  SHIP,
+  lookTransform,
+  panelLayout,
+  stackGeometry,
+  widgetLayout,
+  type LookPair,
+  type LookPart,
+  type ShipGeometry,
+  type Stack,
+  type WidgetLayout,
+} from '@/components/workout/rocketShape';
 import {
   BLOCK_END,
   CLOUD_LEAVE_MS,
+  DOCK,
   FLIGHT,
   PAM_KEYFRAMES,
+  PANELS_IN_MS,
   PARKED,
   PRELAUNCH,
   PRELAUNCH_KEYFRAMES,
-  POD,
-  POD_BUMP_KEYFRAMES,
-  POD_FOLDED,
   RETURN_KEYFRAMES,
   SETTLE_KEYFRAMES,
   SHAKE,
@@ -28,6 +39,7 @@ import {
   arrival,
   cloudFlameKeyframes,
   cloudKeyframes,
+  compressTiming,
   controlsLiveAt,
   controlsLiveFrom,
   engineShake,
@@ -35,11 +47,11 @@ import {
   launchesAfter,
   nextFlight,
   phaseAt,
-  podPopKeyframes,
+  prelaunchCompress,
   railLeft,
   parkedFrom,
-  podRetractKeyframes,
   springBackKeyframes,
+  stretchFrom,
   sputterPuffKeyframes,
   sputtersBetween,
   warningFlame,
@@ -66,31 +78,40 @@ import { own } from './ui';
 /*
  * Phone: the widget at the bottom IS the rocket (RocketShip: slim, lying on its side, nose to the
  * right), low against the bottom of the screen, and it goes with you through the whole routine.
- * Its body carries only the hilo. Above it, on a short mast, a banner: the name (a tap opens the
- * list), the time left, and Anterior / Pausa / Siguiente ("Descanso", the time and "Saltar" in a
- * rest).
+ * Its body carries only the hilo. Parked in the bar it always takes its whole length (its stages
+ * stretched over the body: in flight and in the clouds it has its real one), and two panels stand
+ * on its hull, slid up out of it: the name (a tap opens the list) and the time left; and Anterior /
+ * Pausa / Siguiente ("Descanso · Luego: …" with the time, and "Saltar", in a rest).
+ *
+ *   dock      it lands at its real length, stretches to the whole length, and then its panels
+ *             slide out; to leave, the panels slide in, it shrinks, and it goes (DOCK). One state
+ *             (`dock`: which length it is drawn at, and when and how fast it gets there) and the
+ *             flight's own timeline: the stretch is a FLIP of transforms (useLook), anchored to
+ *             the flight's clock, or to the routine's in its last second (paused with it).
  *
  *   warm-up   between one clip and the next it tries to take off and can't (a cough, a hop with
  *             its nose up, a shake, and it drops back).
  *   last 3 s  before a rest or the end the engine lights: the flame grows each second, more and
- *             more exhaust, and the rocket shakes harder each second; the banner's text too.
- *   last 1 s  it pulls back towards its tail and compresses, more and more, and its banner folds
- *             in; at 0 it shoots off from that crouch ("Siguiente" before that: a quick crouch).
+ *             more exhaust, and the rocket shakes harder each second; the panels' text too.
+ *   last 1 s  its panels slide in and it shrinks to its real length; it pulls back towards its
+ *             tail and compresses, more and more; at 0 it shoots off from that crouch ("Siguiente"
+ *             before that: the panels in, it shrinks, a quick crouch, off).
  *   rest      it is "being repaired" (RepairCrew): two mechanics set it on stands and work on it,
- *             and run off just before the end. The banner stays put ("Saltar" is always under the
- *             finger). When the rest ends, "¡pam!": it drops into its place with a hard squash.
+ *             and run off just before the end. The panels stay put ("Saltar" is always under the
+ *             finger; the hull slides along them). When the rest ends, "¡pam!": it drops into its
+ *             place with a hard squash.
  *   flights   when a rest begins (from that crouch) it turns
  *             its nose up and climbs straight out of the top of the screen; only a beat later does
  *             the big rocket of the clouds (the same drawing, bigger) come up from below. Once that
- *             one has gone, a beat, and it comes back from the left and lands with a squash; half a
- *             second later the banner springs out. It arrives when the routine starts and takes
+ *             one has gone, a beat, and it comes back from the left and lands with a squash; then
+ *             it stretches and its panels slide out. It arrives when the routine starts and takes
  *             off one last time before the end screen.
  *
  * Where it is comes from `Flight` (rocketFlight.ts), a pure function of the clock: every flight is
  * put on the browser's animation timeline at once (Web Animations with delays, no chained timers),
  * so a skip, a pause, a hidden tab or a jump of the fixture always lands it in a defined pose.
- * Only transform and opacity move. Nothing in it can be pressed until its banner is coming out
- * (`inert`, kept in step with the flight by one effect that owns its timer, see useInertWhileAway).
+ * Only transform and opacity move. Nothing in it can be pressed until its panels are coming out
+ * (`inert`, kept in step with the flight by one effect that owns its timer, see useDockClock).
  */
 
 const INK = '#131313';
@@ -156,7 +177,15 @@ export function RocketWidget({
   const drawn = useMemo(() => rocketStack(queue, drawnAt), [queue, drawnAt]);
   const centred = useMemo(() => rocketStack(queue, centredAt), [queue, centredAt]);
   const L = useMemo(() => widgetLayout(width, centred), [width, centred]);
-  const g = useMemo(() => stackGeometry({ width: L.frame, ...drawn }), [L.frame, drawn]);
+  // its real length (centred: moved by L.ship.shift), and the bar's whole length
+  const gReal = useMemo(() => stackGeometry({ width: L.frame, ...drawn }), [L.frame, drawn]);
+  const gFull = useMemo(() => stackGeometry({ width: L.frame, ...drawn, stretch: true }), [L.frame, drawn]);
+  const pair = useMemo<LookPair>(() => ({ real: gReal, full: gFull, shift: L.ship.shift }), [gReal, gFull, L.ship.shift]);
+  // which of the two it is drawn at (and when and how fast it gets there: useLook)
+  const [dock, setDock] = useState<Dock>(AWAY);
+  const g = dock.stretched ? gFull : gReal;
+  const shift = dock.stretched ? 0 : L.ship.shift;
+  const P = panelLayout(L, drawn.boosters);
 
   // a part that has just come off falls away, turning slowly (in the clouds)
   const [shownStack, setShownStack] = useState<Stack>(drawn);
@@ -194,6 +223,8 @@ export function RocketWidget({
   const puffsEl = useRef<HTMLDivElement>(null);
   const podEl = useRef<HTMLDivElement>(null);
   const sparkleEl = useRef<HTMLDivElement>(null);
+  const shipEl = useRef<HTMLDivElement>(null);
+  const drawingEl = useRef<HTMLDivElement>(null);
   const [sounds] = useState(() => new FlightSoundPlayer());
   const flight = useRocketFlight({
     els: { flightEl, liftEl, squashEl, flameEl, puffsEl, podEl, sparkleEl },
@@ -204,6 +235,7 @@ export function RocketWidget({
     currentIndex,
     reduced,
     sounds,
+    onDock: setDock,
   });
   useEffect(() => sounds.setPaused(isPaused), [sounds, isPaused]);
   useEffect(() => {
@@ -211,7 +243,16 @@ export function RocketWidget({
     sounds.remount();
     return () => sounds.clear();
   }, [sounds]);
-  useInertWhileAway(root, flight, cloudKey, ending, queue, currentIndex, reduced);
+  // once a flight has landed it, it stretches (once per flight)
+  const dockedFor = useRef<Flight | null>(null);
+  const onParked = (f: Flight, now: number) => {
+    if (dockedFor.current === f) return;
+    dockedFor.current = f;
+    const at = stretchFrom(f);
+    setDock({ stretched: true, at: Number.isFinite(at) ? at : now, ms: reduced ? 0 : DOCK.stretchMs, pausable: false });
+  };
+  useDockClock(root, flight, onParked, cloudKey, ending, queue, currentIndex, reduced);
+  useLook(dock, pair, shipEl, drawingEl, isPaused);
 
   // ---- the list's 5 s: restarted by any touch, wheel or scroll inside the widget
   const [touch, setTouch] = useState(0);
@@ -244,12 +285,13 @@ export function RocketWidget({
   const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && !clockTab && live;
-  // the last second before a takeoff: it crouches, more and more, and its banner folds in
+  // the last second before a takeoff: its panels slide in, it shrinks, and it crouches, more and more
   const crouching = launching && timeLeft <= PRELAUNCH.foldLeadS && timeLeft > 0;
-  usePrelaunch(crouching, displayIndex, isPaused, flightEl, podEl);
+  usePrelaunch(crouching, displayIndex, isPaused, flightEl, podEl, flight, setDock);
 
-  // where the crew enters and leaves: the screen's edges, in the rocket's own px
-  const shipLeft = 6 + (width - L.B) / 2 + L.ship.left + L.ship.shift;
+  // where the crew enters and leaves: the screen's edges, in the rocket's own px (it works on the
+  // whole-length rocket, which is never moved)
+  const shipLeft = 6 + (width - L.B) / 2 + L.ship.left;
   const view = { left: -shipLeft, right: width + 12 - shipLeft };
   // when the crew starts (the rocket parked) and how long until the rest ends from then
   const crewTiming = () => {
@@ -265,6 +307,8 @@ export function RocketWidget({
   };
   const bannerW = L.banner.right - L.banner.left;
   const name = shown?.kind === 'warmup' ? 'Calentamiento' : shown?.kind === 'workout' ? shown.exercise.title : '';
+  // (a short hull, a narrow first panel: the time a little smaller, on the same line)
+  const timeClass = P.right - P.left < 230 ? 'text-[22px]' : 'text-[28px]';
 
   return (
     <div
@@ -276,7 +320,7 @@ export function RocketWidget({
       className="pointer-events-none fixed bottom-[max(6px,env(safe-area-inset-bottom))] left-[max(6px,env(safe-area-inset-left))] right-[max(6px,env(safe-area-inset-right))] z-[61] font-[family-name:var(--font-display)] text-ink"
     >
       <div className="relative mx-auto" style={{ width: L.B, height: L.box }}>
-        {/* the list, above the banner */}
+        {/* the list, above the panels */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
@@ -285,8 +329,8 @@ export function RocketWidget({
               animate={{ opacity: 1, transform: 'translateY(0px)' }}
               exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, transform: 'translateY(16px)' }}
               transition={{ duration: reduced ? 0 : 0.28, ease: [0.16, 1, 0.3, 1] }}
-              className="pointer-events-auto absolute bottom-full mb-2 overflow-hidden rounded-[20px] bg-[rgb(14_14_14/0.84)] text-white"
-              style={{ left: L.banner.left, width: bannerW }}
+              className="pointer-events-auto absolute overflow-hidden rounded-[20px] bg-[rgb(14_14_14/0.84)] text-white"
+              style={{ left: L.banner.left, width: bannerW, bottom: L.box - P.top + 8 }}
             >
               <SeriesList
                 id={listId}
@@ -300,29 +344,21 @@ export function RocketWidget({
           )}
         </AnimatePresence>
 
-        {/* THE ROCKET: flight (where it is) > the banner on its mast (behind the rocket), and
-            sink (the rest's weight) > bob > squash (settle, ¡pam!, cough) > shake (ignition) */}
+        {/* THE ROCKET: flight (where it is) > its panels (behind the rocket, out of its hull), and
+            the drawing: its length (useLook) > sink (the rest's weight) > squash (settle, ¡pam!,
+            cough) > shake (ignition) */}
         <div ref={flightEl} className="absolute inset-0" style={{ transformOrigin: `${L.center.x}px ${L.center.y}px` }}>
-          <div ref={podEl} data-rw="pod" className="absolute inset-0" style={{ transformOrigin: `${L.fold.x}px ${L.fold.y}px` }}>
-            {/* the mast: from behind the banner down into the body */}
+          <div ref={podEl} data-rw="pod" className="absolute inset-0">
+            {/* the panels, side by side on the hull's straight part: they slide up out of it and
+                back into it, clipped inside it (a little room above them for the focus rings) */}
             <div
-              aria-hidden="true"
-              className="pointer-events-none absolute border-x-2 border-ink bg-white"
-              style={{ left: L.mast.x - BANNER.MAST_W / 2, top: L.mast.top, width: BANNER.MAST_W, height: L.mast.bottom - L.mast.top }}
-            />
-            <div
-              data-rw="banner"
-              className="absolute flex items-center gap-0.5 rounded-[18px] border-2 border-ink bg-white pl-3 pr-[3px]"
-              style={boxStyle(L.banner)}
+              className="absolute flex overflow-hidden"
+              style={{ left: P.left, width: P.right - P.left, top: P.top - PANEL_ROOM, height: P.clip - P.top + PANEL_ROOM, paddingTop: PANEL_ROOM, gap: PANEL.SEAM }}
             >
-              {isExercise(shown) && (
-                <>
-                  {/* the name (a tap anywhere here opens the list) and the time left */}
-                  <div
-                    data-bar=""
-                    onClick={toggleList}
-                    className="pointer-events-auto flex min-w-0 flex-1 cursor-pointer flex-col justify-center self-stretch"
-                  >
+              <Panel rw="panel-1" grow below={P.clip - P.top - PANEL.H}>
+                {isExercise(shown) && (
+                  // the name (a tap anywhere here opens the list) and the time left
+                  <div data-bar="" onClick={toggleList} className="pointer-events-auto flex h-full min-w-0 flex-1 cursor-pointer flex-col justify-center pl-3 pr-1">
                     <div className={`flex min-w-0 flex-col ${shaking && ignition > 0 ? 'rw-jitter' : ''}`} style={shake(SHAKE.text[ignition])}>
                       <button
                         type="button"
@@ -340,38 +376,26 @@ export function RocketWidget({
                           className={`h-3.5 w-3.5 shrink-0 text-ink/55 transition-transform duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
                         />
                       </button>
-                      <span data-rw="time" role="timer" className="text-[28px] font-bold leading-[28px] tabular-nums tracking-[-0.02em]">
+                      <span data-rw="time" role="timer" className={`${timeClass} font-bold leading-[28px] tabular-nums tracking-[-0.02em]`}>
                         {time}
                       </span>
                     </div>
                   </div>
-                  <BannerButton rw="prev" label="Anterior" onClick={guarded(onPrev)} disabled={!canPrev}>
-                    <SkipBack className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
-                  </BannerButton>
-                  <BannerButton rw="pause" label={isPaused ? 'Reanudar' : 'Pausar'} onClick={() => onTogglePause?.()} strong>
-                    {isPaused ? (
-                      <Play className="ml-0.5 h-[19px] w-[19px] fill-current" aria-hidden="true" />
-                    ) : (
-                      <Pause className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
-                    )}
-                  </BannerButton>
-                  <BannerButton rw="next" label="Siguiente" onClick={guarded(onNext)}>
-                    <SkipForward className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
-                  </BannerButton>
-                </>
-              )}
-
-              {shown?.kind === 'rest' && (
-                <>
-                  <div className="flex min-w-0 flex-1 flex-col justify-center">
+                )}
+                {shown?.kind === 'rest' && (
+                  <div className="flex h-full min-w-0 flex-1 flex-col justify-center pl-3 pr-2">
                     {clockTab && !restCountdown ? (
-                      // (the clock is the tab at its corner)
-                      <p data-rw="rest" className="text-[15px] font-semibold leading-[18px]">
-                        Descanso
-                        <span data-rw="later" className="block truncate font-medium text-ink/60">
-                          Luego: {shown.nextExercise.title}
-                        </span>
-                      </p>
+                      <>
+                        <p data-rw="rest" className="truncate text-[15px] font-semibold leading-[18px]">
+                          Descanso
+                          <span data-rw="later" className="font-medium text-ink/60">
+                            {' '}
+                            · Luego: {shown.nextExercise.title}
+                          </span>
+                        </p>
+                        {/* (the rest's countdown comes to stand here: RestClock) */}
+                        <span aria-hidden="true" className="block h-[28px]" />
+                      </>
                     ) : showRestTime ? (
                       <>
                         <p data-rw="rest" className="truncate text-[15px] font-semibold leading-[18px]">
@@ -391,57 +415,86 @@ export function RocketWidget({
                         </span>
                       </>
                     ) : (
-                      // the giant countdown is on the video: the banner doesn't repeat it
+                      // the giant countdown is on the video: the panel doesn't repeat it
                       <p data-rw="rest" className="truncate text-[20px] font-semibold leading-tight">
                         Descanso
                       </p>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    data-rw="skip"
-                    onClick={own(guarded(onNext))}
-                    className="pointer-events-auto flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-ink pl-4 pr-3.5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-ink/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-95 motion-reduce:active:scale-100"
-                  >
-                    Saltar
-                    <SkipForward className="h-[17px] w-[17px] fill-current" aria-hidden="true" />
-                  </button>
-                </>
-              )}
+                )}
+              </Panel>
+              <Panel rw="panel-2" below={P.clip - P.top - PANEL.H}>
+                {isExercise(shown) && (
+                  <div className="flex h-full items-center">
+                    <BannerButton rw="prev" label="Anterior" onClick={guarded(onPrev)} disabled={!canPrev}>
+                      <SkipBack className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+                    </BannerButton>
+                    <BannerButton rw="pause" label={isPaused ? 'Reanudar' : 'Pausar'} onClick={() => onTogglePause?.()} strong>
+                      {isPaused ? (
+                        <Play className="ml-0.5 h-[19px] w-[19px] fill-current" aria-hidden="true" />
+                      ) : (
+                        <Pause className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+                      )}
+                    </BannerButton>
+                    <BannerButton rw="next" label="Siguiente" onClick={guarded(onNext)}>
+                      <SkipForward className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+                    </BannerButton>
+                  </div>
+                )}
+                {shown?.kind === 'rest' && (
+                  <div className="flex h-full items-center px-[3px]">
+                    <button
+                      type="button"
+                      data-rw="skip"
+                      onClick={own(guarded(onNext))}
+                      className="pointer-events-auto flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-ink pl-4 pr-3.5 text-[16px] font-semibold text-white transition-colors duration-150 hover:bg-ink/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-95 motion-reduce:active:scale-100"
+                    >
+                      Saltar
+                      <SkipForward className="h-[17px] w-[17px] fill-current" aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
+              </Panel>
             </div>
           </div>
 
-          {/* (what is left of the rocket stands centred: its drawing moves by the missing half) */}
-          <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H, transform: `translateX(${L.ship.shift}px)` }}>
-            {/* the lift: on the stands of a rest (and its jolts) */}
-            <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
-              <div className="absolute inset-0">
-                {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
-                <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
-                  <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
-                    <RocketShip
-                      g={g}
-                      hilo={hilo}
-                      className="absolute left-0 top-0"
-                      behind={
-                        <>
-                          <WarningFlame g={g} level={warning} on={warned} />
-                          <IgnitionFlame g={g} level={ignition} />
-                          <FlightFlame g={g} flameRef={flameEl} />
-                          <Exhaust g={g} level={ignition} paused={isPaused} />
-                          <SputterPuffs g={g} puffsRef={puffsEl} />
-                        </>
-                      }
-                    />
-                    {/* a tap on the body opens the list too */}
-                    {isExercise(shown) && (
-                      <div
-                        data-bar=""
-                        onClick={toggleList}
-                        className="pointer-events-auto absolute cursor-pointer"
-                        style={{ ...boxStyle({ left: g.x0, right: g.tip, top: SHIP.F, bottom: SHIP.F + SHIP.T }), borderRadius: 6 }}
-                      />
-                    )}
+          {/* the rocket: its frame stands where the whole rocket stands */}
+          <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
+            {/* (at its real length what is left of it stands centred: its drawing moves by the missing half) */}
+            <div ref={shipEl} data-rw="ship" className="absolute inset-0" style={{ transform: `translateX(${shift}px)` }}>
+              {/* the lift: on the stands of a rest (and its jolts) */}
+              <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
+                <div className="absolute inset-0">
+                  {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
+                  <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
+                    <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
+                      <div ref={drawingEl} className="absolute inset-0">
+                        <RocketShip
+                          g={g}
+                          hilo={hilo}
+                          className="absolute left-0 top-0"
+                          behind={
+                            // (all of it hangs from the tail: it moves with the tail as the rocket stretches)
+                            <div data-part="tail" className="absolute inset-0">
+                              <WarningFlame g={g} level={warning} on={warned} />
+                              <IgnitionFlame g={g} level={ignition} />
+                              <FlightFlame g={g} flameRef={flameEl} />
+                              <Exhaust g={g} level={ignition} paused={isPaused} />
+                              <SputterPuffs g={g} puffsRef={puffsEl} />
+                            </div>
+                          }
+                        />
+                      </div>
+                      {/* a tap on the body opens the list too */}
+                      {isExercise(shown) && (
+                        <div
+                          data-bar=""
+                          onClick={toggleList}
+                          className="pointer-events-auto absolute cursor-pointer"
+                          style={{ ...boxStyle({ left: g.x0, right: g.tip, top: SHIP.F, bottom: SHIP.F + SHIP.T }), borderRadius: 6 }}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -449,8 +502,8 @@ export function RocketWidget({
             {crewOn && (
               <RepairCrew
                 // (its places are taken once it is on: anew if the rocket changes in the clouds)
-                key={`${crewAt}:${g.first}:${g.boosters ? 1 : 0}:${L.ship.shift}`}
-                g={g}
+                key={`${crewAt}:${gFull.first}:${gFull.boosters ? 1 : 0}`}
+                g={gFull}
                 timing={crewTiming}
                 calm={crewRest.talks.length > 0}
                 paused={isPaused}
@@ -461,7 +514,7 @@ export function RocketWidget({
               />
             )}
             {/* "listo": a sparkle on the nose as it drops into its place */}
-            <div ref={sparkleEl} aria-hidden="true" className="pointer-events-none absolute" style={{ left: g.tip - 22, top: SHIP.F - 14, width: 16, height: 16, opacity: 0 }}>
+            <div ref={sparkleEl} aria-hidden="true" className="pointer-events-none absolute" style={{ left: gFull.tip - 22, top: SHIP.F - 14, width: 16, height: 16, opacity: 0 }}>
               <svg viewBox="-8 -8 16 16" className="block h-full w-full overflow-visible" fill="#fff" stroke={INK} strokeWidth={1.3} strokeLinejoin="round">
                 <path d="M0 -8 L1.8 -1.8 L8 0 L1.8 1.8 L0 8 L-1.8 1.8 L-8 0 L-1.8 -1.8 Z" />
               </svg>
@@ -487,34 +540,204 @@ interface FlightEls {
   sparkleEl: RefObject<HTMLDivElement | null>;
 }
 
-/** The crouch of the last second and its banner folding in, as the animations' ids. */
-const CROUCH_ID = 'rw-crouch';
-const FOLD_ID = 'rw-crouch-fold';
-const prelaunchOf = (...nodes: (HTMLElement | null)[]) =>
-  nodes.flatMap((node) => node?.getAnimations().filter((a) => a.id === CROUCH_ID || a.id === FOLD_ID) ?? []);
+// ---------------------------------------------------------------------------------------------
+// The dock: which length the rocket is drawn at, and its panels
 
 /**
- * The last second of a serie before a takeoff: the rocket crouches (over the second that is left,
- * paused with the routine) and its banner folds in for the last third of it. The takeoff then goes
- * from there: the flight (whose effect runs first) reads how far it got and takes over. If no
- * takeoff came (a rewind, "Anterior"), it stands up again.
+ * The rocket's length in the bar: drawn stretched (the whole length) or at its real length, and
+ * when (performance.now() ms) and how fast it gets there from wherever it looks now (`pausable`:
+ * on the routine's clock, paused with it: its last second; otherwise on the flight's).
  */
-function usePrelaunch(on: boolean, at: number, paused: boolean, flightEl: RefObject<HTMLDivElement | null>, podEl: RefObject<HTMLDivElement | null>) {
+interface Dock {
+  stretched: boolean;
+  at: number;
+  ms: number;
+  pausable: boolean;
+}
+const AWAY: Dock = { stretched: false, at: 0, ms: 0, pausable: false };
+const STRETCH_EASE = 'cubic-bezier(0.3, 0, 0.2, 1)';
+
+/**
+ * The stretch, played: the drawing is at the length `dock` says (the parts of RocketShip are
+ * drawn for it), and from the moment it changes, transforms (lookTransform) show it as it looked
+ * before and take it to the new length, over `ms` from `at` (an animation of every part, one
+ * easing: no layout moves). A new dock goes on from wherever the last one had got to. Nothing
+ * to animate at the end: the parts' transforms are then none.
+ */
+function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | null>, drawingEl: RefObject<HTMLDivElement | null>, paused: boolean) {
+  const look = useRef<{ anims: Animation[]; from: number; to: number; dock: Dock } | null>(null);
+  const pausedNow = useRef(paused);
+  useLayoutEffect(() => {
+    pausedNow.current = paused;
+  });
+  useLayoutEffect(() => {
+    const ship = shipEl.current;
+    const drawing = drawingEl.current;
+    if (!ship || !drawing) return;
+    const to = dock.stretched ? 1 : 0;
+    const prev = look.current;
+    // (the same dock with a new drawing: the same way again, for the new parts)
+    const from = prev && prev.dock === dock ? prev.from : prev ? lookNow(prev) : to;
+    prev?.anims.forEach((a) => a.cancel());
+    // (where it settles: what the next dock starts from)
+    look.current = { anims: [], from: to, to, dock };
+    if (Math.abs(from - to) < 0.001 || dock.ms <= 0) return;
+    const now = performance.now();
+    const timing: KeyframeAnimationOptions = { delay: dock.at - now, duration: dock.ms, easing: STRETCH_EASE, fill: 'both' };
+    const anims: Animation[] = [];
+    const run = (node: Element, part: LookPart) => {
+      const a = node.animate([{ transform: lookTransform(pair, to, from, part) }, { transform: lookTransform(pair, to, to, part) }], timing);
+      // (anchored to the clock, like the flight; its last second runs on the routine's)
+      if (!dock.pausable) a.startTime = now;
+      else if (pausedNow.current) a.pause();
+      anims.push(a);
+    };
+    run(ship, { kind: 'shift' });
+    const drawn = to ? pair.full : pair.real;
+    drawing.querySelectorAll('[data-part]').forEach((node) => {
+      const kind = node.getAttribute('data-part');
+      if (kind === 'tail') return run(node, { kind: 'tail' });
+      const block = Number(node.getAttribute('data-piece')?.replace('seg-', ''));
+      if (!Number.isFinite(block)) return;
+      if (kind === 'start' || kind === 'end') run(node, { kind, block });
+      else if (kind === 'body') {
+        const hilo = node.getAttribute('data-rocket') === 'hilo';
+        run(node, { kind: 'body', block, left: hilo ? (drawn.segments.find((s) => s.block === block)?.content.left ?? 0) : 0 });
+      }
+    });
+    look.current = { anims, from, to, dock };
+  }, [dock, pair, shipEl, drawingEl]);
+  useEffect(() => {
+    const l = look.current;
+    if (!l?.dock.pausable) return;
+    l.anims.forEach((a) => {
+      if (a.playState === 'finished') return;
+      if (paused) a.pause();
+      else a.play();
+    });
+  }, [paused, dock]);
+}
+
+/** Where a stretch under way has got to (its look: 0 real, 1 stretched). */
+function lookNow(l: { anims: Animation[]; from: number; to: number }): number {
+  const p = l.anims[0]?.effect?.getComputedTiming().progress;
+  return p === null || p === undefined ? l.to : l.from + (l.to - l.from) * p;
+}
+
+/** A little room above the panels in their clip (the name's focus ring). */
+const PANEL_ROOM = 6;
+const PANEL_HIDDEN = 'translateY(100%)';
+const PANEL_SHOWN = 'translateY(0%)';
+
+/** The panels in the pod (each one slides on its own). */
+const panelsOf = (pod: HTMLElement | null) => (pod ? Array.from(pod.querySelectorAll<HTMLElement>('[data-panel]')) : []);
+
+/**
+ * The panels slide out of the hull or back into it, one a little after the other (`fill`: held
+ * where they start until then, and/or where they end). `anchor`: the flight's clock.
+ */
+function slidePanels(
+  pod: HTMLElement,
+  move: 'out' | 'in',
+  { delay = 0, fill, id, anchor }: { delay?: number; fill: FillMode; id?: string; anchor?: number },
+): Animation[] {
+  const out = move === 'out';
+  return panelsOf(pod).map((panel, i) => {
+    const a = panel.animate(out ? [{ transform: PANEL_HIDDEN }, { transform: PANEL_SHOWN }] : [{ transform: PANEL_SHOWN }, { transform: PANEL_HIDDEN }], {
+      duration: out ? DOCK.outMs : DOCK.inMs,
+      delay: delay + i * (out ? DOCK.outStaggerMs : DOCK.inStaggerMs),
+      easing: out ? 'cubic-bezier(0.2, 0.8, 0.3, 1)' : 'cubic-bezier(0.5, 0, 0.85, 0.45)',
+      fill,
+      id,
+    });
+    if (anchor !== undefined) a.startTime = anchor;
+    return a;
+  });
+}
+
+/** The panels held inside the hull (until something takes them out). */
+function holdPanelsIn(pod: HTMLElement, anchor?: number) {
+  panelsOf(pod).forEach((panel) => {
+    const a = panel.animate([{ transform: PANEL_HIDDEN }, { transform: PANEL_HIDDEN }], { duration: 1, fill: 'forwards' });
+    if (anchor !== undefined) a.startTime = anchor;
+  });
+}
+
+/** Every slide of the panels stops (their resting place is out). */
+const cancelPanels = (pod: HTMLElement) => panelsOf(pod).forEach((panel) => panel.getAnimations().forEach((a) => a.cancel()));
+
+/** The panels are in (or mostly). */
+function panelsIn(pod: HTMLElement): boolean {
+  const panel = panelsOf(pod)[0];
+  if (!panel) return true;
+  const t = getComputedStyle(panel).transform;
+  return t !== 'none' && new DOMMatrix(t).m42 > panel.offsetHeight / 2;
+}
+
+/**
+ * A panel: white, the ink line, its top corners rounded, standing on the hull (it reaches down
+ * into it, hidden behind it), with two rivets low at its ends.
+ */
+function Panel({ rw, grow = false, below, children }: { rw: string; grow?: boolean; below: number; children?: React.ReactNode }) {
+  return (
+    <div
+      data-panel=""
+      data-rw={rw}
+      className={`relative h-full rounded-t-[12px] border-[1.5px] border-b-0 border-ink bg-white ${grow ? 'flex min-w-0 flex-1' : 'flex shrink-0'}`}
+      style={{ paddingBottom: below }}
+    >
+      {children}
+      <span aria-hidden="true" className="pointer-events-none absolute left-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H - 8 }} />
+      <span aria-hidden="true" className="pointer-events-none absolute right-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H - 8 }} />
+    </div>
+  );
+}
+
+/** The crouch of the last second and its panels going in, as the animations' ids. */
+const CROUCH_ID = 'rw-crouch';
+const FOLD_ID = 'rw-crouch-fold';
+const prelaunchOf = (node: HTMLElement | null, pod: HTMLElement | null) =>
+  [...(node?.getAnimations() ?? []), ...panelsOf(pod).flatMap((p) => p.getAnimations())].filter((a) => a.id === CROUCH_ID || a.id === FOLD_ID);
+
+/**
+ * The last second of a serie before a takeoff: its panels slide into the hull, it shrinks to its
+ * real length, and it crouches (over the second that is left, all paused with the routine). The
+ * takeoff then goes from there: the flight (whose effect runs first) reads how far it got and
+ * takes over. If no takeoff came (a rewind, "Anterior"), it stretches again, stands up, and its
+ * panels come out again.
+ */
+function usePrelaunch(
+  on: boolean,
+  at: number,
+  paused: boolean,
+  flightEl: RefObject<HTMLDivElement | null>,
+  podEl: RefObject<HTMLDivElement | null>,
+  flight: RefObject<Flight>,
+  onDock: (dock: Dock) => void,
+) {
   useLayoutEffect(() => {
     const node = flightEl.current;
-    const banner = podEl.current;
-    if (!node || !banner) return;
+    const pod = podEl.current;
+    if (!node || !pod) return;
+    const now = performance.now();
     if (!on) {
-      prelaunchOf(node, banner).forEach((a) => a.cancel());
+      const left = prelaunchOf(node, pod);
+      if (!left.length) return;
+      left.forEach((a) => a.cancel());
+      // (a flight took over: it owns the rocket now)
+      if (phaseAt(flight.current, now) !== 'parked') return;
+      onDock({ stretched: true, at: now, ms: DOCK.stretchMs, pausable: false });
+      slidePanels(pod, 'out', { delay: DOCK.stretchMs, fill: 'both' });
       return;
     }
-    if (prelaunchOf(node).length) return;
-    // the banner folds in first, and only then does the rocket move (its crouch)
+    if (prelaunchOf(node, null).length) return;
+    // the panels go in first, it shrinks, and only then does the rocket move (its crouch)
     const crouchMs = PRELAUNCH.leadS * 1000;
-    banner.animate(podRetractKeyframes(), { id: FOLD_ID, duration: POD.outMs, fill: 'forwards' });
+    slidePanels(pod, 'in', { id: FOLD_ID, fill: 'forwards' });
     playSfx('banner');
+    onDock({ stretched: false, at: now + prelaunchCompress.delay, ms: prelaunchCompress.ms, pausable: true });
     node.animate(PRELAUNCH_KEYFRAMES, { id: CROUCH_ID, duration: crouchMs, delay: (PRELAUNCH.foldLeadS - PRELAUNCH.leadS) * 1000, fill: 'forwards' });
-  }, [on, at, flightEl, podEl]);
+  }, [on, at, flightEl, podEl, flight, onDock]);
   useLayoutEffect(() => {
     prelaunchOf(flightEl.current, podEl.current).forEach((a) => {
       if (a.playState === 'finished') return;
@@ -533,6 +756,7 @@ function useRocketFlight({
   currentIndex,
   reduced,
   sounds,
+  onDock,
 }: {
   els: FlightEls;
   /** its place in the clouds, measured now */
@@ -544,13 +768,17 @@ function useRocketFlight({
   reduced: boolean;
   /** the flight's sounds, put on the timeline with it */
   sounds: FlightSoundPlayer;
+  /** its length as the flight starts (see Dock) */
+  onDock: (dock: Dock) => void;
 }): RefObject<Flight> {
   const flight = useRef<Flight>(PARKED);
   const seen = useRef<{ cloudKey: number; ending: boolean; queue: RoutineItem[]; item: RoutineItem | undefined } | null>(null);
   const refs = useRef(els);
   const spot = useRef(spotOf);
+  const dock = useRef(onDock);
   useLayoutEffect(() => {
     spot.current = spotOf;
+    dock.current = onDock;
   });
 
   useLayoutEffect(() => {
@@ -590,7 +818,8 @@ function useRocketFlight({
           el.lift.getAnimations().forEach((a) => a.cancel());
           el.squash.animate(PAM_KEYFRAMES, { duration: FLIGHT.pamMs });
           if (y < -0.5) el.lift.animate(springBackKeyframes({ y, rz: 0 }), { duration: STANDS.springMs });
-          el.pod.animate(POD_BUMP_KEYFRAMES, { duration: 380 });
+          // (its panels give a little with it: a dip into the hull and back)
+          panelsOf(el.pod).forEach((panel) => panel.animate(PANEL_BUMP, { duration: 380 }));
           el.sparkle.animate(
             [
               { opacity: 0, transform: 'scale(0.2) rotate(0deg)' },
@@ -602,18 +831,12 @@ function useRocketFlight({
           );
         }
       } else if (!reduced && sputtersBetween(prev.item, item)) {
-        // one warm-up clip to the next: it tries to take off and can't (its banner folds in first,
-        // nothing moves with it out, and springs out again after)
-        const wait = POD.outMs;
-        // (one animation: in, held in while it coughs, out again)
-        const total = wait + SPUTTER.ms + POD.inMs;
-        el.pod.animate(
-          [
-            ...podRetractKeyframes().map((k) => ({ ...k, offset: (k.offset * wait) / total })),
-            ...podPopKeyframes().map((k) => ({ ...k, offset: (wait + SPUTTER.ms + k.offset * POD.inMs) / total })),
-          ],
-          { duration: total },
-        );
+        // one warm-up clip to the next: it tries to take off and can't (its panels slide in first,
+        // nothing moves with them out, and slide out again after; with its boosters on it has its
+        // whole length already: nothing to stretch)
+        const wait = PANELS_IN_MS;
+        slidePanels(el.pod, 'in', { fill: 'forwards' });
+        slidePanels(el.pod, 'out', { delay: wait + SPUTTER.ms, fill: 'both' });
         el.squash.animate(SPUTTER_KEYFRAMES, { duration: SPUTTER.ms, delay: wait });
         el.flame.animate(SPUTTER_FLAME_KEYFRAMES, { duration: SPUTTER.ms, delay: wait });
         Array.from(el.puffs.children).forEach((puff, i) =>
@@ -631,12 +854,20 @@ function useRocketFlight({
     // from the crouch of its last second, if it got that far (otherwise a quick one first)
     const c = el.flight.getAnimations().find((a) => a.id === CROUCH_ID);
     const crouched = c ? c.playState === 'finished' || (c.effect?.getComputedTiming().progress ?? 0) > 0.25 : false;
-    // (a banner already folded in by the last second stays folded)
-    const start: LaunchStart = crouched ? 'crouched' : Number(getComputedStyle(el.pod).opacity) < 0.5 ? 'folded' : 'open';
+    // (panels already in, from the last second, stay in)
+    const start: LaunchStart = crouched ? 'crouched' : panelsIn(el.pod) ? 'folded' : 'open';
     playFlight(next, now, reduced, start, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
     // its sounds, on the same timeline (with reduced motion nothing flies: no sound)
     if (reduced) sounds.clear();
     else sounds.play(flightSounds(next, start));
+    // Its length: leaving from its place, it shrinks to its real length once its panels are in and
+    // before it moves off; any other flight finds it away (or coming back): real at once. (With
+    // reduced motion it never flies away: it keeps the whole length.)
+    if (!reduced) {
+      const leaves = next.leftAt === now && next.how !== 'fade' && !next.placed;
+      const c = compressTiming(start);
+      dock.current(leaves ? { stretched: false, at: now + c.delay, ms: c.ms, pausable: false } : { stretched: false, at: now, ms: 0, pausable: false });
+    }
     // (`sounds` never changes)
   }, [cloudKey, ending, queue, currentIndex, reduced, sounds]);
 
@@ -644,14 +875,24 @@ function useRocketFlight({
 }
 
 /**
- * The widget is `inert` exactly while its controls can't be used (see controlsLiveAt). One effect
- * owns the timer that hands control back: it runs after every flight and again whenever it mounts
- * (React's dev double mount included), and on coming back to the tab, so the timer can never be
- * lost. (It used to be set by the flight and cleared by another effect's cleanup: the dev double
- * mount cleared it and left the widget inert from the start of the routine until the first rest.)
+ * The widget is `inert` exactly while its controls can't be used (see controlsLiveAt), and once a
+ * flight has landed it the rocket is docked (`onParked`: it stretches, on the flight's clock). One
+ * effect owns the timer for both: it runs after every flight and again whenever it mounts (React's
+ * dev double mount included), and on coming back to the tab, so the timer can never be lost. (It
+ * used to be set by the flight and cleared by another effect's cleanup: the dev double mount
+ * cleared it and left the widget inert from the start of the routine until the first rest.)
  */
-function useInertWhileAway(root: RefObject<HTMLDivElement | null>, flight: RefObject<Flight>, ...moment: [number, boolean, RoutineItem[], number, boolean]) {
+function useDockClock(
+  root: RefObject<HTMLDivElement | null>,
+  flight: RefObject<Flight>,
+  onParked: (f: Flight, now: number) => void,
+  ...moment: [number, boolean, RoutineItem[], number, boolean]
+) {
   const [cloudKey, ending, queue, currentIndex, reduced] = moment;
+  const parked = useRef(onParked);
+  useLayoutEffect(() => {
+    parked.current = onParked;
+  });
   useEffect(() => {
     const node = root.current;
     if (!node) return;
@@ -659,9 +900,11 @@ function useInertWhileAway(root: RefObject<HTMLDivElement | null>, flight: RefOb
     const sync = () => {
       clearTimeout(timer);
       const now = performance.now();
-      node.toggleAttribute('inert', !controlsLiveAt(flight.current, now));
-      const at = controlsLiveFrom(flight.current, now);
-      if (at !== null) timer = setTimeout(sync, at - now + 16);
+      const f = flight.current;
+      node.toggleAttribute('inert', !controlsLiveAt(f, now));
+      if (phaseAt(f, now) === 'parked') parked.current(f, now);
+      const next = [controlsLiveFrom(f, now), parkedFrom(f)].filter((t): t is number => t !== null && Number.isFinite(t) && t > now);
+      if (next.length) timer = setTimeout(sync, Math.min(...next) - now + 16);
     };
     sync();
     const onVisible = () => {
@@ -764,6 +1007,7 @@ function playFlight(
   const from = { transform: style.transform === 'none' ? 'none' : style.transform, opacity: Number(style.opacity) };
   const podOpacity = Number(getComputedStyle(el.pod).opacity);
   [el.flight, el.lift, el.squash, el.flame, el.pod].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
+  cancelPanels(el.pod);
   if (f.leftAt === null) return;
 
   const leaves = Number.isFinite(f.leftAt);
@@ -774,19 +1018,16 @@ function playFlight(
   const run = (node: HTMLElement, keys: Keyframe[], options: KeyframeAnimationOptions) => {
     node.animate(keys, options).startTime = now;
   };
-  const podIn = [{ opacity: 0, transform: POD_FOLDED }];
-  // the banner folds in before the rocket moves (see launchLeadMs), unless it already has
-  const foldIn = (at: number) =>
-    start !== 'open'
-      ? run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' })
-      : run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
+  const podIn = () => holdPanelsIn(el.pod, now);
+  // the panels slide into the hull before the rocket moves (see launchLeadMs), unless they already have
+  const foldIn = (at: number) => (start !== 'open' ? podIn() : slidePanels(el.pod, 'in', { delay: at, fill: 'forwards', anchor: now }));
 
   if (leaves) {
     const at = delay(f.leftAt);
     if (f.how === 'clouds' && !reduced) {
       // off to the right from its crouch, up from below in the clouds, and out of the top
       if (!f.placed) foldIn(at);
-      else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
+      else podIn();
       const extra = f.extra ?? 0;
       run(el.flight, cloudKeyframes(spotOf(), f.placed, start, extra), { duration: CLOUD_LEAVE_MS + extra, delay: at, fill: 'forwards' });
       run(el.flame, cloudFlameKeyframes(f.placed, start, extra), { duration: CLOUD_LEAVE_MS + extra, delay: at, fill: 'forwards' });
@@ -816,14 +1057,14 @@ function playFlight(
         { duration: FLIGHT.fadeMs, delay: at, fill: 'forwards' },
       );
       if (reduced) run(el.pod, [{ opacity: podOpacity }, { opacity: 0 }], { duration: FLIGHT.fadeMs, delay: at, fill: 'forwards' });
-      else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
+      else podIn();
     }
   }
 
   if (f.returnAt === null) {
     if (!leaves) {
       run(el.flight, [{ opacity: 0 }, { opacity: 0 }], { duration: 1, fill: 'forwards' });
-      run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
+      podIn();
     }
     return;
   }
@@ -833,7 +1074,7 @@ function playFlight(
   const parkedAt = at + FLIGHT.returnMs;
   if (reduced) {
     run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill });
-    run(el.pod, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: parkedAt + POD.inDelayMs, fill });
+    run(el.pod, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: parkedAt + DOCK.outAtMs, fill });
     return;
   }
   run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill });
@@ -850,10 +1091,17 @@ function playFlight(
     { duration: FLIGHT.returnMs, delay: at, fill },
   );
   run(el.squash, SETTLE_KEYFRAMES, { duration: FLIGHT.settleMs, delay: parkedAt - FLIGHT.settleMs * 0.35 });
-  // half a second after it has landed, the banner springs out of the body (held in until then: by
-  // its folding in, or with none, by this one's first frame)
-  run(el.pod, podPopKeyframes(), { duration: POD.inMs, delay: parkedAt + POD.inDelayMs, fill });
+  // once it has landed and stretched (useDockClock: from parkedFrom + DOCK.stretchAtMs), its panels
+  // slide out of the hull (held in until then: by their going in, or with none, by these' first frames)
+  slidePanels(el.pod, 'out', { delay: parkedAt + DOCK.outAtMs, fill: leaves ? 'forwards' : 'both', anchor: now });
 }
+
+/** The panels give a little as the rocket drops into its place ("¡pam!"): a dip into the hull and back. */
+const PANEL_BUMP: Keyframe[] = [
+  { offset: 0, transform: 'translateY(5px)', easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' },
+  { offset: 0.55, transform: 'translateY(-1.5px)', easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
+  { offset: 1, transform: 'translateY(0px)' },
+];
 
 // ---------------------------------------------------------------------------------------------
 // The banner's buttons

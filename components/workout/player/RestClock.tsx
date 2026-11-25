@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, type CSSProperties } from 'react';
 import { WORDS, railLeft } from '@/components/workout/rocketFlight';
-import { widgetLayout } from '@/components/workout/rocketShape';
+import { PANEL_TIME, panelLayout, widgetLayout } from '@/components/workout/rocketShape';
 import { useRocketWidth } from './hooks';
 import { MINI } from './miniHandoff';
 import { layoutSpot } from './ui';
@@ -14,10 +14,10 @@ import { layoutSpot } from './ui';
  *            rocket stands on the left), in ink: the rest is already counting
  *   center   as the clouds open it slides from there to its place in the middle, giant, white on
  *            the dark veil over the next exercise, with "Empiezas en" above it
- *   hidden   a long rest's talks are playing and the rocket's banner is not out yet: it fades
+ *   hidden   a long rest's talks are playing and the rocket's panels are not out yet: it fades
  *            out as the clouds open...
- *   side     ...and comes back with the banner, as part of it: a tab on its top right corner, in
- *            ink (the banner then doesn't show the time itself); to the middle when the talks end
+ *   side     ...and comes back with the panels, as part of them: in the first one, where its time
+ *            would be, in ink (the panel then leaves that place to it); to the middle when the talks end
  *
  * The slide is a transform from where it stands in the middle (measured once per change, without
  * transforms) to the column of the clouds or the side; the colour changes as a cross-fade of two copies, so
@@ -32,10 +32,8 @@ const COLUMN = { phone: 40, wide: 56, belowTop: 20, lift: 4 } as const;
 
 export type RestClockPhase = 'clouds' | 'side' | 'center' | 'hidden';
 
-/** Its size at the side, px, in the tab over the banner's right end. */
+/** Its size at the side, px: in the rocket's first panel, as big as the panel's own time. */
 export const SIDE_CLOCK_PX = 28;
-/** The tab: its height (px, its bottom edge on the banner's top line), padding and corner. */
-export const CLOCK_TAB = { H: 38, PAD: 12, CORNER: 50, POP_MS: 560 } as const;
 
 export function RestClock({
   seconds,
@@ -54,7 +52,6 @@ export function RestClock({
 }) {
   const value = Math.max(0, Math.round(seconds));
   const number = useRef<HTMLParagraphElement>(null);
-  const tab = useRef<HTMLDivElement>(null);
   const was = useRef<RestClockPhase | null>(null);
   const width = useRocketWidth();
 
@@ -87,19 +84,12 @@ export function RestClock({
         top = (cloudTop / 100) * vh + COLUMN.belowTop;
       }
     } else {
-      // in the tab on the banner's top right corner
+      // in the rocket's first panel, where its own time would be (the rest's panel leaves it that place)
       const L = widgetLayout(width);
+      const P = panelLayout(L);
       k = SIDE_CLOCK_PX / el.offsetHeight;
-      const bannerTop = vh - MINI.BOTTOM - L.box + L.banner.top;
-      const w = Math.round(el.offsetWidth * k + 2 * CLOCK_TAB.PAD);
-      const right = (vw - L.B) / 2 + L.banner.right - CLOCK_TAB.CORNER;
-      left = right - CLOCK_TAB.PAD - el.offsetWidth * k;
-      top = bannerTop - CLOCK_TAB.H + (CLOCK_TAB.H - SIDE_CLOCK_PX) / 2 + 1;
-      if (tab.current) {
-        tab.current.style.left = `${Math.round(right - w)}px`;
-        tab.current.style.top = `${Math.round(bannerTop - CLOCK_TAB.H + 2)}px`;
-        tab.current.style.width = `${w}px`;
-      }
+      left = (vw - L.B) / 2 + P.left + PANEL_TIME.left;
+      top = vh - MINI.BOTTOM - L.box + P.top + PANEL_TIME.top;
     }
     el.style.transform = `translate(${Math.round(left - el.offsetLeft)}px, ${Math.round(top - el.offsetTop)}px) scale(${k.toFixed(4)})`;
   }, [phase, value, cloudTop, reduced, width]);
@@ -113,19 +103,6 @@ export function RestClock({
   // the same style change starts both, so the number never crosses them
   const labelFade = phase === 'center' && !reduced ? 'opacity 0.5s ease 0.75s' : fade;
   return (
-    <>
-    {/* the tab: it springs out of the banner with it */}
-    <div
-      ref={tab}
-      aria-hidden="true"
-      className="pointer-events-none fixed z-[61] rounded-t-[14px] border-2 border-b-0 border-ink bg-white lg:hidden"
-      style={{
-        height: CLOCK_TAB.H,
-        visibility: side ? 'visible' : 'hidden',
-        transformOrigin: '50% 100%',
-        animation: side && !reduced ? `rc-tab ${CLOCK_TAB.POP_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1) both` : undefined,
-      }}
-    />
     <div
       aria-hidden={phase === 'hidden'}
       className="pointer-events-none fixed inset-0 z-[62] flex flex-col items-center justify-center px-6 pb-[8%] text-center lg:hidden"
@@ -170,6 +147,5 @@ export function RestClock({
         </p>
       )}
     </div>
-    </>
   );
 }

@@ -1,5 +1,5 @@
 import type { SfxOneShot } from '@/lib/audio/sfxRecipes';
-import { FLIGHT, POD, RETURN_BRAKE_AT, launchLeadMs, type Flight, type LaunchStart } from './rocketFlight';
+import { DOCK, FLIGHT, RETURN_BRAKE_AT, launchLeadMs, type Flight, type LaunchStart } from './rocketFlight';
 
 /*
  * The sounds of a flight of the widget rocket, at the same moments as its animations (see
@@ -28,7 +28,7 @@ export function flightSounds(f: Flight, start: LaunchStart): FlightSounds {
 
   if (f.leftAt !== null && Number.isFinite(f.leftAt) && f.how !== 'fade') {
     const t0 = f.leftAt;
-    // its banner folds in before it moves (not when it already has, nor when it waits in the clouds)
+    // its panels slide in before it moves (not when they already have, nor when it waits in the clouds)
     if (!f.placed && start === 'open') hits.push({ at: t0, sfx: 'banner' });
     if (!f.placed) {
       launchAt = t0 + launchLeadMs(start);
@@ -45,7 +45,8 @@ export function flightSounds(f: Flight, start: LaunchStart): FlightSounds {
   if (f.returnAt !== null && Number.isFinite(f.returnAt)) {
     const parked = f.returnAt + FLIGHT.returnMs;
     hits.push({ at: f.returnAt + FLIGHT.returnMs * RETURN_BRAKE_AT, sfx: 'land' });
-    hits.push({ at: parked + POD.inDelayMs, sfx: 'banner' });
+    // its panels slide out of the hull (once it has stretched)
+    hits.push({ at: parked + DOCK.outAtMs, sfx: 'banner' });
   }
 
   return { hits, slowMo, launchAt };
