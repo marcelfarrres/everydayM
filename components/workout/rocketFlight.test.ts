@@ -24,7 +24,11 @@ import {
   PARKED_POSE,
   POD,
   RETURN_KEYFRAMES,
-  SINK,
+  CROUCH_POSE,
+  PRELAUNCH,
+  PRELAUNCH_KEYFRAMES,
+  REPAIR,
+  STANDS,
   SPUTTER,
   SPUTTER_FLAME_KEYFRAMES,
   SPUTTER_KEYFRAMES,
@@ -50,10 +54,13 @@ import {
   podOutFrom,
   podShownAt,
   pose,
-  sinkAt,
+  crouchAt,
+  repairPlan,
   sinkTransform,
   springBackKeyframes,
+  takeoffKeyframes,
   sputtersBetween,
+  waitingEngine,
   widgetOnScreenAt,
   type Flight,
   type FlightEvent,
@@ -97,7 +104,7 @@ describe('one rocket through the clouds (phone)', () => {
     const keys = cloudKeyframes(spot);
     const at = (ms: number) => keys.find((k) => Math.abs(k.offset - ms / CLOUD_LEAVE_MS) < 0.0002);
     expect(keys[0].transform).toBe(PARKED_POSE);
-    expect(at(FLIGHT.foldMs)?.transform).toBe(PARKED_POSE);
+    expect(at(PRELAUNCH.quickMs)?.transform).toBe(CROUCH_POSE);
     const placed = at(FLIGHT.settledMs)?.transform;
     expect(placed).toContain('rotateZ(-90deg)');
     expect(placed).toContain('calc((-60px) / 1)');
@@ -123,7 +130,7 @@ describe('one rocket through the clouds (phone)', () => {
     expect(again).toEqual({ leftAt: 2000, how: 'clouds', placed: true, returnAt: 2000 + FLIGHT.returnStartMs });
     expect(podShownAt(again, 2010)).toBe(false);
     const placed = cloudKeyframes(spot, true);
-    expect(placed[0].transform).toBe(cloudKeyframes(spot)[4].transform);
+    expect(placed[0].transform).toBe(cloudKeyframes(spot)[3].transform);
     // once it has taken off it just flies on, and comes back later
     expect(nextFlight(f, 'clouds', FLIGHT.cloudLiftMs + 200)).toEqual({ ...f, returnAt: FLIGHT.cloudLiftMs + 200 + FLIGHT.returnStartMs });
   });
@@ -323,37 +330,138 @@ describe('the warm-up sputter', () => {
   });
 });
 
-describe('the rest: it sinks as it fills', () => {
-  it('sinks and tilts more as the water rises, from upright to its most', () => {
-    expect(sinkAt(0)).toEqual(UPRIGHT);
-    expect(sinkAt(1)).toEqual({ y: SINK.maxPx, rz: SINK.maxTilt });
-    let prev = sinkAt(0);
-    for (let l = 0.05; l <= 1.0001; l += 0.05) {
-      const s = sinkAt(l);
-      expect(s.y).toBeGreaterThan(prev.y);
-      expect(s.rz).toBeLessThan(prev.rz);
-      prev = s;
+describe('the rest: the rocket is repaired', () => {
+  const inside = (plan: ReturnType<typeof repairPlan>) =>
+    [...plan.hits, ...plan.turns, ...plan.puffs, ...plan.swaps.flat()].every((t) => t >= plan.enterEnd && t <= plan.exitStart);
+
+  it('comes in, works and is gone before the rest ends, whatever its length', () => {
+    for (const P of [2000, 2500, 3900, 4000, 6000, 9000, 15000, 40000]) {
+      const plan = repairPlan(P);
+      expect(plan.none).toBe(false);
+      expect(plan.enterEnd).toBeGreaterThan(0);
+      expect(plan.enterEnd).toBeLessThanOrEqual(plan.exitStart);
+      expect(plan.exitStart).toBeLessThan(plan.exitEnd);
+      // gone before the "¡pam!" at 0, never cut halfway
+      expect(plan.exitEnd).toBeLessThanOrEqual(P - 250);
+      expect(inside(plan)).toBe(true);
+      expect(plan.hits.length).toBeGreaterThanOrEqual(1);
     }
-    // half full, it has sunk about half
-    expect(sinkAt(0.5).y).toBeCloseTo(SINK.maxPx / 2, 0);
   });
 
-  it('never goes past its most, whatever the clock says', () => {
-    expect(sinkAt(-3)).toEqual(UPRIGHT);
-    expect(sinkAt(7)).toEqual(sinkAt(1));
-    expect(sinkAt(Number.NaN)).toEqual(UPRIGHT);
-    // it really tilts now (the tail dips off the screen: see rocketShape.test), but not over
-    expect(Math.abs(SINK.maxTilt)).toBeGreaterThanOrEqual(5);
-    expect(Math.abs(SINK.maxTilt)).toBeLessThanOrEqual(8);
+  it('they enter about 0.6 s, the second a little later, and leave 1.2 s before the end', () => {
+    const plan = repairPlan(20000);
+    expect(plan.enterEnd).toBe(REPAIR.enterMs + REPAIR.lagMs);
+    expect(plan.exitStart).toBe(20000 - REPAIR.exitLeadMs);
+    expect(plan.exitEnd - plan.exitStart).toBe(REPAIR.exitMs);
   });
 
-  it('springs back upright from wherever it had sunk ("¡pam!")', () => {
-    for (const l of [0, 0.3, 1]) {
-      const keys = springBackKeyframes(sinkAt(l));
-      expect(keys[0].transform).toBe(sinkTransform(sinkAt(l)));
-      expect(keys.at(-1)?.transform).toBe(sinkTransform(UPRIGHT));
+  it('too short for anyone: nothing; short: in, two blows, out', () => {
+    expect(repairPlan(1900).none).toBe(true);
+    expect(repairPlan(Number.NaN).none).toBe(true);
+    expect(repairPlan(-5).none).toBe(true);
+    const short = repairPlan(3000);
+    expect(short.short).toBe(true);
+    expect(short.hits).toHaveLength(2);
+    expect(short.swaps).toHaveLength(0);
+    expect(repairPlan(REPAIR.shortBelowMs).short).toBe(false);
+  });
+
+  it('the two never move as one: the wrench a third of a beat after the hammer', () => {
+    const plan = repairPlan(12000);
+    for (const t of plan.turns) expect(plan.hits).not.toContain(t);
+    const gap = plan.turns[0] - plan.hits[0];
+    expect(gap).toBeGreaterThan(REPAIR.beatMs / 4);
+    expect(gap).toBeLessThan(REPAIR.beatMs / 2);
+  });
+
+  it('faster in the last 3 s', () => {
+    const P = 15000;
+    const plan = repairPlan(P);
+    const beats = plan.hits.slice(1).map((t, i) => t - plan.hits[i]);
+    const early = beats.filter((_, i) => plan.hits[i + 1] < P - REPAIR.fastFromEndMs - 800);
+    const late = beats.filter((_, i) => plan.hits[i] > P - REPAIR.fastFromEndMs + REPAIR.beatMs);
+    expect(Math.min(...early)).toBeGreaterThanOrEqual(REPAIR.beatMs - 1);
+    expect(Math.max(...late)).toBeLessThan(REPAIR.beatMs * 0.8);
+  });
+
+  it('they cross over now and then, never while hammering, never in the last stretch', () => {
+    const plan = repairPlan(20000);
+    expect(plan.swaps.length).toBeGreaterThanOrEqual(2);
+    for (const [a, b] of plan.swaps) {
+      expect(b - a).toBe(REPAIR.swapMs);
+      expect(b).toBeLessThan(plan.exitStart - REPAIR.fastFromEndMs + 601);
+      for (const h of plan.hits) expect(h > a - 250 && h < b + 250).toBe(false);
     }
+    expect(repairPlan(5000).swaps).toHaveLength(0);
+  });
+
+  it('with a talk on, calm: slower, no sparks or jolts', () => {
+    const busy = repairPlan(20000);
+    const calm = repairPlan(20000, true);
+    expect(calm.calm).toBe(true);
+    expect(calm.sparks).toBe(false);
+    expect(busy.sparks).toBe(true);
+    expect(calm.hits.length).toBeLessThan(busy.hits.length);
+    expect(calm.hits[1] - calm.hits[0]).toBe(REPAIR.calmBeatMs);
+  });
+
+  it('its stands lift it a few px, and it springs back from there ("¡pam!")', () => {
+    expect(STANDS.liftPx).toBeGreaterThanOrEqual(2);
+    expect(STANDS.liftPx).toBeLessThanOrEqual(6);
+    expect(STANDS.lowPx).toBeLessThan(STANDS.liftPx);
+    const keys = springBackKeyframes({ y: -STANDS.lowPx, rz: 0 });
+    expect(keys[0].transform).toBe(sinkTransform({ y: -STANDS.lowPx, rz: 0 }));
+    expect(keys.at(-1)?.transform).toBe(sinkTransform(UPRIGHT));
     expect(sinkTransform(UPRIGHT)).toBe('translateY(0px) rotate(0deg)');
+  });
+});
+
+describe('the takeoff, led by the clock', () => {
+  it('crouches only in the last second, quicker and quicker, all the way at 0', () => {
+    expect(crouchAt(5)).toBe(0);
+    expect(crouchAt(PRELAUNCH.leadS)).toBe(0);
+    expect(crouchAt(0)).toBe(1);
+    expect(crouchAt(-1)).toBe(1);
+    expect(crouchAt(Number.NaN)).toBe(0);
+    let prev = 0;
+    let step = 0;
+    for (let t = 0.9; t >= -0.0001; t -= 0.1) {
+      const c = crouchAt(t);
+      expect(c).toBeGreaterThan(prev);
+      expect(c - prev).toBeGreaterThanOrEqual(step - 0.001);
+      step = c - prev;
+      prev = c;
+    }
+    // the banner folds in the last third of it
+    expect(PRELAUNCH.foldLeadS).toBeGreaterThan(0.25);
+    expect(PRELAUNCH.foldLeadS).toBeLessThan(0.5);
+  });
+
+  it('the crouch goes from parked to the pose the takeoff starts from', () => {
+    expect(PRELAUNCH_KEYFRAMES[0].transform).toBe(PARKED_POSE);
+    expect(PRELAUNCH_KEYFRAMES.at(-1)?.transform).toBe(CROUCH_POSE);
+    expect(takeoffKeyframes(true)[0].transform).toBe(CROUCH_POSE);
+    expect(cloudKeyframes({ dx: -100, dy: -300, k: 2 }, false, true)[0].transform).toBe(CROUCH_POSE);
+  });
+
+  it('from its crouch it shoots off at once; an early "Siguiente" crouches quickly first', () => {
+    const from = takeoffKeyframes(true);
+    // no pause: the next frame is already climbing
+    expect(from[1].transform).not.toBe(CROUCH_POSE);
+    const quick = takeoffKeyframes(false);
+    expect(quick[0].transform).toBe(PARKED_POSE);
+    const crouch = quick.find((k) => k.transform === CROUCH_POSE);
+    expect((crouch?.offset ?? 1) * FLIGHT.takeoffMs).toBeCloseTo(PRELAUNCH.quickMs, 0);
+    const clouds = cloudKeyframes({ dx: -100, dy: -300, k: 2 });
+    expect(clouds[0].transform).toBe(PARKED_POSE);
+    expect((clouds[1].offset ?? 1) * CLOUD_LEAVE_MS).toBeCloseTo(PRELAUNCH.quickMs, 0);
+    expect(clouds[1].transform).toBe(CROUCH_POSE);
+    // both end off the top, as before
+    expect(from.at(-1)?.transform).toBe(quick.at(-1)?.transform);
+    for (const keys of [from, quick, clouds]) {
+      const offsets = keys.map((k) => k.offset ?? 0);
+      expect([...offsets].sort((a, b) => a - b)).toEqual(offsets);
+    }
   });
 });
 
@@ -495,5 +603,22 @@ describe('poses', () => {
   it('turns the apparent size into depth', () => {
     expect(pose({ s: 0.5 })).toContain('translate3d(calc((0px) / 0.5), calc((0px) / 0.5), -900px)');
     expect(PARKED_POSE).toContain(', 0px) rotateZ(0deg) rotateY(0deg) scale(1, 1)');
+  });
+});
+
+describe("the creator's rocket on the minutes", () => {
+  it('burns from almost nothing to a long flare, and trembles harder, the more minutes', () => {
+    expect(waitingEngine(0)).toEqual({ flame: 0.06, shake: 0.25 });
+    expect(waitingEngine(1)).toEqual({ flame: 2.2, shake: 3 });
+    expect(waitingEngine(-1)).toEqual(waitingEngine(0));
+    expect(waitingEngine(5)).toEqual(waitingEngine(1));
+    expect(waitingEngine(Number.NaN)).toEqual(waitingEngine(0));
+    let prev = waitingEngine(0);
+    for (let i = 1; i <= 20; i++) {
+      const e = waitingEngine(i / 20);
+      expect(e.flame).toBeGreaterThan(prev.flame);
+      expect(e.shake).toBeGreaterThan(prev.shake);
+      prev = e;
+    }
   });
 });

@@ -5,7 +5,7 @@ import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
-import { FLIGHT, railTop } from '@/components/workout/rocketFlight';
+import { FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, railTop } from '@/components/workout/rocketFlight';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -152,8 +152,10 @@ export function WorkoutPlayer({
   const clouding = useBusyAfter(cloudKey, CLOUDS.clearMs, !reduced);
   // Phone: the rest's countdown stands in the clouds until they start to open (RestClock).
   const inClouds = useBusyAfter(cloudKey, CLOUDS.openingMs, !reduced);
-  // (with talks it waits at the side, over the banner, while they play; then the middle)
-  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : 'side';
+  // With talks it is a tab of the rocket's banner while they play (it fades out as the clouds
+  // open and comes back as the banner springs out); then the middle.
+  const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + POD.inDelayMs, !reduced);
+  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : bannerPending ? 'hidden' : 'side';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;
   const setListOpen = useCallback(
@@ -311,6 +313,7 @@ export function WorkoutPlayer({
           listOpen={listOpen}
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
+          clockTab={currentRest === 'talks'}
           cloudTop={cloudTop}
           reduced={reduced}
         />

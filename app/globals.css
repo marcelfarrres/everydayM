@@ -181,20 +181,39 @@ body {
   }
 }
 
-/* rest: full of water, it bobs and pitches as it sinks */
-.rw-bob {
-  animation: rw-bob 2.6s ease-in-out infinite;
+/* rest: the repair crew (RepairCrew) is never quite still: each breathes and nods, at its own pace */
+.rc-breathe {
+  animation: rc-breathe 1.9s ease-in-out infinite;
 }
-@keyframes rw-bob {
+.rc-breathe-b {
+  animation: rc-breathe 2.3s ease-in-out -0.8s infinite;
+}
+@keyframes rc-breathe {
   0%,
   100% {
-    transform: translateY(0) rotate(0deg);
+    transform: scale(1, 1);
   }
-  30% {
-    transform: translateY(2px) rotate(1.4deg);
+  50% {
+    transform: scale(1.03, 1.06);
   }
-  65% {
-    transform: translateY(-1px) rotate(-1deg);
+}
+/* (still while the routine is paused) */
+[data-paused] :is(.rc-breathe, .rc-breathe-b, .rc-nod, .rc-nod-b) {
+  animation-play-state: paused;
+}
+.rc-nod {
+  animation: rc-nod 2.1s ease-in-out infinite;
+}
+.rc-nod-b {
+  animation: rc-nod 2.7s ease-in-out -1.1s infinite;
+}
+@keyframes rc-nod {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(0.8px);
   }
 }
 
@@ -238,41 +257,13 @@ body {
     transform: scale(1);
   }
 }
-
-/* water: two wave strips sliding at different speeds and in opposite directions */
-.rw-wave-front {
-  animation: rw-wave 2.6s linear infinite;
-}
-.rw-wave-back {
-  animation: rw-wave 4.4s linear infinite reverse;
-}
-@keyframes rw-wave {
+/* ...and with a talk on, its tab springs out of the banner with it */
+@keyframes rc-tab {
   from {
-    transform: translateX(0);
+    transform: translateY(14px) scale(0.4, 0.2);
   }
   to {
-    transform: translateX(-50%);
-  }
-}
-/* bubbles rise from the bottom of the water and are gone just under its surface */
-.rw-bubble {
-  opacity: 0;
-  animation: rw-bubble var(--rw-bubble-s, 2.6s) cubic-bezier(0.4, 0, 0.7, 1) var(--rw-bubble-delay, 0s) infinite;
-}
-@keyframes rw-bubble {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0);
-  }
-  15% {
-    opacity: 1;
-  }
-  80% {
-    opacity: 0.9;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--rw-sway, 3px), var(--rw-rise));
+    transform: none;
   }
 }
 
@@ -281,21 +272,22 @@ body {
   .rw-flicker,
   .rw-shake,
   .rw-jitter,
-  .rw-bob,
-  .rw-wave-front,
-  .rw-wave-back {
+  .rc-breathe,
+  .rc-breathe-b,
+  .rc-nod,
+  .rc-nod-b {
     animation: none;
   }
-  .rw-puff,
-  .rw-bubble {
+  .rw-puff {
     animation: none;
     opacity: 0;
   }
 }
 
 /* a rocket that is a button (creator: suggestions, "Random", options, "Seguir", "Empezar"): hovered
-   (only with a real pointer) or focused from the keyboard, it grows a little, with some spring, and
-   lights (or feeds) its flame. With `scale` and opacity only, so it composes with the transforms it
+   (only with a real pointer) or focused from the keyboard, it grows a little, with some spring,
+   lights (or feeds) its flame and trembles a little (`translate` and `rotate`, which nothing else
+   on these buttons uses). With `scale` and opacity only, so it composes with the transforms it
    already has (tilt, shake, rise, launch) and moves nothing around it. In a layer, so a press
    (active:scale-*) still wins. */
 @layer components {
@@ -320,6 +312,7 @@ body {
   @media (hover: hover) {
     .rw-lift:hover {
       scale: 1.05;
+      animation: rw-hover-shake 0.15s linear infinite;
     }
     .rw-lift:hover [data-rocket-flame] {
       opacity: 1;
@@ -332,6 +325,7 @@ body {
     .rw-lift:focus-visible {
       scale: none;
       transition: none;
+      animation: none;
     }
     .rw-lift [data-rocket-flame],
     .rw-lift:hover [data-rocket-flame],
@@ -339,5 +333,24 @@ body {
       scale: none;
       transition: opacity 150ms ease-out;
     }
+  }
+}
+@keyframes rw-hover-shake {
+  0%,
+  100% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+  25% {
+    translate: -0.9px 0.5px;
+    rotate: -0.5deg;
+  }
+  50% {
+    translate: 0.8px -0.6px;
+    rotate: 0.4deg;
+  }
+  75% {
+    translate: -0.5px -0.4px;
+    rotate: -0.3deg;
   }
 }

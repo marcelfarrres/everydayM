@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { motion } from 'motion/react';
-import { widgetLayout } from '@/components/workout/rocketShape';
+import { BANNER, widgetLayout, type Stack } from '@/components/workout/rocketShape';
+import { rocketStack } from '@/components/workout/rocketStack';
 import { CLOUDS } from '@/components/workout/CloudTransition';
 import { POD, PREVIEW_OUT_AFTER_REST_MS, podPopKeyframes } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
@@ -11,7 +12,7 @@ import { EndScreen } from './EndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
-import { MINI, growKeyframes, miniPose, miniRect } from './miniHandoff';
+import { MAST_HOIST_KEYFRAMES, MINI, growKeyframes, miniMast, miniPose, miniRect } from './miniHandoff';
 import { isExercise, type RestScreen } from './model';
 
 /*
@@ -26,9 +27,10 @@ import { isExercise, type RestScreen } from './model';
  * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
  * Phone, a long rest with talks: the next exercise plays in a small window above the rocket's
- * banner. It is already that exercise's own <video>: when the rest ends the same element grows
- * to the whole screen (transforms only, see miniHandoff) and goes on as the clip, while the talk
- * fades out under it (silent). Two videos at most: the talk and that one.
+ * banner, on its own mast out of the rocket's body. It is already that exercise's own <video>:
+ * when the rest ends the mast hoists it and the same element grows to the whole screen
+ * (transforms only, see miniHandoff) and goes on as the clip, while the talk fades out under it
+ * (silent). Two videos at most: the talk and that one.
  */
 export function Stage({
   queue,
@@ -70,6 +72,8 @@ export function Stage({
 }) {
   const item = queue[displayIndex];
   const live = displayIndex === currentIndex;
+  // (the rocket the window's mast comes out of: what is left of it, as the widget draws it)
+  const stack = useMemo(() => rocketStack(queue, displayIndex), [queue, displayIndex]);
 
   const fadeIn = reduced
     ? {}
@@ -98,6 +102,7 @@ export function Stage({
     <ClipLayer
       key={`clip-${index}`}
       small={small}
+      stack={stack}
       reduced={reduced}
       fadeIn={phone}
       // the window springs out of the rocket just after its banner (it mounts as the clouds cover the screen)
@@ -228,6 +233,7 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
  */
 function ClipLayer({
   small,
+  stack,
   reduced,
   fadeIn,
   popInMs,
@@ -235,6 +241,8 @@ function ClipLayer({
   children,
 }: {
   small: boolean;
+  /** the rocket below (where the window's mast comes out) */
+  stack: Stack;
   reduced: boolean;
   fadeIn: boolean;
   /** the window: ms until it springs out (from behind the banner, like the banner from the rocket) */
@@ -246,10 +254,16 @@ function ClipLayer({
   const pop = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
+  const mastEl = useRef<HTMLDivElement>(null);
   const width = useRocketWidth();
   const vh = useWindowHeight();
   const vw = width + 12;
-  const rect = miniRect(vw, vh, widgetLayout(width));
+  // (the window stays where it stood, over the rocket it stood on, as it grows)
+  const [held, setHeld] = useState<Stack>(stack);
+  if (small && held !== stack) setHeld(stack);
+  const L = useMemo(() => widgetLayout(width, held), [width, held]);
+  const rect = miniRect(vw, vh, L);
+  const mast = miniMast(vw, vh, L);
   const pose = small ? miniPose(rect, vw, vh, 0) : null;
   const was = useRef<boolean | null>(null);
 
@@ -282,6 +296,7 @@ function ClipLayer({
       const fade = o.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 200 });
       return () => fade.cancel();
     }
+    // its mast stretches and hoists it, on an arc, and goes back into the rocket as it grows
     const keys = growKeyframes(rect, vw, vh);
     const a = o.animate(
       keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })),
@@ -291,9 +306,11 @@ function ClipLayer({
       keys.map((k) => ({ offset: k.offset, transform: k.inner })),
       { duration: MINI.GROW_MS, easing: 'linear' },
     );
+    const m = mastEl.current?.animate(MAST_HOIST_KEYFRAMES, { duration: MINI.GROW_MS });
     return () => {
       a.cancel();
       b.cancel();
+      m?.cancel();
     };
     // (only when it appears, and when it goes from the window to the whole screen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,7 +324,22 @@ function ClipLayer({
   }, [small, hold]);
 
   return (
-    <div ref={pop} className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} style={{ transformOrigin: `${rect.left + rect.width / 2}px ${rect.top + rect.height}px` }}>
+    // (the window and its mast spring out of the rocket's body, like its banner)
+    <div ref={pop} className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} style={{ transformOrigin: `${mast.x}px ${mast.bottom}px` }}>
+      {/* the mast: from the window's bottom down into the rocket (behind it) */}
+      <div
+        ref={mastEl}
+        aria-hidden="true"
+        className="pointer-events-none absolute border-x-2 border-ink bg-white"
+        style={{
+          left: mast.x - BANNER.MAST_W / 2,
+          top: mast.top - 2,
+          width: BANNER.MAST_W,
+          height: mast.bottom - mast.top + 2,
+          transformOrigin: '50% 100%',
+          opacity: small ? 1 : 0,
+        }}
+      />
       <div
         ref={outer}
         className="absolute inset-0 overflow-hidden"

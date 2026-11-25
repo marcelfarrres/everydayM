@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOB, PAM_NUDGES, POD_FOLDED, SHAKE, SINK, SPRING_NUDGES, SPUTTER_NUDGES, sinkAt, type Nudge } from './rocketFlight';
+import { PAM_NUDGES, POD_FOLDED, SHAKE, SPRING_NUDGES, SPUTTER_NUDGES, STANDS, type Nudge } from './rocketFlight';
 import { BANNER, BAR_TEXT, SHIP, WIDGET, barLines, barThickness, hullHalfAt, shiftFor, shipGeometry, stackGeometry, widgetLayout, type Stack, type WidgetLayout } from './rocketShape';
 
 // The widget's width on phones of 320, 360 and 390 px (6 px each side) and a tablet's cap.
@@ -26,14 +26,6 @@ function topOutline(L: WidgetLayout): Pt[] {
   for (let x = g.xs; x <= g.tip; x += 2) pts.push({ x, y: g.cy - hullHalfAt(g, x) });
   return pts;
 }
-/** Its lowest points at the tail (the body's corner and the nozzle's lip, or the lower booster). */
-const tailBottom = (L: WidgetLayout): Pt[] =>
-  L.g.boosters
-    ? [{ x: L.g.boosters.x0, y: L.g.H }]
-    : [
-        { x: L.g.x0, y: F + T },
-        { x: L.g.xe, y: L.g.cy + T * 0.42 },
-      ];
 const squashOrigin = (L: WidgetLayout): Pt => ({ x: (L.g.x0 + L.g.tip) / 2, y: F + T });
 
 /** The highest the rocket's top gets under these moves, in widget pixels. */
@@ -199,24 +191,16 @@ describe('the rocket moving in its place', () => {
     expect(Math.min(...PAM_NUDGES.map((n) => n.sy ?? 1))).toBeLessThanOrEqual(0.75);
   });
 
-  it.each(WIDTHS)('sinks in a rest until its tail dips off the bottom of the screen, but only a little, at %i px', (width) => {
-    const L = widgetLayout(width, BLOCK1);
-    const full = sinkAt(1);
-    expect(full).toEqual({ y: SINK.maxPx, rz: SINK.maxTilt });
-    const lowest = Math.max(...tailBottom(L).map((p) => moved(p, full, L.pivot).y)) + L.ship.top;
-    const below = lowest - L.box - WIDGET.BOTTOM; // px under the bottom of the screen
-    expect(below).toBeGreaterThanOrEqual(1);
-    expect(below).toBeLessThanOrEqual(30);
+  it.each(WIDTHS)('on its stands in a rest it rises only a few px, clear of the banner and on its mast, at %i px', (width) => {
     for (const stack of [BLOCK1, LAST]) {
       const S = widgetLayout(width, stack);
-      for (const sink of [sinkAt(0), sinkAt(0.5), full]) {
-        for (const bob of BOB) {
-          const n = { y: sink.y + bob.y, rz: sink.rz + bob.rz };
-          expect(highest(S, [n], S.pivot)).toBeGreaterThanOrEqual(S.banner.bottom + 1);
-          const body = bodyAtMast(S, n, S.pivot);
-          expect(body.top).toBeLessThan(S.mast.bottom - 1);
-          expect(body.bottom).toBeGreaterThan(S.mast.bottom + 1);
-        }
+      // up on its stands (with the bounce), a jolt, and lowered as they are taken away
+      for (const y of [0, -STANDS.liftPx - 1.4, -STANDS.liftPx + 1.6, -STANDS.lowPx]) {
+        const n = { y, rz: 0 };
+        expect(highest(S, [n], S.pivot)).toBeGreaterThanOrEqual(S.banner.bottom + 1);
+        const body = bodyAtMast(S, n, S.pivot);
+        expect(body.top).toBeLessThan(S.mast.bottom - 1);
+        expect(body.bottom).toBeGreaterThan(S.mast.bottom + 1);
       }
     }
   });

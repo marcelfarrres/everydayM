@@ -368,20 +368,9 @@ export function sputterPuffKeyframes(dx: number, dy: number) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Rest: the rocket fills with water, so it gets heavy. It sinks and its tail goes down (nose up),
-// turning about the foot of the mast, until by the end the tail dips off the bottom of the screen;
-// meanwhile it bobs (a loop in CSS) and the water stays level. When the rest ends ("¡pam!") the
-// water is gone at once and it springs back upright, past it and back. The banner does not move:
-// it is where the finger is ("Saltar").
-
-export const SINK = {
-  /** px down at full water */
-  maxPx: 10,
-  /** degrees at full water (negative: nose up) */
-  maxTilt: -6,
-  /** the spring back when the rest ends */
-  springMs: 560,
-} as const;
+// Rest: the rocket is "being repaired" (RepairCrew): its stands lift it a few px while the crew
+// works, lower it as they leave, and at the end ("¡pam!") it drops into its place, past it and
+// back. The banner does not move: it is where the finger is ("Saltar").
 
 export interface Sink {
   y: number;
@@ -390,21 +379,10 @@ export interface Sink {
 
 export const UPRIGHT: Sink = { y: 0, rz: 0 };
 
-/** How far it has sunk with the rest `level` full (0..1): slowly at first, heavier as it fills. */
-export function sinkAt(level: number): Sink {
-  const l = Math.min(1, Math.max(0, Number.isFinite(level) ? level : 0));
-  const e = l * l * (3 - 2 * l) * 0.6 + l * 0.4; // a smoothstep, kept moving from the start
-  if (e === 0) return UPRIGHT;
-  return { y: Math.round(SINK.maxPx * e * 100) / 100, rz: Math.round(SINK.maxTilt * e * 1000) / 1000 };
-}
+/** How high its stands hold it while it is worked on, and as they are taken away (px, up). */
+export const STANDS = { liftPx: 4, lowPx: 1.5, springMs: 560 } as const;
 
 export const sinkTransform = (s: Sink) => `translateY(${num(s.y)}px) rotate(${num(s.rz)}deg)`;
-
-/** The bob's two extremes, about the same pivot (the loop itself is `.rw-bob` in globals.css). */
-export const BOB: Sink[] = [
-  { y: 2, rz: 1.4 },
-  { y: -1, rz: -1 },
-];
 
 /** The spring back's overshoot (up, nose down) and its swing back, after where it had sunk. */
 export const SPRING_NUDGES: (Sink & { offset: number })[] = [
@@ -441,6 +419,96 @@ export const SETTLE_KEYFRAMES = toKeyframes([
 ]);
 
 // ---------------------------------------------------------------------------------------------
+// The repair of a rest (phone): two mechanics come in from both sides, set stands under the
+// rocket, work on it (one hammers at the tail, the other turns a wrench at the nose; now and then
+// they cross over), speed up near the end, take the stands away and run off; the rocket drops into
+// place with its "¡pam!" at 0. Measured from the moment the rocket parks in the rest (P ms to 0).
+
+export const REPAIR = {
+  enterMs: 600,
+  /** the second one comes in this much later (they never move as one) */
+  lagMs: 120,
+  /** they take the stands and leave this long before the end... */
+  exitLeadMs: 1200,
+  /** ...and are gone after this */
+  exitMs: 600,
+  /** one gesture (a blow, a turn of the wrench); slower with a talk on */
+  beatMs: 650,
+  calmBeatMs: 1000,
+  /** the last 3 s, faster */
+  fastFromEndMs: 3000,
+  fastBy: 1.4,
+  /** they cross over every so often, if there is time */
+  swapEveryMs: 4000,
+  swapMs: 1200,
+  /** shorter than this, no repair at all; shorter than this, a short one */
+  minMs: 2000,
+  shortBelowMs: 4000,
+  /** puffs of smoke at either end */
+  puffEveryMs: 1500,
+} as const;
+
+export interface RepairPlan {
+  /** too short for anyone to come */
+  none: boolean;
+  short: boolean;
+  calm: boolean;
+  /** when both are in place, when they start to leave, when they are gone (ms after parking) */
+  enterEnd: number;
+  exitStart: number;
+  exitEnd: number;
+  /** blows of the hammer (the one at the tail) and turns of the wrench (the one at the nose) */
+  hits: number[];
+  turns: number[];
+  /** when they cross over */
+  swaps: [number, number][];
+  puffs: number[];
+  /** sparks and jolts of the rocket at each blow (not with a talk on) */
+  sparks: boolean;
+}
+
+/** The repair's choreography for a rocket parked `parkedMs` before the rest ends (`calm`: a talk is on). */
+export function repairPlan(parkedMs: number, calm = false): RepairPlan {
+  const P = Math.max(0, Number.isFinite(parkedMs) ? parkedMs : 0);
+  const none = P < REPAIR.minMs;
+  const short = !none && P < REPAIR.shortBelowMs;
+  const enterEnd = short ? 450 : REPAIR.enterMs + REPAIR.lagMs;
+  const exitStart = Math.max(enterEnd, P - (short ? 700 : REPAIR.exitLeadMs));
+  const exitEnd = Math.min(P - 250, exitStart + (short ? 450 : REPAIR.exitMs));
+  const plan: RepairPlan = { none, short, calm, enterEnd, exitStart, exitEnd, hits: [], turns: [], swaps: [], puffs: [], sparks: !calm };
+  if (none) return { ...plan, enterEnd: 0, exitStart: 0, exitEnd: 0 };
+  const workFrom = enterEnd + (short ? 100 : 200);
+  const workTo = exitStart - (short ? 100 : 150);
+  if (short) {
+    // in, two blows (and two turns), out
+    const beat = Math.max(300, Math.min(500, (workTo - workFrom) / 2));
+    for (let t = workFrom; t + beat * 0.4 <= workTo && plan.hits.length < 2; t += beat) {
+      plan.hits.push(Math.round(t + beat * 0.6));
+      plan.turns.push(Math.round(t + beat * 0.6 + beat / 3));
+    }
+    plan.turns = plan.turns.filter((t) => t <= workTo);
+    return plan;
+  }
+  // crossings: one every few seconds, never in the last stretch
+  for (let t = workFrom + 2500; t + REPAIR.swapMs <= exitStart - REPAIR.fastFromEndMs + 600; t += REPAIR.swapEveryMs) {
+    plan.swaps.push([Math.round(t), Math.round(t + REPAIR.swapMs)]);
+  }
+  const inSwap = (t: number) => plan.swaps.some(([a, b]) => t > a - 250 && t < b + 250);
+  const base = calm ? REPAIR.calmBeatMs : REPAIR.beatMs;
+  for (let t = workFrom; t <= workTo; ) {
+    const beat = t >= P - REPAIR.fastFromEndMs ? base / REPAIR.fastBy : base;
+    const hit = t + beat * 0.6;
+    // the wrench a third of a beat later, at a slightly different pace (they never go as one)
+    const turn = hit + beat / 3 + 40;
+    if (hit <= workTo && !inSwap(hit)) plan.hits.push(Math.round(hit));
+    if (turn <= workTo && !inSwap(turn)) plan.turns.push(Math.round(turn));
+    t += beat;
+  }
+  for (let t = workFrom + 400; t <= workTo; t += REPAIR.puffEveryMs) plan.puffs.push(Math.round(t));
+  return plan;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Ignition
 
 /** A serie (or warm-up clip) whose end takes the rocket off: a rest (clouds) or the end screen comes next. */
@@ -457,6 +525,20 @@ export function ignitionLevel(timeLeft: number): 0 | 1 | 2 | 3 {
   if (s > FLIGHT.ignitionS) return 0;
   if (s <= 1) return 3;
   return s === 2 ? 2 : 1;
+}
+
+/**
+ * The last second of a serie before a takeoff: the rocket pulls back towards its tail and
+ * compresses, more and more (`crouchAt`), its banner folds in for the last `foldLeadS`, and at 0
+ * it shoots off from that crouch. "Siguiente" before that: a quick crouch (`quickMs`) and off.
+ */
+export const PRELAUNCH = { leadS: 1, foldLeadS: 0.35, quickMs: 250 } as const;
+
+/** How far into its crouch it is with `timeLeft` seconds left (0..1, quicker and quicker). */
+export function crouchAt(timeLeft: number): number {
+  if (!Number.isFinite(timeLeft) || timeLeft >= PRELAUNCH.leadS) return 0;
+  const t = 1 - Math.max(0, timeLeft) / PRELAUNCH.leadS;
+  return Math.round(t * t * 1000) / 1000;
 }
 
 /** How hard it shakes at each step of the ignition: the rocket (px), the banner's text (px), and how fast (s). */
@@ -559,6 +641,32 @@ const TAKEOFF_POSES: { offset: number; pose: Pose; opacity: number; easing?: str
 
 export const TAKEOFF_KEYFRAMES: FlightKeyframe[] = TAKEOFF_POSES.map(({ pose: p, ...k }) => ({ ...k, transform: pose(p) }));
 
+/** The crouch the takeoff goes from: pulled back towards the tail, compressed, nose a little down. */
+export const CROUCH: Pose = { x: '-10px', y: '3px', rz: 3, sx: 0.88, sy: 1.14 };
+export const CROUCH_POSE = pose(CROUCH);
+
+/** The last second: parked → crouched, quicker and quicker (play it over the time that is left). */
+export const PRELAUNCH_KEYFRAMES: FlightKeyframe[] = [
+  { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.55, 0, 1, 0.45)' },
+  { offset: 1, transform: CROUCH_POSE, opacity: 1 },
+];
+
+/**
+ * The end's takeoff, from the crouch of the last second (`crouched`) or, after an early
+ * "Siguiente", with a quick crouch first; then the same climb straight out of the top.
+ */
+export function takeoffKeyframes(crouched: boolean): FlightKeyframe[] {
+  const climb = TAKEOFF_POSES.filter((k) => k.offset >= UPRIGHT_AT).map(({ pose: p, ...k }) => ({ ...k, transform: pose(p) }));
+  const quick = PRELAUNCH.quickMs / FLIGHT.takeoffMs;
+  return crouched
+    ? [{ offset: 0, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' }, ...climb]
+    : [
+        { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
+        { offset: quick, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' },
+        ...climb,
+      ];
+}
+
 /**
  * The same takeoff for a rocket with nothing to fold (the routine creator's): it starts with the
  * crouch, from a rocket tilted `tilt` degrees (negative: nose up), and climbs out of the top the
@@ -633,7 +741,7 @@ export interface CloudSpot {
  * it waits there (the bob of the rest keeps it alive) until it crouches and takes off straight up,
  * once, out of the top. `placed`: it is in its place already (the clouds played again).
  */
-export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false): FlightKeyframe[] {
+export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, crouched = false): FlightKeyframe[] {
   const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
   const lift = FLIGHT.cloudLiftMs;
   const there = (y = 0, sx = 1, sy = 1) => pose({ x: `${num(dx)}px`, y: `${num(dy + y)}px`, rz: -90, sx: k * sx, sy: k * sy });
@@ -646,10 +754,16 @@ export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false): Flight
     { offset: 1, transform: up(600), opacity: 0 },
   ];
   if (placed) return [{ offset: 0, transform: there(), opacity: 1, easing: 'linear' }, ...away];
+  // from the crouch of its last second it shoots off at once; after an early "Siguiente" it
+  // crouches quickly first
+  const start: FlightKeyframe[] = crouched
+    ? [{ offset: 0, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }]
+    : [
+        { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
+        { offset: at(PRELAUNCH.quickMs), transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' },
+      ];
   return [
-    { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'linear' },
-    { offset: at(FLIGHT.foldMs), transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.33, 0, 0.3, 1)' },
-    { offset: at(FLIGHT.anticipationMs), transform: pose({ x: '-6px', y: '4px', rz: 4, sx: 0.9, sy: 1.16 }), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.2, 1)' },
+    ...start,
     { offset: at(FLIGHT.placedMs), transform: there(-8, 1.03, 1.03), opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
     { offset: at(FLIGHT.settledMs), transform: there(), opacity: 1, easing: 'linear' },
     ...away,
@@ -657,7 +771,7 @@ export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false): Flight
 }
 
 /** Its flame on that way: lit as it goes, burning low while it waits, full as it takes off. */
-export function cloudFlameKeyframes(placed = false) {
+export function cloudFlameKeyframes(placed = false, crouched = false) {
   const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
   const lift = FLIGHT.cloudLiftMs;
   const tail = [
@@ -667,10 +781,22 @@ export function cloudFlameKeyframes(placed = false) {
   ];
   if (placed) return [{ offset: 0, opacity: 1, transform: 'scale(0.7, 0.9)' }, ...tail];
   return [
-    { offset: 0, opacity: 0, transform: 'scale(0.3, 0.7)' },
-    { offset: at(FLIGHT.foldMs), opacity: 1, transform: 'scale(0.45, 0.85)' },
+    { offset: 0, opacity: crouched ? 1 : 0, transform: crouched ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
+    { offset: at(PRELAUNCH.quickMs), opacity: 1, transform: 'scale(0.7, 0.95)' },
     { offset: at(FLIGHT.placedMs), opacity: 1, transform: 'scale(1, 1)' },
     { offset: at(FLIGHT.settledMs + 300), opacity: 1, transform: 'scale(0.7, 0.9)' },
     ...tail,
   ];
+}
+
+/**
+ * The creator's waiting rocket on the minutes question: `share` of the way from the fewest minutes
+ * to the most (0..1). Its flame (scale of the drawing's) goes from almost nothing to a long flare,
+ * and it trembles harder (--rw-amp), on a curve: the long routines are where it really roars.
+ */
+export function waitingEngine(share: number): { flame: number; shake: number } {
+  const s = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
+  const flame = 0.06 + (2.2 - 0.06) * s ** 1.3;
+  const shake = 0.25 + (3 - 0.25) * s ** 1.5;
+  return { flame: Math.round(flame * 100) / 100, shake: Math.round(shake * 100) / 100 };
 }

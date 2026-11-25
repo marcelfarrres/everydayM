@@ -7,24 +7,22 @@ import { FlameDrawing, RocketShip, boxStyle, flameBox, type Piece } from '@/comp
 import { dropBetween, rocketStack } from '@/components/workout/rocketStack';
 import { BANNER, SHIP, stackGeometry, widgetLayout, type ShipGeometry, type Stack, type WidgetLayout } from '@/components/workout/rocketShape';
 import {
-  ANTICIPATION_AT,
   CLOUD_LEAVE_MS,
   FLIGHT,
-  FOLD_AT,
   PAM_KEYFRAMES,
   PARKED,
+  PRELAUNCH,
+  PRELAUNCH_KEYFRAMES,
   POD,
   POD_BUMP_KEYFRAMES,
   POD_FOLDED,
   RETURN_KEYFRAMES,
   SETTLE_KEYFRAMES,
   SHAKE,
-  SINK,
   SPUTTER,
   SPUTTER_FLAME_KEYFRAMES,
   SPUTTER_KEYFRAMES,
-  TAKEOFF_KEYFRAMES,
-  UPRIGHT,
+  STANDS,
   UPRIGHT_AT,
   arrival,
   cloudFlameKeyframes,
@@ -38,20 +36,20 @@ import {
   phaseAt,
   podPopKeyframes,
   railLeft,
+  parkedFrom,
   podRetractKeyframes,
-  sinkAt,
-  sinkTransform,
   springBackKeyframes,
   sputterPuffKeyframes,
   sputtersBetween,
   warningFlame,
   warningLevel,
+  takeoffKeyframes,
   type CloudSpot,
   type Flight,
-  type Sink,
 } from '@/components/workout/rocketFlight';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import type { RoutineItem } from '@/types/workout';
+import { RepairCrew } from './RepairCrew';
 import { SeriesList } from './SeriesList';
 import { useLagged, useRocketWidth, useTapGuard } from './hooks';
 import { blocksOf, clock, isExercise, serieState, warmupState, type StepState } from './model';
@@ -68,11 +66,12 @@ import { own } from './ui';
  *             its nose up, a shake, and it drops back).
  *   last 3 s  before a rest or the end the engine lights: the flame grows each second, more and
  *             more exhaust, and the rocket shakes harder each second; the banner's text too.
- *   rest      it fills with water and gets heavy: it sinks and tilts, tail down, until the tail
- *             dips off the bottom of the screen, bobbing as it goes; the water stays level. The
- *             banner stays put ("Saltar" is always under the finger). When the rest ends,
- *             "¡pam!": the water is gone and it springs back upright with a hard squash.
- *   flights   when a rest begins the banner folds into the body, then the rocket crouches, turns
+ *   last 1 s  it pulls back towards its tail and compresses, more and more, and its banner folds
+ *             in; at 0 it shoots off from that crouch ("Siguiente" before that: a quick crouch).
+ *   rest      it is "being repaired" (RepairCrew): two mechanics set it on stands and work on it,
+ *             and run off just before the end. The banner stays put ("Saltar" is always under the
+ *             finger). When the rest ends, "¡pam!": it drops into its place with a hard squash.
+ *   flights   when a rest begins (from that crouch) it turns
  *             its nose up and climbs straight out of the top of the screen; only a beat later does
  *             the big rocket of the clouds (the same drawing, bigger) come up from below. Once that
  *             one has gone, a beat, and it comes back from the left and lands with a squash; half a
@@ -90,8 +89,8 @@ const INK = '#131313';
 const CLOSE_AFTER_MS = 5000;
 const TAP_GUARD_MS = 700;
 
-// Water: light enough that the hilo reads on it and on the white body alike.
-const WATER = { front: '#c8daff', back: '#a6c1ff', line: '#2f6bff' } as const;
+// the blue of the rests (the warning flame, the mechanics' caps)
+const REST_BLUE = '#2f6bff';
 
 export function RocketWidget({
   queue,
@@ -108,6 +107,7 @@ export function RocketWidget({
   listOpen,
   onListOpenChange,
   restCountdown,
+  clockTab,
   cloudTop,
   reduced,
 }: {
@@ -125,6 +125,8 @@ export function RocketWidget({
   listOpen: boolean;
   onListOpenChange: (open: boolean) => void;
   restCountdown: boolean;
+  /** the rest's clock is a tab on the banner (a rest with talks): the banner doesn't repeat it */
+  clockTab: boolean;
   /** where its nose stands in the clouds, % of the screen's height (railTop) */
   cloudTop: number;
   reduced: boolean;
@@ -168,26 +170,23 @@ export function RocketWidget({
   const live = displayIndex === currentIndex;
   const shownRest = shown?.kind === 'rest';
 
-  // ---- the rest's weight: it sinks as the water rises (a transform, set once a second)
-  const level = shownRest && live && totalItemDuration > 0 ? (totalItemDuration - timeLeft + 1) / totalItemDuration : 0;
-  const sink = !reduced && shownRest ? sinkAt(level) : UPRIGHT;
-  const lastSink = useRef<Sink>(UPRIGHT);
-  useEffect(() => {
-    lastSink.current = sink;
-  }, [sink]);
+  // ---- the rest's repair crew: it stays a moment after the rest has ended early, to run off
+  const restHere = shownRest && live ? displayIndex : -1;
+  const crewAt = useLagged(restHere, restHere >= 0 ? 0 : 350);
+  const crewRest = queue[crewAt];
+  const crewOn = crewAt >= 0 && crewRest?.kind === 'rest';
 
   // ---- the flight
   const root = useRef<HTMLDivElement>(null);
   const flightEl = useRef<HTMLDivElement>(null);
-  const sinkEl = useRef<HTMLDivElement>(null);
+  const liftEl = useRef<HTMLDivElement>(null);
   const squashEl = useRef<HTMLDivElement>(null);
   const flameEl = useRef<HTMLDivElement>(null);
   const puffsEl = useRef<HTMLDivElement>(null);
   const podEl = useRef<HTMLDivElement>(null);
-  const waterEl = useRef<HTMLDivElement>(null);
+  const sparkleEl = useRef<HTMLDivElement>(null);
   const flight = useRocketFlight({
-    els: { flightEl, sinkEl, squashEl, flameEl, puffsEl, podEl, waterEl },
-    lastSink,
+    els: { flightEl, liftEl, squashEl, flameEl, puffsEl, podEl, sparkleEl },
     spotOf: () => cloudSpot(root.current, L, cloudTop),
     cloudKey,
     ending,
@@ -226,8 +225,26 @@ export function RocketWidget({
   const shaking = engine.amp > 0 && !isPaused;
   const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
   const toggleList = () => onListOpenChange(!listOpen);
-  const showRestTime = shown?.kind === 'rest' && !restCountdown && live;
-  const pivot = `${L.pivot.x}px ${L.pivot.y}px`;
+  const showRestTime = shown?.kind === 'rest' && !restCountdown && !clockTab && live;
+  // the last second before a takeoff: it crouches, more and more, and its banner folds in
+  const crouching = launching && timeLeft <= PRELAUNCH.leadS && timeLeft > 0;
+  usePrelaunch(crouching, displayIndex, isPaused, flightEl, podEl);
+
+  // where the crew enters and leaves: the screen's edges, in the rocket's own px
+  const shipLeft = 6 + (width - L.B) / 2 + L.ship.left + L.ship.shift;
+  const view = { left: -shipLeft, right: width + 12 - shipLeft };
+  // when the crew starts (the rocket parked) and how long until the rest ends from then
+  const crewTiming = () => {
+    const f = flight.current;
+    const now = performance.now();
+    const parked = Number.isFinite(parkedFrom(f)) ? Math.max(now, parkedFrom(f)) : now;
+    // From when it began, if the clock agrees (no pause since); otherwise from the clock's
+    // whole seconds, erring early (they must be gone by the "¡pam!").
+    const byClock = now + timeLeft * 1000;
+    const fromLeaving = f.how === 'clouds' && f.leftAt !== null && Number.isFinite(f.leftAt) ? f.leftAt + totalItemDuration * 1000 : NaN;
+    const end = fromLeaving <= byClock && fromLeaving > byClock - 1000 ? fromLeaving : byClock - 1000;
+    return { startAt: parked, parkedMs: end - parked };
+  };
   const bannerW = L.banner.right - L.banner.left;
   const name = shown?.kind === 'warmup' ? 'Calentamiento' : shown?.kind === 'workout' ? shown.exercise.title : '';
 
@@ -329,7 +346,15 @@ export function RocketWidget({
               {shown?.kind === 'rest' && (
                 <>
                   <div className="flex min-w-0 flex-1 flex-col justify-center">
-                    {showRestTime ? (
+                    {clockTab && !restCountdown ? (
+                      // (the clock is the tab at its corner)
+                      <p data-rw="rest" className="text-[15px] font-semibold leading-[18px]">
+                        Descanso
+                        <span data-rw="later" className="block truncate font-medium text-ink/60">
+                          Luego: {shown.nextExercise.title}
+                        </span>
+                      </p>
+                    ) : showRestTime ? (
                       <>
                         <p data-rw="rest" className="truncate text-[15px] font-semibold leading-[18px]">
                           Descanso
@@ -370,20 +395,9 @@ export function RocketWidget({
 
           {/* (what is left of the rocket stands centred: its drawing moves by the missing half) */}
           <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H, transform: `translateX(${L.ship.shift}px)` }}>
-            <div
-              ref={sinkEl}
-              data-rw="sink"
-              className="absolute inset-0"
-              style={{
-                transform: sinkTransform(sink),
-                transformOrigin: pivot,
-                transition: resting && !reduced ? 'transform 1s linear' : 'none',
-              }}
-            >
-              <div
-                className={`absolute inset-0 ${shownRest && !reduced ? 'rw-bob' : ''}`}
-                style={{ transformOrigin: pivot, animationPlayState: isPaused ? 'paused' : 'running' }}
-              >
+            {/* the lift: on the stands of a rest (and its jolts) */}
+            <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
+              <div className="absolute inset-0">
                 {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
                 <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                   <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
@@ -400,12 +414,6 @@ export function RocketWidget({
                           <SputterPuffs g={g} puffsRef={puffsEl} />
                         </>
                       }
-                      inside={
-                        // (the water is only seen with the rocket parked: the flights hide it)
-                        <div ref={waterEl} className="absolute inset-0">
-                          {shownRest && <Water key={displayIndex} g={g} level={level} tilt={sink.rz} reduced={reduced} />}
-                        </div>
-                      }
                     />
                     {/* a tap on the body opens the list too */}
                     {isExercise(shown) && (
@@ -420,6 +428,26 @@ export function RocketWidget({
                 </div>
               </div>
             </div>
+            {crewOn && (
+              <RepairCrew
+                // (its places are taken once it is on: anew if the rocket changes in the clouds)
+                key={`${crewAt}:${g.first}:${g.boosters ? 1 : 0}:${L.ship.shift}`}
+                g={g}
+                timing={crewTiming}
+                calm={crewRest.talks.length > 0}
+                paused={isPaused}
+                reduced={reduced}
+                bail={crewAt !== restHere}
+                view={view}
+                liftRef={liftEl}
+              />
+            )}
+            {/* "listo": a sparkle on the nose as it drops into its place */}
+            <div ref={sparkleEl} aria-hidden="true" className="pointer-events-none absolute" style={{ left: g.tip - 22, top: SHIP.F - 14, width: 16, height: 16, opacity: 0 }}>
+              <svg viewBox="-8 -8 16 16" className="block h-full w-full overflow-visible" fill="#fff" stroke={INK} strokeWidth={1.3} strokeLinejoin="round">
+                <path d="M0 -8 L1.8 -1.8 L8 0 L1.8 1.8 L0 8 L-1.8 1.8 L-8 0 L-1.8 -1.8 Z" />
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -433,17 +461,51 @@ export function RocketWidget({
 
 interface FlightEls {
   flightEl: RefObject<HTMLDivElement | null>;
-  sinkEl: RefObject<HTMLDivElement | null>;
+  liftEl: RefObject<HTMLDivElement | null>;
   squashEl: RefObject<HTMLDivElement | null>;
   flameEl: RefObject<HTMLDivElement | null>;
   puffsEl: RefObject<HTMLDivElement | null>;
   podEl: RefObject<HTMLDivElement | null>;
-  waterEl: RefObject<HTMLDivElement | null>;
+  sparkleEl: RefObject<HTMLDivElement | null>;
+}
+
+/** The crouch of the last second and its banner folding in, as the animations' ids. */
+const CROUCH_ID = 'rw-crouch';
+const FOLD_ID = 'rw-crouch-fold';
+const prelaunchOf = (...nodes: (HTMLElement | null)[]) =>
+  nodes.flatMap((node) => node?.getAnimations().filter((a) => a.id === CROUCH_ID || a.id === FOLD_ID) ?? []);
+
+/**
+ * The last second of a serie before a takeoff: the rocket crouches (over the second that is left,
+ * paused with the routine) and its banner folds in for the last third of it. The takeoff then goes
+ * from there: the flight (whose effect runs first) reads how far it got and takes over. If no
+ * takeoff came (a rewind, "Anterior"), it stands up again.
+ */
+function usePrelaunch(on: boolean, at: number, paused: boolean, flightEl: RefObject<HTMLDivElement | null>, podEl: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const node = flightEl.current;
+    const banner = podEl.current;
+    if (!node || !banner) return;
+    if (!on) {
+      prelaunchOf(node, banner).forEach((a) => a.cancel());
+      return;
+    }
+    if (prelaunchOf(node).length) return;
+    const ms = PRELAUNCH.leadS * 1000;
+    node.animate(PRELAUNCH_KEYFRAMES, { id: CROUCH_ID, duration: ms, fill: 'forwards' });
+    banner.animate(podRetractKeyframes(), { id: FOLD_ID, duration: POD.outMs, delay: ms - PRELAUNCH.foldLeadS * 1000, fill: 'forwards' });
+  }, [on, at, flightEl, podEl]);
+  useLayoutEffect(() => {
+    prelaunchOf(flightEl.current, podEl.current).forEach((a) => {
+      if (a.playState === 'finished') return;
+      if (paused) a.pause();
+      else a.play();
+    });
+  }, [paused, on, flightEl, podEl]);
 }
 
 function useRocketFlight({
   els,
-  lastSink,
   spotOf,
   cloudKey,
   ending,
@@ -452,7 +514,6 @@ function useRocketFlight({
   reduced,
 }: {
   els: FlightEls;
-  lastSink: RefObject<Sink>;
   /** its place in the clouds, measured now */
   spotOf: () => CloudSpot;
   cloudKey: number;
@@ -477,14 +538,14 @@ function useRocketFlight({
     const r = refs.current;
     const el = {
       flight: r.flightEl.current,
-      sink: r.sinkEl.current,
+      lift: r.liftEl.current,
       squash: r.squashEl.current,
       flame: r.flameEl.current,
       puffs: r.puffsEl.current,
       pod: r.podEl.current,
-      water: r.waterEl.current,
+      sparkle: r.sparkleEl.current,
     };
-    if (!el.flight || !el.sink || !el.squash || !el.flame || !el.pod || !el.puffs || !el.water) return;
+    if (!el.flight || !el.lift || !el.squash || !el.flame || !el.pod || !el.puffs || !el.sparkle) return;
 
     let next: Flight;
     // (coming from "Empezar", it arrives once the creator's rocket has gone: see rocketHandoff)
@@ -496,13 +557,25 @@ function useRocketFlight({
       // No flight: the moment changed with the rocket in its place.
       if (phaseAt(flight.current, now) !== 'parked') return;
       if (prev.item?.kind === 'rest' && isExercise(item)) {
-        // the end of a rest: "¡pam!", the water is gone, and it springs back upright
+        // the end of a rest: "¡pam!", it drops off its stands into its place, and it is ready
         if (reduced) {
           el.pod.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 200 });
         } else {
+          const lifted = getComputedStyle(el.lift).transform;
+          const y = lifted === 'none' ? 0 : new DOMMatrix(lifted).m42;
+          el.lift.getAnimations().forEach((a) => a.cancel());
           el.squash.animate(PAM_KEYFRAMES, { duration: FLIGHT.pamMs });
-          el.sink.animate(springBackKeyframes(lastSink.current), { duration: SINK.springMs });
+          if (y < -0.5) el.lift.animate(springBackKeyframes({ y, rz: 0 }), { duration: STANDS.springMs });
           el.pod.animate(POD_BUMP_KEYFRAMES, { duration: 380 });
+          el.sparkle.animate(
+            [
+              { opacity: 0, transform: 'scale(0.2) rotate(0deg)' },
+              { opacity: 1, transform: 'scale(1.25) rotate(45deg)', offset: 0.35 },
+              { opacity: 1, transform: 'scale(0.9) rotate(70deg)', offset: 0.6 },
+              { opacity: 0, transform: 'scale(0.4) rotate(90deg)' },
+            ],
+            { duration: 620, delay: 120, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)', fill: 'backwards' },
+          );
         }
       } else if (!reduced && sputtersBetween(prev.item, item)) {
         // one warm-up clip to the next: it tries to take off and can't
@@ -520,8 +593,11 @@ function useRocketFlight({
     }
     if (next === flight.current) return;
     flight.current = next;
-    playFlight(next, now, reduced, { flight: el.flight, squash: el.squash, flame: el.flame, pod: el.pod, water: el.water }, () => spot.current());
-  }, [cloudKey, ending, queue, currentIndex, reduced, lastSink]);
+    // from the crouch of its last second, if it got that far (otherwise a quick one first)
+    const c = el.flight.getAnimations().find((a) => a.id === CROUCH_ID);
+    const crouched = c ? c.playState === 'finished' || (c.effect?.getComputedTiming().progress ?? 0) > 0.25 : false;
+    playFlight(next, now, reduced, crouched, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
+  }, [cloudKey, ending, queue, currentIndex, reduced]);
 
   return flight;
 }
@@ -564,14 +640,17 @@ function playFlight(
   f: Flight,
   now: number,
   reduced: boolean,
-  el: { flight: HTMLElement; squash: HTMLElement; flame: HTMLElement; pod: HTMLElement; water: HTMLElement },
+  crouched: boolean,
+  el: { flight: HTMLElement; lift: HTMLElement; squash: HTMLElement; flame: HTMLElement; pod: HTMLElement },
   spotOf: () => CloudSpot,
 ) {
   // where it is right now, for a fade from mid-flight
   const style = getComputedStyle(el.flight);
   const from = { transform: style.transform === 'none' ? 'none' : style.transform, opacity: Number(style.opacity) };
   const podOpacity = Number(getComputedStyle(el.pod).opacity);
-  [el.flight, el.squash, el.flame, el.pod, el.water].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
+  // (a banner already folded in by the last second stays folded)
+  const folded = crouched && podOpacity < 0.5;
+  [el.flight, el.lift, el.squash, el.flame, el.pod].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
   if (f.leftAt === null) return;
 
   const leaves = Number.isFinite(f.leftAt);
@@ -583,29 +662,30 @@ function playFlight(
     node.animate(keys, options).startTime = now;
   };
   const podIn = [{ opacity: 0, transform: POD_FOLDED }];
-  // The water of a rest is only seen with the rocket parked: the rest begins as it takes off, and
-  // a rocket flying nose up with water along its side would read wrong. It shows again once landed.
-  const dry = [{ opacity: 0 }, { opacity: 0 }];
+  // the banner folds in as it goes (quickly, with the quick crouch), unless it already has
+  const foldIn = (at: number) =>
+    folded
+      ? run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' })
+      : run(el.pod, podRetractKeyframes(), { duration: PRELAUNCH.quickMs, delay: at, fill: 'forwards' });
 
   if (leaves) {
     const at = delay(f.leftAt);
-    run(el.water, dry, { duration: 1, delay: at, fill: 'forwards' });
     if (f.how === 'clouds' && !reduced) {
-      // into the clouds (the banner folds in first), waits there, and takes off once from there
-      if (!f.placed) run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
+      // into the clouds, straight from its crouch, waits there, and takes off once from there
+      if (!f.placed) foldIn(at);
       else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
-      run(el.flight, cloudKeyframes(spotOf(), f.placed), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
-      run(el.flame, cloudFlameKeyframes(f.placed), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      run(el.flight, cloudKeyframes(spotOf(), f.placed, crouched), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      run(el.flame, cloudFlameKeyframes(f.placed, crouched), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
     } else if (f.how === 'takeoff' && !reduced) {
-      // the banner folds into the body first; then the rocket crouches, turns its nose up and climbs
-      run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
-      run(el.flight, TAKEOFF_KEYFRAMES, { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
+      // from its crouch it turns its nose up and climbs straight out of the top
+      foldIn(at);
+      const quick = crouched ? 0 : PRELAUNCH.quickMs / FLIGHT.takeoffMs;
+      run(el.flight, takeoffKeyframes(crouched), { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
       run(
         el.flame,
         [
-          { opacity: 0, transform: 'scale(0.3, 0.7)' },
-          { opacity: 1, transform: 'scale(0.45, 0.85)', offset: FOLD_AT },
-          { opacity: 1, transform: 'scale(0.75, 0.95)', offset: ANTICIPATION_AT },
+          { opacity: crouched ? 1 : 0, transform: crouched ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
+          ...(quick ? [{ opacity: 1, transform: 'scale(0.7, 0.95)', offset: quick }] : []),
           { opacity: 1, transform: 'scale(1.15, 1.05)', offset: UPRIGHT_AT },
           { opacity: 1, transform: 'scale(1.35, 1.08)' },
         ],
@@ -637,7 +717,6 @@ function playFlight(
   const fill: FillMode = leaves ? 'forwards' : 'both';
   const at = delay(f.returnAt);
   const parkedAt = at + FLIGHT.returnMs;
-  run(el.water, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: parkedAt, fill });
   if (reduced) {
     run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill });
     run(el.pod, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: parkedAt + POD.inDelayMs, fill });
@@ -697,7 +776,7 @@ function BannerButton({
 }
 
 // ---------------------------------------------------------------------------------------------
-// Flames, exhaust and water (behind and inside the drawing)
+// Flames and exhaust (behind the drawing)
 
 /** The flame of the flight (and of the warm-up's cough): hidden unless an animation shows it. */
 function FlightFlame({ g, flameRef }: { g: ShipGeometry; flameRef: RefObject<HTMLDivElement | null> }) {
@@ -734,7 +813,7 @@ function WarningFlame({ g, level, on }: { g: ShipGeometry; level: number; on: bo
       className="pointer-events-none absolute transition-[transform,opacity] duration-[450ms] ease-out"
       style={{ ...flameBox(g), opacity: on ? 1 : 0, transform: `scale(${step.sx}, ${step.sy})` }}
     >
-      <FlameDrawing color={WATER.line} />
+      <FlameDrawing color={REST_BLUE} />
     </div>
   );
 }
@@ -797,81 +876,6 @@ function SputterPuffs({ g, puffsRef }: { g: ShipGeometry; puffsRef: RefObject<HT
           <PuffDrawing />
         </div>
       ))}
-    </div>
-  );
-}
-
-// Bubbles: where they rise (fraction of the body's length), size, and timing.
-const BUBBLES = [
-  { x: 0.12, r: 1.75, s: 2.2, delay: 0 },
-  { x: 0.3, r: 1.5, s: 2.7, delay: 1.1 },
-  { x: 0.48, r: 2, s: 2, delay: 0.5 },
-  { x: 0.66, r: 1.5, s: 2.9, delay: 1.7 },
-  { x: 0.8, r: 1.75, s: 2.4, delay: 0.8 },
-] as const;
-const WAVE_PERIOD = 28;
-// the water reaches this far past the body's ends and below it, so it still fills it when it turns
-const SPILL = 40;
-
-/**
- * The rest fills the whole silhouette (body and nose) with water from the bottom up. Two wave
- * layers slide at different speeds, a few bubbles rise, the surface calms near the top, and it
- * stays level as the rocket tilts (it turns the other way). Only transforms move: the level and
- * the tilt (once a second), the waves (sideways) and the bubbles.
- */
-function Water({ g, level, tilt, reduced }: { g: ShipGeometry; level: number; tilt: number; reduced: boolean }) {
-  const { F, T } = SHIP;
-  const l = Math.min(1, Math.max(0, level));
-  const calm = l < 0.7 ? 1 : Math.max(0.2, (1 - l) / 0.3);
-  const length = g.tip - g.x0;
-  const width = length + 2 * SPILL;
-  const strip = Math.ceil(width / WAVE_PERIOD + 1) * WAVE_PERIOD * 2;
-  const run = Array.from({ length: strip / WAVE_PERIOD }, () => `q${WAVE_PERIOD / 4} -4 ${WAVE_PERIOD / 2} 0 t${WAVE_PERIOD / 2} 0`).join(' ');
-  const move = reduced ? 'none' : 'transform 1s linear';
-  const wave = (cls: string, base: number, fill: string, line?: string) => (
-    <div className="absolute left-0 overflow-hidden" style={{ top: -7, height: 8, width: strip, transformOrigin: '50% 100%', transform: `scaleY(${calm})`, transition: move }}>
-      <svg width={strip} height={8} viewBox={`0 0 ${strip} 8`} className={`block ${reduced ? '' : cls}`}>
-        <path d={`M0 ${base} ${run} V8 H0 Z`} fill={fill} />
-        {line && <path d={`M0 ${base} ${run}`} fill="none" stroke={line} strokeWidth={1.25} />}
-      </svg>
-    </div>
-  );
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ clipPath: `path('${g.inside}')` }}>
-      <div className="absolute inset-0" style={{ transform: `rotate(${-tilt}deg)`, transformOrigin: `${(g.x0 + g.tip) / 2}px ${g.cy}px`, transition: move }}>
-        <div
-          data-rw="water"
-          className="absolute"
-          style={{ left: g.x0 - SPILL, top: F, width, height: T + SPILL, transform: `translateY(${((1 - l) * T).toFixed(2)}px)`, transition: move }}
-        >
-          <div className="absolute left-0" style={{ top: -2, width: strip }}>
-            {wave('rw-wave-back', 4, WATER.back)}
-          </div>
-          <div className="absolute left-0" style={{ top: 0, width: strip }}>
-            {wave('rw-wave-front', 5, WATER.front, WATER.line)}
-          </div>
-          <div className="absolute inset-x-0 bottom-0 top-[1px]" style={{ background: WATER.front }} />
-          {!reduced &&
-            BUBBLES.map((b, i) => (
-              <span
-                key={i}
-                className="rw-bubble absolute rounded-full border-[1.25px] bg-white/50"
-                style={
-                  {
-                    left: SPILL + b.x * length,
-                    top: T - 2 * b.r - 3,
-                    width: 2 * b.r,
-                    height: 2 * b.r,
-                    borderColor: WATER.line,
-                    '--rw-rise': `${-(T - 8)}px`,
-                    '--rw-bubble-s': `${b.s}s`,
-                    '--rw-bubble-delay': `${b.delay}s`,
-                  } as CSSProperties
-                }
-              />
-            ))}
-        </div>
-      </div>
     </div>
   );
 }
