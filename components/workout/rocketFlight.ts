@@ -211,7 +211,7 @@ export const SEPARATION = {
 /** Clouds that last this much longer have the separation (the long rests: BLOCK_END_EXTRA_MS). */
 export const separates = (extra = 0) => extra >= BLOCK_END_EXTRA_MS;
 
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+export const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const easeOut = (p: number) => 1 - (1 - clamp01(p)) ** 3;
 
 /**
@@ -363,9 +363,6 @@ export function nextFlight(f: Flight, event: FlightEvent, now: number, extra = 0
   }
 }
 
-/** The widget rocket can be seen (parked, taking off, fading or coming back). */
-export const widgetVisibleAt = (f: Flight, now: number) => phaseAt(f, now) !== 'away';
-
 /**
  * Where the widget rocket can be seen on screen. It fades only at the very end of its takeoff,
  * but it has climbed out of the top by `TAKEOFF_OFFSCREEN_AT` of it (see TAKEOFF_KEYFRAMES), or of
@@ -495,15 +492,8 @@ export function podRetractKeyframes(): FlightKeyframe[] {
   ];
 }
 
-/** A little bump of the banner when what it holds changes in place (the end of a rest). */
-export const POD_BUMP_KEYFRAMES: FlightKeyframe[] = [
-  { offset: 0, transform: 'scale(0.96, 0.9)', opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' },
-  { offset: 0.55, transform: 'scale(1.025, 1.04)', opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
-  { offset: 1, transform: 'scale(1, 1)', opacity: 1 },
-];
-
 // ---------------------------------------------------------------------------------------------
-// Controls: they work only once the rocket is parked and its banner is coming out (the widget is
+// Controls: they work only once the rocket is parked and its panels are coming out (the widget is
 // `inert` otherwise): until then there is nothing to press.
 
 /** Its controls can be pressed. */

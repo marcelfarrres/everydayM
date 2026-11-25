@@ -1,4 +1,4 @@
-import { SEPARATION } from './rocketFlight';
+import { SEPARATION, clamp01 } from './rocketFlight';
 
 /*
  * The separation after a block (or after the warm-up), as poses at `t` ms of the clouds' one clock
@@ -13,7 +13,6 @@ import { SEPARATION } from './rocketFlight';
  */
 
 type Ease = (p: number) => number;
-const clamp01 = (p: number) => Math.min(1, Math.max(0, p));
 const lin: Ease = (p) => p;
 const io: Ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
 const out: Ease = (p) => 1 - (1 - p) ** 3;

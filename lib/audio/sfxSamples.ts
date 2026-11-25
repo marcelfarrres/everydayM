@@ -1,4 +1,4 @@
-import { SFX_LOOPS, type SfxName } from './sfxRecipes';
+import { SFX_LOOPS, clamp01, type SfxName } from './sfxRecipes';
 
 /*
  * The sound effects that are real recordings: one file per sound in `public/sfx/<name>.mp3`
@@ -54,7 +54,7 @@ export function sampleUrl(sample: SfxSample): string {
 /** Level of a sampled loop at `intensity`: its gain, following the recipe's curve (low → high). */
 export function sampleLoopGain(name: keyof typeof SFX_LOOPS, sample: SfxSample, intensity: number): number {
   const { low, high } = SFX_LOOPS[name];
-  const t = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0;
+  const t = clamp01(intensity);
   const curve = high.gain > 0 ? (low.gain * (1 - t) + high.gain * t) / high.gain : 1;
   return sample.gain * curve;
 }

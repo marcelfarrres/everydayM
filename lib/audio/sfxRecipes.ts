@@ -287,7 +287,8 @@ export function sfxCategory(name: SfxName): SfxCategory {
   return isLoop(name) ? SFX_LOOPS[name].category : SFX_RECIPES[name].category;
 }
 
-function clamp01(value: number): number {
+/** `value` within 0..1 (anything not a finite number: 0). */
+export function clamp01(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
