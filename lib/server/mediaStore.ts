@@ -120,6 +120,9 @@ export const MEDIA_PATHS = {
   talkLite: (base: string) => `talks/lite/${base}.mp4`,
   talkPoster: (base: string) => `talks/posters/${base}.webp`,
   musicTrack: (base: string) => `music/${base}.m4a`,
+  restVideo: (base: string) => `rests/${base}.mp4`,
+  restLite: (base: string) => `rests/lite/${base}.mp4`,
+  restPoster: (base: string) => `rests/posters/${base}.webp`,
 } as const;
 
 export function publicUrl(objectPath: string): string {

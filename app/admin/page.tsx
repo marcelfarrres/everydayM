@@ -8,20 +8,22 @@ import type { StudioExercise } from '@/types/studio';
 import { LibraryView } from '@/components/studio/LibraryView';
 import { TalksView } from '@/components/studio/TalksView';
 import { MusicView } from '@/components/studio/MusicView';
+import { RestsView } from '@/components/studio/RestsView';
 import { ClipsView } from '@/components/studio/ClipsView';
 import { Banner, FOCUS, type BannerMessage } from '@/components/studio/StudioUi';
 import { StudioAuthError, studioJson } from '@/components/studio/studioClient';
 
-type View = 'videos' | 'hablados' | 'musica' | 'clips';
+type View = 'videos' | 'hablados' | 'descansos' | 'musica' | 'clips';
 
 const VIEWS: Array<{ id: View; label: string }> = [
   { id: 'videos', label: 'Vídeos' },
   { id: 'hablados', label: 'Vídeos hablados' },
+  { id: 'descansos', label: 'Descansos' },
   { id: 'musica', label: 'Música' },
   { id: 'clips', label: 'Clips' },
 ];
 
-/** The open view lives in the URL hash (#hablados, #musica, #clips): reload and the back button keep it. */
+/** The open view lives in the URL hash (#hablados, #descansos, #musica, #clips): reload and the back button keep it. */
 function useHashView(): View {
   return useSyncExternalStore(
     (onChange) => {
@@ -30,7 +32,7 @@ function useHashView(): View {
     },
     () => {
       const hash = window.location.hash.replace('#', '');
-      return hash === 'hablados' || hash === 'musica' || hash === 'clips' ? hash : 'videos';
+      return VIEWS.find((v) => v.id === hash)?.id ?? 'videos';
     },
     () => 'videos',
   );
@@ -188,6 +190,9 @@ export default function AdminStudioPage() {
             openId={view === 'hablados' ? talksOpenId : null}
             setOpenId={setTalksOpenId}
           />
+        </div>
+        <div hidden={view !== 'descansos'}>
+          <RestsView notify={setBanner} handleError={handleError} />
         </div>
         <div hidden={view !== 'musica'}>
           <MusicView notify={setBanner} handleError={handleError} />

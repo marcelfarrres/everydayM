@@ -19,10 +19,11 @@ import {
  *  - lite:     720 px wide, what the app plays,
  *  - poster:   WebP still from the middle, what lists show.
  * Exercise clips are silent (except type 'intro'); talks keep their voice, normalised to
- * about -16 LUFS. If any upload fails, the files already stored are removed again.
+ * about -16 LUFS; rest videos are always silent (the app loops them muted). If any upload
+ * fails, the files already stored are removed again.
  */
 
-export type ClipKind = 'exercise' | 'talk';
+export type ClipKind = 'exercise' | 'talk' | 'rest';
 
 export interface CompressedInfo {
   compressedSize: number;
@@ -47,6 +48,11 @@ const PATHS_BY_KIND = {
     video: MEDIA_PATHS.talkVideo,
     lite: MEDIA_PATHS.talkLite,
     poster: MEDIA_PATHS.talkPoster,
+  },
+  rest: {
+    video: MEDIA_PATHS.restVideo,
+    lite: MEDIA_PATHS.restLite,
+    poster: MEDIA_PATHS.restPoster,
   },
 } as const;
 

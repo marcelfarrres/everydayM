@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { Catalog, CatalogExercise, MusicTrack } from '@/types/catalog';
+import type { Catalog, CatalogExercise, MusicTrack, RestVideo } from '@/types/catalog';
 import type { ExerciseTalk, MuscleSelection } from '@/types/workout';
 import { deleteObject, getObjectText, listObjects, putContent } from '@/lib/server/mediaStore';
 
@@ -33,7 +33,7 @@ export class CatalogNotFoundError extends Error {
 }
 
 export function emptyCatalog(): Catalog {
-  return { version: 1, updatedAt: new Date(0).toISOString(), exercises: [], music: [] };
+  return { version: 1, updatedAt: new Date(0).toISOString(), exercises: [], music: [], rests: [] };
 }
 
 export function newId(): string {
@@ -114,6 +114,20 @@ function normalizeTrack(raw: unknown): MusicTrack | null {
   };
 }
 
+function normalizeRest(raw: unknown): RestVideo | null {
+  const r = asRecord(raw);
+  if (!r || !str(r.id) || !str(r.video_url)) return null;
+  return {
+    id: str(r.id),
+    title: str(r.title, 'Descanso'),
+    video_url: str(r.video_url),
+    video_lite_url: strOrNull(r.video_lite_url),
+    poster_url: strOrNull(r.poster_url),
+    duration_seconds: num(r.duration_seconds),
+    enabled: r.enabled !== false,
+  };
+}
+
 /** Parse catalog JSON defensively: unknown fields dropped, broken entries skipped. */
 export function parseCatalog(text: string): Catalog {
   let parsed: unknown;
@@ -135,6 +149,10 @@ export function parseCatalog(text: string): Catalog {
       : [],
     music: Array.isArray(root.music)
       ? root.music.map(normalizeTrack).filter((m): m is MusicTrack => m !== null)
+      : [],
+    // Catalogs written before rest videos existed have no `rests`: always an array from here on.
+    rests: Array.isArray(root.rests)
+      ? root.rests.map(normalizeRest).filter((r): r is RestVideo => r !== null)
       : [],
   };
 }
@@ -204,4 +222,16 @@ export function findTrack(catalog: Catalog, id: string): MusicTrack {
   const track = catalog.music.find((m) => m.id === id);
   if (!track) throw new CatalogNotFoundError('Pista no encontrada.');
   return track;
+}
+
+/** The rest videos of a catalog, creating the list when it is missing (the field is optional). */
+export function catalogRests(catalog: Catalog): RestVideo[] {
+  catalog.rests ??= [];
+  return catalog.rests;
+}
+
+export function findRest(catalog: Catalog, id: string): RestVideo {
+  const rest = catalogRests(catalog).find((r) => r.id === id);
+  if (!rest) throw new CatalogNotFoundError('Vídeo de descanso no encontrado.');
+  return rest;
 }
