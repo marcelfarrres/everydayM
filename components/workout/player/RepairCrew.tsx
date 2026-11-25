@@ -22,6 +22,8 @@ const BLUE = '#2f6bff';
 // a mechanic's box: about 1.2 times the body's thickness
 const MW = 22;
 const MH = 36;
+// smoke and dust: this many puffs, each used again once it has gone
+const SMOKE_SLOTS = 10;
 
 type Track = [t: number, value: string, easing?: string][];
 
@@ -48,6 +50,10 @@ interface Places {
   offLeft: number;
   offRight: number;
   ground: number;
+  /** the rocket's ends and middle line (for the smoke) */
+  tailEnd: number;
+  noseEnd: number;
+  cy: number;
 }
 
 /** Everything that moves, as tracks over the plan's time. */
@@ -58,11 +64,26 @@ function choreography(plan: RepairPlan, p: Places) {
   const lift: Track = [[0, 'translateY(0px) scaleY(1)']];
   const stands: Track = [[0, 'scaleY(0)']];
   const sparks: Track = [[0, '0']];
-  const sparkAt: Track = [[0, `translate(${p.tail + MW}px, 0px)`]];
-  const dust: Track = [[0, '0']];
-  const dustAt: Track = [[0, `translate(${p.tail}px, 0px)`]];
-  const puffTail: Track = [[0, '0']];
-  const puffNose: Track = [[0, '0']];
+  const sparkAt: Track = [[0, `translate(${p.tail + MW}px, 0px) scale(1)`]];
+  // a puff at (x, y) (its middle) that drifts by (dx, dy), grows and fades over `life` ms
+  const smoke = Array.from({ length: SMOKE_SLOTS }, () => ({ at: [[0, 'translate(0px, 0px) scale(0)']] as Track, op: [[0, '0']] as Track, free: 0 }));
+  const puff = (t: number, x: number, y: number, dx: number, dy: number, size: number, life: number) => {
+    const slot = smoke.find((one) => one.free <= t - 20);
+    if (!slot || t < 0) return;
+    slot.free = t + life + 40;
+    const at = (px: number, py: number, k: number) => `translate(${Math.round(px - 11)}px, ${Math.round(py - 7.5)}px) scale(${k.toFixed(2)})`;
+    slot.at.push([t - 2, at(x, y, 0.35 * size), 'cubic-bezier(0.2, 0.6, 0.4, 1)'], [t + life, at(x + dx, y + dy, 1.5 * size)]);
+    slot.op.push([t - 2, '0', 'ease-out'], [t + 110, '1', 'ease-in'], [t + life, '0']);
+  };
+  // dust at the feet of one running from x0 to x1 between `from` and `to`
+  const ground = p.ground - 5;
+  const dustRun = (from: number, to: number, x0: number, x1: number) => {
+    const dir = Math.sign(x1 - x0) || 1;
+    for (let t = from + 60; t < to - 40; t += 170) {
+      const x = x0 + ((x1 - x0) * (t - from)) / (to - from) + MW / 2;
+      puff(t, x - dir * 6, ground, -dir * 12, -5, 0.55, 420);
+    }
+  };
 
   const walk = (who: typeof A, from: number, to: number, x0: number, x1: number, y = 0) => {
     who.x.push([from, `translate(${x0}px, ${y}px)`, 'cubic-bezier(0.45, 0, 0.55, 1)']);
@@ -78,6 +99,7 @@ function choreography(plan: RepairPlan, p: Places) {
     who.legL.push([to - 60, 'rotate(0deg)']);
     who.legR.push([to - 60, 'rotate(0deg)']);
     who.back.push([to - 60, 'rotate(6deg)']);
+    dustRun(from, to - 110, x0, x1);
   };
   // turning round is quick (70 ms): it holds the way it faced until then
   const facing = new Map<typeof A, boolean>();
@@ -97,8 +119,9 @@ function choreography(plan: RepairPlan, p: Places) {
   turnTo(B, 0, false);
   walk(A, 0, aIn, p.offLeft, p.tail);
   walk(B, 120, plan.enterEnd, p.offRight, p.nose);
-  dust.push([aIn - 120, '1'], [aIn + 200, '0']);
-  dustAt.push([aIn - 121, `translate(${p.tail}px, 0px)`]);
+  // (and a puff as each brakes)
+  puff(aIn - 100, p.tail + MW / 2 + 8, ground, 10, -6, 0.8, 480);
+  puff(plan.enterEnd - 90, p.nose + MW / 2 - 8, ground, -10, -6, 0.8, 480);
   // the stands go in and the rocket comes up a little, with a bounce
   stands.push([plan.enterEnd - 150, 'scaleY(0)', 'cubic-bezier(0.3, 1.6, 0.5, 1)'], [plan.enterEnd + 60, 'scaleY(1)']);
   lift.push(
@@ -152,8 +175,15 @@ function choreography(plan: RepairPlan, p: Places) {
     A.back.push([h - 0.3 * b, 'rotate(-14deg)', 'ease-out'], [h + 60, 'rotate(10deg)', 'ease-out'], [h + 0.35 * b, 'rotate(4deg)']);
     if (plan.sparks) {
       const atTail = sideAt(h);
-      sparkAt.push([h - 1, `translate(${atTail ? p.tail + MW + 2 : p.nose - 8}px, 0px)`]);
-      sparks.push([h - 1, '0'], [h + 10, '1'], [h + 150, '0']);
+      const x = atTail ? p.tail + MW + 2 : p.nose - 10;
+      sparkAt.push(
+        [h - 1, `translate(${x}px, 0px) scale(0.3)`, 'cubic-bezier(0.2, 0.8, 0.3, 1.4)'],
+        [h + 50, `translate(${x}px, 0px) scale(1.25)`, 'ease-in'],
+        [h + 190, `translate(${x}px, 0px) scale(0.7)`],
+      );
+      sparks.push([h - 1, '0'], [h + 10, '1'], [h + 190, '0']);
+      // a little smoke from the blow
+      puff(h + 20, x + 6, p.cy + 2, atTail ? -6 : 6, -8, 0.55, 500);
       lift.push(
         [h - 1, `translateY(${-STANDS.liftPx}px) scaleY(1)`, 'cubic-bezier(0.2, 0.8, 0.4, 1)'],
         [h + 50, `translateY(${-STANDS.liftPx + 1.6}px) scaleY(0.97)`, 'cubic-bezier(0.4, 0, 0.4, 1)'],
@@ -174,9 +204,12 @@ function choreography(plan: RepairPlan, p: Places) {
     );
     B.head.push([t - 0.1 * b, 'rotate(4deg)', 'ease-out'], [t + 0.3 * b, 'rotate(-5deg)', 'ease-in-out'], [t + 0.6 * b, 'rotate(0deg)']);
   });
+  // smoke at either end, now one, now the other; one in three rises higher and comes apart
+  const size = plan.calm ? 0.7 : 1.15;
   plan.puffs.forEach((t, i) => {
-    const track = i % 2 ? puffNose : puffTail;
-    track.push([t - 1, '0'], [t + 120, '1'], [t + 700, '0']);
+    const high = i % 3 === 2 ? 1.6 : 1;
+    if (i % 2) puff(t, p.noseEnd + 2, p.cy - 4, 12, -10 * high, size, 900 * high);
+    else puff(t, p.tailEnd - 4, p.cy - 2, -14, -9 * high, size, 900 * high);
   });
 
   // out: the stands come away (the rocket down to just above its place), and each runs off its way
@@ -194,12 +227,11 @@ function choreography(plan: RepairPlan, p: Places) {
       who.legL.push([t, `rotate(${i % 2 ? 30 : -30}deg)`]);
       who.legR.push([t, `rotate(${i % 2 ? -30 : 30}deg)`]);
     }
+    dustRun(s + delay, plan.exitEnd, from, to);
   };
   out(A, aEnd, 0);
   out(B, !aEnd, 90);
-  dust.push([s - 1, '0'], [s + 60, '1'], [s + 360, '0']);
-  dustAt.push([s - 2, `translate(${aEnd ? p.tail : p.nose}px, 0px)`]);
-  return { D, A, B, lift, stands, sparks, sparkAt, dust, dustAt, puffTail, puffNose };
+  return { D, A, B, lift, stands, sparks, sparkAt, smoke };
 }
 
 /** One little mechanic: legs, body, head with its cap, two arms; the hammer or the wrench. */
@@ -297,6 +329,9 @@ export function RepairCrew({
     offLeft,
     offRight,
     ground: g.H,
+    tailEnd: g.xe,
+    noseEnd: g.tip,
+    cy: g.cy,
   };
 
   useLayoutEffect(() => {
@@ -336,10 +371,10 @@ export function RepairCrew({
     run('stands', c.stands);
     run('spark', c.sparks, 'opacity');
     run('spark-at', c.sparkAt);
-    run('dust', c.dust, 'opacity');
-    run('dust-at', c.dustAt);
-    run('puff-tail', c.puffTail, 'opacity');
-    run('puff-nose', c.puffNose, 'opacity');
+    c.smoke.forEach((one, i) => {
+      run(`smoke-${i}`, one.at);
+      run(`smoke-${i}`, one.op, 'opacity');
+    });
     const lift = liftRef.current;
     if (lift) add(lift, keys(c.lift, c.D));
     const list = anims.current;
@@ -379,7 +414,7 @@ export function RepairCrew({
       const target = (a.effect as KeyframeEffect | null)?.target;
       if (target && target !== liftRef.current && target !== el && !target.matches('[data-part$="-x"]')) a.cancel();
     });
-    el.querySelectorAll<HTMLElement>('[data-part="stands"], [data-part="spark"], [data-part="dust"]').forEach((n) => n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' }));
+    el.querySelectorAll<HTMLElement>('[data-part="stands"], [data-part="spark"]').forEach((n) => n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bail]);
 
@@ -403,12 +438,11 @@ export function RepairCrew({
         {stand(g.xs - 12)}
       </div>
       {/* smoke at either end now and then */}
-      <div data-part="puff-tail" className="absolute" style={{ left: g.xe - 22, top: g.cy - 16, width: 20, height: 14, opacity: 0 }}>
-        <Puff />
-      </div>
-      <div data-part="puff-nose" className="absolute" style={{ left: g.tip - 6, top: g.cy - 20, width: 18, height: 12, opacity: 0 }}>
-        <Puff />
-      </div>
+      {Array.from({ length: SMOKE_SLOTS }, (_, i) => (
+        <div key={i} data-part={`smoke-${i}`} className="absolute left-0 top-0" style={{ width: 22, height: 15, opacity: 0, transformOrigin: '50% 50%' }}>
+          <Puff />
+        </div>
+      ))}
       {(['a', 'b'] as const).map((id) => (
         <div
           key={id}
@@ -423,14 +457,9 @@ export function RepairCrew({
       ))}
       {/* a spark at each blow, and dust at their feet */}
       <div data-part="spark-at" className="absolute left-0" style={{ top: g.cy - 14 }}>
-        <svg data-part="spark" width={12} height={12} viewBox="-6 -6 12 12" className="block overflow-visible" style={{ opacity: 0 }} fill="#fff" stroke={INK} strokeWidth={1}>
+        <svg data-part="spark" width={18} height={18} viewBox="-6 -6 12 12" className="block overflow-visible" style={{ opacity: 0 }} fill="#fff" stroke={INK} strokeWidth={1}>
           <path d="M0 -6 L1.4 -1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4 -1.4 Z" />
         </svg>
-      </div>
-      <div data-part="dust-at" className="absolute left-0" style={{ top: g.H - 10 }}>
-        <div data-part="dust" style={{ width: 22, height: 12, opacity: 0 }}>
-          <Puff />
-        </div>
       </div>
     </div>
   );

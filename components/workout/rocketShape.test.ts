@@ -210,7 +210,7 @@ describe('the rocket moving in its place', () => {
     for (const list of [SHAKE.rocket, SHAKE.text]) {
       for (let i = 1; i < list.length; i++) expect(list[i]).toBeGreaterThan(list[i - 1]);
     }
-    expect(SHAKE.rocket[3]).toBeGreaterThanOrEqual(4);
+    expect(SHAKE.rocket[3]).toBeGreaterThanOrEqual(3);
     expect(SHAKE.text[3]).toBeLessThanOrEqual(2.5);
     const amp = SHAKE.rocket[3];
     const middle = { x: (L.g.xe + L.g.tip) / 2, y: L.g.cy };

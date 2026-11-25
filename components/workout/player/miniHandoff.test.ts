@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { widgetLayout } from '@/components/workout/rocketShape';
-import { MAST_HOIST_KEYFRAMES, MINI, growKeyframes, hoistGrowth, hoistLift, miniMast, miniMastX, miniPose, miniRect } from './miniHandoff';
+import { MINI, growKeyframes, handoffTimes, miniMast, miniMastX, miniPose, miniRect, swollenRect } from './miniHandoff';
 
 describe('the next exercise, from its window to the whole screen', () => {
   const vw = 390;
@@ -33,9 +33,32 @@ describe('the next exercise, from its window to the whole screen', () => {
     expect(start * vh).toBeGreaterThanOrEqual(rect.height - 0.01);
   });
 
-  it('takes about half a second', () => {
-    expect(MINI.GROW_MS).toBeGreaterThanOrEqual(400);
-    expect(MINI.GROW_MS).toBeLessThanOrEqual(650);
+  it('fades the talk to black first (shorter after "Saltar"), then fills the screen in about 0.4 s', () => {
+    expect(MINI.GROW_MS).toBeGreaterThanOrEqual(350);
+    expect(MINI.GROW_MS).toBeLessThanOrEqual(450);
+    expect(handoffTimes(true).fade).toBeGreaterThanOrEqual(350);
+    expect(handoffTimes(true).fade).toBeLessThanOrEqual(450);
+    expect(handoffTimes(false).fade).toBeLessThan(handoffTimes(true).fade);
+    expect(handoffTimes(true).total).toBe(handoffTimes(true).fade + MINI.GROW_MS);
+  });
+
+  it('swells a little in the last seconds of the talk, on its mast, then grows from there without overshooting', () => {
+    const big = swollenRect(rect);
+    expect(big.width / rect.width).toBeCloseTo(MINI.SWELL, 6);
+    expect(MINI.SWELL).toBeGreaterThan(1.1);
+    expect(MINI.SWELL).toBeLessThanOrEqual(1.3);
+    expect(big.top + big.height).toBeCloseTo(rect.top + rect.height, 6);
+    expect(big.left + big.width / 2).toBeCloseTo(rect.left + rect.width / 2, 6);
+    expect(MINI.SWELL_MS).toBeLessThanOrEqual(MINI.SWELL_S * 1000);
+    const keys = growKeyframes(big, vw, vh);
+    expect(keys[0].outer).toBe(miniPose(big, vw, vh, 0).outer);
+    expect(keys.at(-1)?.outer).toBe('translate(0px, 0px) scale(1, 1)');
+    // never past the screen on the way
+    for (const k of keys) {
+      const [sx, sy] = k.outer.match(/scale\(([^,]+), ([^)]+)\)/)!.slice(1).map(Number);
+      expect(sx).toBeLessThanOrEqual(1);
+      expect(sy).toBeLessThanOrEqual(1);
+    }
   });
 
   it('stands on its own mast, out of the body of the rocket, whatever is left of it', () => {
@@ -53,17 +76,4 @@ describe('the next exercise, from its window to the whole screen', () => {
     }
   });
 
-  it('is hoisted on an arc, grows a touch past the screen and settles on it', () => {
-    expect(hoistGrowth(0)).toBe(0);
-    expect(hoistGrowth(1)).toBeCloseTo(1, 10);
-    const peak = Math.max(...Array.from({ length: 41 }, (_, i) => hoistGrowth(i / 40)));
-    expect(peak).toBeGreaterThan(1);
-    expect(peak).toBeLessThan(1 + 2 * MINI.OVERSHOOT);
-    expect(hoistLift(0)).toBe(0);
-    expect(hoistLift(0.35)).toBeCloseTo(MINI.HOIST_PX, 6);
-    expect(hoistLift(1)).toBe(0);
-    // the mast stretches with it, then goes back in before the picture covers the screen
-    expect(MAST_HOIST_KEYFRAMES[1].transform).toBe('scaleY(1.3)');
-    expect(MAST_HOIST_KEYFRAMES.at(-1)).toMatchObject({ transform: 'scaleY(0)', opacity: 0 });
-  });
 });

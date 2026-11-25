@@ -43,8 +43,10 @@ import {
   sputtersBetween,
   warningFlame,
   warningLevel,
+  launchLeadMs,
   takeoffKeyframes,
   type CloudSpot,
+  type LaunchStart,
   type Flight,
 } from '@/components/workout/rocketFlight';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
@@ -227,7 +229,7 @@ export function RocketWidget({
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && !clockTab && live;
   // the last second before a takeoff: it crouches, more and more, and its banner folds in
-  const crouching = launching && timeLeft <= PRELAUNCH.leadS && timeLeft > 0;
+  const crouching = launching && timeLeft <= PRELAUNCH.foldLeadS && timeLeft > 0;
   usePrelaunch(crouching, displayIndex, isPaused, flightEl, podEl);
 
   // where the crew enters and leaves: the screen's edges, in the rocket's own px
@@ -491,9 +493,10 @@ function usePrelaunch(on: boolean, at: number, paused: boolean, flightEl: RefObj
       return;
     }
     if (prelaunchOf(node).length) return;
-    const ms = PRELAUNCH.leadS * 1000;
-    node.animate(PRELAUNCH_KEYFRAMES, { id: CROUCH_ID, duration: ms, fill: 'forwards' });
-    banner.animate(podRetractKeyframes(), { id: FOLD_ID, duration: POD.outMs, delay: ms - PRELAUNCH.foldLeadS * 1000, fill: 'forwards' });
+    // the banner folds in first, and only then does the rocket move (its crouch)
+    const crouchMs = PRELAUNCH.leadS * 1000;
+    banner.animate(podRetractKeyframes(), { id: FOLD_ID, duration: POD.outMs, fill: 'forwards' });
+    node.animate(PRELAUNCH_KEYFRAMES, { id: CROUCH_ID, duration: crouchMs, delay: (PRELAUNCH.foldLeadS - PRELAUNCH.leadS) * 1000, fill: 'forwards' });
   }, [on, at, flightEl, podEl]);
   useLayoutEffect(() => {
     prelaunchOf(flightEl.current, podEl.current).forEach((a) => {
@@ -578,13 +581,24 @@ function useRocketFlight({
           );
         }
       } else if (!reduced && sputtersBetween(prev.item, item)) {
-        // one warm-up clip to the next: it tries to take off and can't
-        el.squash.animate(SPUTTER_KEYFRAMES, { duration: SPUTTER.ms });
-        el.flame.animate(SPUTTER_FLAME_KEYFRAMES, { duration: SPUTTER.ms });
+        // one warm-up clip to the next: it tries to take off and can't (its banner folds in first,
+        // nothing moves with it out, and springs out again after)
+        const wait = POD.outMs;
+        // (one animation: in, held in while it coughs, out again)
+        const total = wait + SPUTTER.ms + POD.inMs;
+        el.pod.animate(
+          [
+            ...podRetractKeyframes().map((k) => ({ ...k, offset: (k.offset * wait) / total })),
+            ...podPopKeyframes().map((k) => ({ ...k, offset: (wait + SPUTTER.ms + k.offset * POD.inMs) / total })),
+          ],
+          { duration: total },
+        );
+        el.squash.animate(SPUTTER_KEYFRAMES, { duration: SPUTTER.ms, delay: wait });
+        el.flame.animate(SPUTTER_FLAME_KEYFRAMES, { duration: SPUTTER.ms, delay: wait });
         Array.from(el.puffs.children).forEach((puff, i) =>
           (puff as HTMLElement).animate(sputterPuffKeyframes(i ? -30 : -18, i ? 16 : -20), {
             duration: 820,
-            delay: i ? 300 : 120,
+            delay: wait + (i ? 300 : 120),
             easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)',
           }),
         );
@@ -596,7 +610,9 @@ function useRocketFlight({
     // from the crouch of its last second, if it got that far (otherwise a quick one first)
     const c = el.flight.getAnimations().find((a) => a.id === CROUCH_ID);
     const crouched = c ? c.playState === 'finished' || (c.effect?.getComputedTiming().progress ?? 0) > 0.25 : false;
-    playFlight(next, now, reduced, crouched, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
+    // (a banner already folded in by the last second stays folded)
+    const start: LaunchStart = crouched ? 'crouched' : Number(getComputedStyle(el.pod).opacity) < 0.5 ? 'folded' : 'open';
+    playFlight(next, now, reduced, start, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
   }, [cloudKey, ending, queue, currentIndex, reduced]);
 
   return flight;
@@ -640,7 +656,7 @@ function playFlight(
   f: Flight,
   now: number,
   reduced: boolean,
-  crouched: boolean,
+  start: LaunchStart,
   el: { flight: HTMLElement; lift: HTMLElement; squash: HTMLElement; flame: HTMLElement; pod: HTMLElement },
   spotOf: () => CloudSpot,
 ) {
@@ -648,8 +664,6 @@ function playFlight(
   const style = getComputedStyle(el.flight);
   const from = { transform: style.transform === 'none' ? 'none' : style.transform, opacity: Number(style.opacity) };
   const podOpacity = Number(getComputedStyle(el.pod).opacity);
-  // (a banner already folded in by the last second stays folded)
-  const folded = crouched && podOpacity < 0.5;
   [el.flight, el.lift, el.squash, el.flame, el.pod].forEach((node) => node.getAnimations().forEach((a) => a.cancel()));
   if (f.leftAt === null) return;
 
@@ -662,29 +676,29 @@ function playFlight(
     node.animate(keys, options).startTime = now;
   };
   const podIn = [{ opacity: 0, transform: POD_FOLDED }];
-  // the banner folds in as it goes (quickly, with the quick crouch), unless it already has
+  // the banner folds in before the rocket moves (see launchLeadMs), unless it already has
   const foldIn = (at: number) =>
-    folded
+    start !== 'open'
       ? run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' })
-      : run(el.pod, podRetractKeyframes(), { duration: PRELAUNCH.quickMs, delay: at, fill: 'forwards' });
+      : run(el.pod, podRetractKeyframes(), { duration: POD.outMs, delay: at, fill: 'forwards' });
 
   if (leaves) {
     const at = delay(f.leftAt);
     if (f.how === 'clouds' && !reduced) {
-      // into the clouds, straight from its crouch, waits there, and takes off once from there
+      // off to the right from its crouch, up from below in the clouds, and out of the top
       if (!f.placed) foldIn(at);
       else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
-      run(el.flight, cloudKeyframes(spotOf(), f.placed, crouched), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
-      run(el.flame, cloudFlameKeyframes(f.placed, crouched), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      run(el.flight, cloudKeyframes(spotOf(), f.placed, start), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      run(el.flame, cloudFlameKeyframes(f.placed, start), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
     } else if (f.how === 'takeoff' && !reduced) {
       // from its crouch it turns its nose up and climbs straight out of the top
       foldIn(at);
-      const quick = crouched ? 0 : PRELAUNCH.quickMs / FLIGHT.takeoffMs;
-      run(el.flight, takeoffKeyframes(crouched), { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
+      const quick = launchLeadMs(start) / FLIGHT.takeoffMs;
+      run(el.flight, takeoffKeyframes(start), { duration: FLIGHT.takeoffMs, delay: at, fill: 'forwards' });
       run(
         el.flame,
         [
-          { opacity: crouched ? 1 : 0, transform: crouched ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
+          { opacity: start === 'crouched' ? 1 : 0, transform: start === 'crouched' ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
           ...(quick ? [{ opacity: 1, transform: 'scale(0.7, 0.95)', offset: quick }] : []),
           { opacity: 1, transform: 'scale(1.15, 1.05)', offset: UPRIGHT_AT },
           { opacity: 1, transform: 'scale(1.35, 1.08)' },

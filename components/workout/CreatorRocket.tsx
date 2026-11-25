@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { FlameDrawing, RocketFigure, RocketShip, flameBox, piecesOf, scaledBox } from '@/components/workout/RocketShip';
-import { HOP, LAUNCH_OFFSCREEN_AT, POD, launchKeyframes, podPopKeyframes, riseKeyframes } from '@/components/workout/rocketFlight';
+import { HOP, LAUNCH_OFFSCREEN_AT, POD, launchKeyframes, podPopKeyframes, podRetractKeyframes, riseKeyframes } from '@/components/workout/rocketFlight';
 import { BANNER, SHIP, shipGeometry, widgetLayout } from '@/components/workout/rocketShape';
 import type { StepState } from '@/components/workout/player/model';
 import { useRocketWidth } from '@/components/workout/player/hooks';
@@ -34,8 +34,9 @@ const REDUCED = '(prefers-reduced-motion: reduce)';
 
 /**
  * Launches a copy of the rocket `el` out of the top of the screen (tilted `tilt` degrees as it
- * stands), taking `ms`. Returns how long until it is out of sight (0 when nothing flies: on a
- * computer, with reduced motion, or with no rocket).
+ * stands), taking `ms`. A rocket with a banner (`data-pod`, "Empezar") folds it in first: no
+ * rocket moves with its banner out. Returns how long until it is out of sight (0 when nothing
+ * flies: on a computer, with reduced motion, or with no rocket).
  */
 export function launchRocket(el: HTMLElement | null, { ms, tilt = 0, text }: { ms: number; tilt?: number; text?: string }): number {
   if (!el || typeof window === 'undefined') return 0;
@@ -44,11 +45,14 @@ export function launchRocket(el: HTMLElement | null, { ms, tilt = 0, text }: { m
   if (rect.width === 0) return 0;
   const clone = flyingCopy(el, rect, text);
   document.body.appendChild(clone);
-  const flight = clone.animate(launchKeyframes(tilt), { duration: ms, fill: 'forwards' });
+  const pod = clone.querySelector<HTMLElement>('[data-pod]');
+  const fold = pod ? POD.outMs : 0;
+  pod?.animate(podRetractKeyframes(), { duration: POD.outMs, fill: 'forwards' });
+  const flight = clone.animate(launchKeyframes(tilt), { duration: ms, delay: fold, fill: 'forwards' });
   const done = () => clone.remove();
   flight.onfinish = done;
   flight.oncancel = done;
-  return ms * LAUNCH_OFFSCREEN_AT;
+  return fold + ms * LAUNCH_OFFSCREEN_AT;
 }
 
 /** A copy of the rocket `el` (at `rect`) to fly over everything: no ids, inert, its engine at full. */
@@ -355,7 +359,7 @@ export function LaunchRocket({
       style={{ width: L.B, height: L.box }}
     >
       {/* "Empezar" on its banner, on a mast from the rocket (as the player's banner) */}
-      <div ref={banner} aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ transformOrigin: `${L.fold.x}px ${L.fold.y}px` }}>
+      <div ref={banner} data-pod="" aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ transformOrigin: `${L.fold.x}px ${L.fold.y}px` }}>
         <div
           className="absolute border-x-2 border-ink bg-white"
           style={{ left: L.mast.x - BANNER.MAST_W / 2, top: L.mast.top, width: BANNER.MAST_W, height: L.mast.bottom - L.mast.top }}

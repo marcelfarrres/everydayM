@@ -63,7 +63,7 @@ describe("the routine's rocket, stage by stage", () => {
   });
 
   it('drops a part once the rocket stands in the clouds, and it has fallen before it takes off', () => {
-    expect(FLIGHT.dropMs).toBeGreaterThan(FLIGHT.settledMs);
+    expect(FLIGHT.dropMs).toBeGreaterThanOrEqual(FLIGHT.slowMs);
     expect(FLIGHT.dropMs + FLIGHT.dropFallMs).toBeLessThan(FLIGHT.cloudLiftMs);
   });
 });

@@ -55,6 +55,7 @@ import {
   podShownAt,
   pose,
   crouchAt,
+  launchLeadMs,
   repairPlan,
   sinkTransform,
   springBackKeyframes,
@@ -77,13 +78,13 @@ describe('cloud timing', () => {
 describe('one rocket through the clouds (phone)', () => {
   const spot = { dx: -60, dy: -420, k: 1.35 };
 
-  it('stays in the clouds long enough to read the words, and takes off once, as they are about to open', () => {
-    // the words are in by WORDS.phoneDelayMs + fadeMs and go as it takes off
+  it('stays in the clouds long enough to read the words, and leaves once, as they are about to open', () => {
+    // the words are in by WORDS.phoneDelayMs + fadeMs and go as it leaves (0.45 s shorter since 25-11-2026)
     const readable = FLIGHT.cloudLiftMs - (WORDS.phoneDelayMs + WORDS.fadeMs);
-    expect(readable).toBeGreaterThanOrEqual(2450);
-    // it is in its place before the words come in, and while the clouds close
-    expect(FLIGHT.settledMs).toBeLessThanOrEqual(WORDS.phoneDelayMs + WORDS.fadeMs);
-    expect(FLIGHT.placedMs).toBeGreaterThan(CLOUD_TIMING.closeMs);
+    expect(readable).toBeGreaterThanOrEqual(2000);
+    expect(TALK_LEAD_MS).toBe(3370);
+    // it is back in sight, rising slowly, before the words come in
+    expect(FLIGHT.slowMs).toBeLessThanOrEqual(WORDS.phoneDelayMs + WORDS.fadeMs + 600);
     expect(FLIGHT.cloudLiftMs).toBe(CLOUD_TIMING.liftMs);
     expect(CLOUD_LEAVE_MS).toBe(FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs);
   });
@@ -91,7 +92,7 @@ describe('one rocket through the clouds (phone)', () => {
   it('is one object on screen all the way, from parked to out of the top, and comes back after a beat', () => {
     const f = nextFlight(PARKED, 'clouds', 0);
     expect(f.how).toBe('clouds');
-    expect(widgetOnScreenAt(f, FLIGHT.placedMs)).toBe(true);
+    expect(widgetOnScreenAt(f, FLIGHT.slowMs)).toBe(true);
     expect(widgetOnScreenAt(f, FLIGHT.cloudLiftMs + 100)).toBe(true);
     const gone = FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT;
     expect(widgetOnScreenAt(f, gone + 1)).toBe(false);
@@ -100,28 +101,51 @@ describe('one rocket through the clouds (phone)', () => {
     expect(phaseAt(f, PARKED_AFTER_CLOUDS_MS)).toBe('parked');
   });
 
-  it('goes to its place in one move, waits there nose up and full size, and climbs straight out', () => {
-    const keys = cloudKeyframes(spot);
+  it('shoots off to the right, waits out of sight, comes up from below and rises slowly, then leaves by the top', () => {
+    const keys = cloudKeyframes(spot, false, 'crouched');
     const at = (ms: number) => keys.find((k) => Math.abs(k.offset - ms / CLOUD_LEAVE_MS) < 0.0002);
-    expect(keys[0].transform).toBe(PARKED_POSE);
-    expect(at(PRELAUNCH.quickMs)?.transform).toBe(CROUCH_POSE);
-    const placed = at(FLIGHT.settledMs)?.transform;
-    expect(placed).toContain('rotateZ(-90deg)');
-    expect(placed).toContain('calc((-60px) / 1)');
-    expect(placed).toContain('scale(1.35, 1.35)');
-    // still until it takes off
-    expect(at(FLIGHT.cloudLiftMs - 180)?.transform).toBe(placed);
-    // out of the top, still opaque, then gone; straight up (the same x)
+    expect(keys[0].transform).toBe(CROUCH_POSE);
+    // out by the right edge (where the nose points), on screen until then
+    const right = at(FLIGHT.exitRightMs);
+    expect(right?.transform).toContain('100vw + 260px');
+    expect(right?.opacity).toBe(1);
+    expect(FLIGHT.exitRightMs).toBeLessThanOrEqual(450);
+    // a pause out of sight (0.5 to 0.8 s)
+    const pause = FLIGHT.appearMs - FLIGHT.exitRightMs;
+    expect(pause).toBeGreaterThanOrEqual(500);
+    expect(pause).toBeLessThanOrEqual(800);
+    expect(at(FLIGHT.exitRightMs + 20)?.opacity).toBe(0);
+    expect(at(FLIGHT.appearMs - 20)?.opacity).toBe(0);
+    // up from below, standing, nose up and at the clouds' size
+    const below = at(FLIGHT.appearMs);
+    expect(below?.transform).toContain('+ 100vh');
+    expect(below?.transform).toContain('rotateZ(-90deg)');
+    expect(below?.opacity).toBe(1);
+    // slow, but never still: from below its place to above it, at a pace you can see
+    const slow = at(FLIGHT.slowMs)?.transform;
+    const lift = at(FLIGHT.cloudLiftMs)?.transform;
+    expect(slow).toContain(`calc((${spot.dy + FLIGHT.driftPx}px) / 1)`);
+    expect(lift).toContain(`calc((${spot.dy - FLIGHT.driftPx}px) / 1)`);
+    const pace = (2 * FLIGHT.driftPx) / ((FLIGHT.cloudLiftMs - FLIGHT.slowMs) / 1000);
+    expect(pace).toBeGreaterThanOrEqual(30); // px/s
+    expect(pace).toBeLessThanOrEqual(120);
+    expect(slow).toContain('scale(1.35, 1.35)');
+    // then faster out of the top, still opaque, then gone; straight up (the same x)
     const out = at(FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT);
     expect(out?.transform).toContain('- 100vh - 400px');
     expect(out?.transform).toContain('calc((-60px) / 1)');
     expect(out?.opacity).toBe(1);
     expect(keys.at(-1)).toMatchObject({ offset: 1, opacity: 0 });
-    keys.forEach((k) => expect(k.opacity === 1 || k.offset === 1).toBe(true));
     const offsets = keys.map((k) => k.offset);
-    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
-    // the flame keeps the same moments
-    expect(cloudFlameKeyframes().at(-1)?.offset).toBe(1);
+    expect(offsets).toEqual([...offsets].sort((x, y) => x - y));
+    // the flame: out while out of sight, low while it rises slowly
+    const flame = cloudFlameKeyframes(false, 'crouched');
+    const fAt = (ms: number) => flame.find((k) => Math.abs(k.offset - ms / CLOUD_LEAVE_MS) < 0.0002);
+    expect(fAt(FLIGHT.exitRightMs + 20)?.opacity).toBe(0);
+    expect(fAt(FLIGHT.slowMs)?.transform).toBe('scale(0.55, 0.85)');
+    expect(flame.at(-1)?.offset).toBe(1);
+    // the part comes off while it is in sight, and has fallen before it leaves
+    expect(FLIGHT.dropMs).toBeGreaterThanOrEqual(FLIGHT.slowMs);
   });
 
   it('stays in its place when the clouds play again while it waits there', () => {
@@ -130,7 +154,8 @@ describe('one rocket through the clouds (phone)', () => {
     expect(again).toEqual({ leftAt: 2000, how: 'clouds', placed: true, returnAt: 2000 + FLIGHT.returnStartMs });
     expect(podShownAt(again, 2010)).toBe(false);
     const placed = cloudKeyframes(spot, true);
-    expect(placed[0].transform).toBe(cloudKeyframes(spot)[3].transform);
+    expect(placed[0].transform).toContain('rotateZ(-90deg)');
+    expect(placed.at(-1)?.transform).toBe(cloudKeyframes(spot).at(-1)?.transform);
     // once it has taken off it just flies on, and comes back later
     expect(nextFlight(f, 'clouds', FLIGHT.cloudLiftMs + 200)).toEqual({ ...f, returnAt: FLIGHT.cloudLiftMs + 200 + FLIGHT.returnStartMs });
   });
@@ -417,7 +442,7 @@ describe('the rest: the rocket is repaired', () => {
 });
 
 describe('the takeoff, led by the clock', () => {
-  it('crouches only in the last second, quicker and quicker, all the way at 0', () => {
+  it('folds its banner first, then crouches in the last 0.7 s, quicker and quicker, all the way at 0', () => {
     expect(crouchAt(5)).toBe(0);
     expect(crouchAt(PRELAUNCH.leadS)).toBe(0);
     expect(crouchAt(0)).toBe(1);
@@ -425,43 +450,58 @@ describe('the takeoff, led by the clock', () => {
     expect(crouchAt(Number.NaN)).toBe(0);
     let prev = 0;
     let step = 0;
-    for (let t = 0.9; t >= -0.0001; t -= 0.1) {
+    for (let t = 0.6; t >= -0.0001; t -= 0.1) {
       const c = crouchAt(t);
       expect(c).toBeGreaterThan(prev);
       expect(c - prev).toBeGreaterThanOrEqual(step - 0.001);
       step = c - prev;
       prev = c;
     }
-    // the banner folds in the last third of it
-    expect(PRELAUNCH.foldLeadS).toBeGreaterThan(0.25);
-    expect(PRELAUNCH.foldLeadS).toBeLessThan(0.5);
+    // nothing moves with the banner out: it has folded in before the crouch starts
+    expect(PRELAUNCH.foldLeadS - PRELAUNCH.leadS).toBeGreaterThanOrEqual(POD.outMs / 1000);
+    // a more contained crouch than before
+    expect(CROUCH_POSE).toContain('scale(0.92, 1.09)');
   });
 
   it('the crouch goes from parked to the pose the takeoff starts from', () => {
     expect(PRELAUNCH_KEYFRAMES[0].transform).toBe(PARKED_POSE);
     expect(PRELAUNCH_KEYFRAMES.at(-1)?.transform).toBe(CROUCH_POSE);
-    expect(takeoffKeyframes(true)[0].transform).toBe(CROUCH_POSE);
-    expect(cloudKeyframes({ dx: -100, dy: -300, k: 2 }, false, true)[0].transform).toBe(CROUCH_POSE);
+    expect(takeoffKeyframes('crouched')[0].transform).toBe(CROUCH_POSE);
+    expect(cloudKeyframes({ dx: -100, dy: -300, k: 2 }, false, 'crouched')[0].transform).toBe(CROUCH_POSE);
   });
 
-  it('from its crouch it shoots off at once; an early "Siguiente" crouches quickly first', () => {
-    const from = takeoffKeyframes(true);
-    // no pause: the next frame is already climbing
+  it('never moves with its banner out: it folds in, then crouches quickly, then goes', () => {
+    expect(launchLeadMs('crouched')).toBe(0);
+    expect(launchLeadMs('folded')).toBe(PRELAUNCH.quickMs);
+    expect(launchLeadMs('open')).toBe(FLIGHT.foldMs + PRELAUNCH.quickMs);
+    const from = takeoffKeyframes('crouched');
+    // from its crouch, no pause: the next frame is already climbing
     expect(from[1].transform).not.toBe(CROUCH_POSE);
-    const quick = takeoffKeyframes(false);
-    expect(quick[0].transform).toBe(PARKED_POSE);
-    const crouch = quick.find((k) => k.transform === CROUCH_POSE);
-    expect((crouch?.offset ?? 1) * FLIGHT.takeoffMs).toBeCloseTo(PRELAUNCH.quickMs, 0);
-    const clouds = cloudKeyframes({ dx: -100, dy: -300, k: 2 });
-    expect(clouds[0].transform).toBe(PARKED_POSE);
-    expect((clouds[1].offset ?? 1) * CLOUD_LEAVE_MS).toBeCloseTo(PRELAUNCH.quickMs, 0);
-    expect(clouds[1].transform).toBe(CROUCH_POSE);
-    // both end off the top, as before
-    expect(from.at(-1)?.transform).toBe(quick.at(-1)?.transform);
-    for (const keys of [from, quick, clouds]) {
-      const offsets = keys.map((k) => k.offset ?? 0);
-      expect([...offsets].sort((a, b) => a - b)).toEqual(offsets);
+    for (const [start, len] of [
+      ['open', FLIGHT.takeoffMs],
+      ['folded', FLIGHT.takeoffMs],
+    ] as const) {
+      const keys = takeoffKeyframes(start);
+      const clouds = cloudKeyframes({ dx: -100, dy: -300, k: 2 }, false, start);
+      for (const [list, total] of [
+        [keys, len],
+        [clouds, CLOUD_LEAVE_MS],
+      ] as const) {
+        // parked until the banner is in (open), then the crouch
+        const still = list.filter((k) => k.transform === PARKED_POSE).map((k) => k.offset * total);
+        expect(Math.max(...still)).toBeCloseTo(launchLeadMs(start) - PRELAUNCH.quickMs, 0);
+        const crouch = list.find((k) => k.transform === CROUCH_POSE);
+        expect((crouch?.offset ?? 1) * total).toBeCloseTo(launchLeadMs(start), 0);
+        const offsets = list.map((k) => k.offset);
+        expect([...offsets].sort((x, y) => x - y)).toEqual(offsets);
+      }
+      expect(keys.at(-1)?.transform).toBe(from.at(-1)?.transform);
     }
+  });
+
+  it('its last tremble is a little softer than before', () => {
+    expect(SHAKE.rocket[3]).toBeLessThan(4.6);
+    expect(SHAKE.rocket[3]).toBeGreaterThanOrEqual(3);
   });
 });
 

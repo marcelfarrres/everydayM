@@ -12,15 +12,17 @@ import type { RoutineItem } from '@/types/workout';
  * the clouds start (the moment the rest begins) and derived from the clouds' own constants, which
  * CloudTransition also uses.
  *
- *   0      the banner folds into the body (260 ms); it crouches (anticipation)...
- *   480    ...and goes to its place in the clouds: nose up, bigger      (placed at 1000, settled 1200)
- *   870    the clouds have closed; the words are in by 1200 (phone)
- *   3670   it crouches and takes off straight up                         (desktop: its own rocket, as before)
- *   3820   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
- *   ~4520  it is out of the top of the screen (it fades only once out, at 4670)
- *   4920   ...after a beat, it comes back from the left, from the depth
- *   6520   parked (it ran past its place and pulled back; a squash)
- *   7020   half a second later the banner springs out of the body: controls work again
+ *   -1000  (the serie's last second: the banner folds in, then it crouches towards its tail)
+ *   0      it shoots off to the RIGHT, where its nose points, out of the screen (380 ms)
+ *   380    a pause out of sight while the clouds close (870)
+ *   1000   it comes up from below, standing, nose up, bigger, fast, and brakes...
+ *   1700   ...into a slow, visible rise by the words (the slow-motion shot; a part comes off at 1800)
+ *   3220   it speeds up again and goes out of the top                    (desktop: its own rocket, as before)
+ *   3370   the clouds open (TALK_LEAD_MS: a long rest's talks start now)
+ *   ~4070  it is out of the top of the screen (it fades only once out, at 4220)
+ *   4470   ...after a beat, it comes back from the left, from the depth
+ *   6070   parked (it ran past its place and pulled back; a squash)
+ *   6570   half a second later the banner springs out of the body: controls work again
  * Desktop keeps its bar and the clouds as they were (their hold is as long); only the clouds'
  * constants are shared.
  */
@@ -86,13 +88,16 @@ export const FLIGHT = {
   /** An interrupted flight (a skip while it was coming back) just fades out where it is. */
   fadeMs: 250,
   handoverBeatMs: HANDOVER_BEAT_MS,
-  /** In the clouds: it reaches its place (a little past it)... */
-  placedMs: 1000,
-  /** ...settles there, and waits... */
-  settledMs: 1200,
+  /** Into the clouds: it shoots off to the right, out of the screen, in this long... */
+  exitRightMs: 380,
+  /** ...waits out of sight, and comes up from below from this moment... */
+  appearMs: 1000,
+  /** ...braking into a slow rise by the words (from here, by `driftPx` each way of its place)... */
+  slowMs: 1700,
+  driftPx: 45,
   /** ...(a block's segment, or the boosters after the warm-up, comes off now and falls away)... */
-  dropMs: 1500,
-  dropFallMs: 1500,
+  dropMs: 1800,
+  dropFallMs: 1300,
   /** ...until it takes off, once, as the clouds are about to open... */
   cloudLiftMs: CLOUD_TIMING.liftMs,
   /** ...climbing straight out of the top. */
@@ -178,7 +183,7 @@ export function nextFlight(f: Flight, event: FlightEvent, now: number): Flight {
       return { leftAt: now, how: event === 'clouds' ? 'clouds' : 'takeoff', returnAt };
     case 'leaving':
       // waiting in the clouds and they play again: it waits in its place for the new ones
-      if (event === 'clouds' && f.how === 'clouds' && f.leftAt !== null && now >= f.leftAt + FLIGHT.settledMs && now < f.leftAt + FLIGHT.cloudLiftMs) {
+      if (event === 'clouds' && f.how === 'clouds' && f.leftAt !== null && now >= f.leftAt + FLIGHT.slowMs && now < f.leftAt + FLIGHT.cloudLiftMs) {
         return { leftAt: now, how: 'clouds', placed: true, returnAt };
       }
       return { ...f, returnAt };
@@ -444,8 +449,9 @@ export const REPAIR = {
   /** shorter than this, no repair at all; shorter than this, a short one */
   minMs: 2000,
   shortBelowMs: 4000,
-  /** puffs of smoke at either end */
-  puffEveryMs: 1500,
+  /** puffs of smoke at either end (fewer with a talk on) */
+  puffEveryMs: 600,
+  calmPuffEveryMs: 1300,
 } as const;
 
 export interface RepairPlan {
@@ -504,7 +510,7 @@ export function repairPlan(parkedMs: number, calm = false): RepairPlan {
     if (turn <= workTo && !inSwap(turn)) plan.turns.push(Math.round(turn));
     t += beat;
   }
-  for (let t = workFrom + 400; t <= workTo; t += REPAIR.puffEveryMs) plan.puffs.push(Math.round(t));
+  for (let t = workFrom + 200; t <= workTo; t += calm ? REPAIR.calmPuffEveryMs : REPAIR.puffEveryMs) plan.puffs.push(Math.round(t));
   return plan;
 }
 
@@ -528,11 +534,12 @@ export function ignitionLevel(timeLeft: number): 0 | 1 | 2 | 3 {
 }
 
 /**
- * The last second of a serie before a takeoff: the rocket pulls back towards its tail and
- * compresses, more and more (`crouchAt`), its banner folds in for the last `foldLeadS`, and at 0
- * it shoots off from that crouch. "Siguiente" before that: a quick crouch (`quickMs`) and off.
+ * The last second of a serie before a takeoff: first its banner folds in (from `foldLeadS` left:
+ * nothing moves with the banner out), then for the last `leadS` the rocket pulls back towards its
+ * tail and compresses, more and more (`crouchAt`), and at 0 it shoots off from that crouch.
+ * "Siguiente" before that: the fold (if the banner is out), a quick crouch (`quickMs`), and off.
  */
-export const PRELAUNCH = { leadS: 1, foldLeadS: 0.35, quickMs: 250 } as const;
+export const PRELAUNCH = { foldLeadS: 1, leadS: 0.7, quickMs: 200 } as const;
 
 /** How far into its crouch it is with `timeLeft` seconds left (0..1, quicker and quicker). */
 export function crouchAt(timeLeft: number): number {
@@ -543,7 +550,7 @@ export function crouchAt(timeLeft: number): number {
 
 /** How hard it shakes at each step of the ignition: the rocket (px), the banner's text (px), and how fast (s). */
 export const SHAKE = {
-  rocket: [0, 1.6, 3, 4.6],
+  rocket: [0, 1.4, 2.4, 3.4],
   text: [0, 0.7, 1.3, 2],
   period: [0.18, 0.15, 0.12, 0.09],
 } as const;
@@ -642,7 +649,7 @@ const TAKEOFF_POSES: { offset: number; pose: Pose; opacity: number; easing?: str
 export const TAKEOFF_KEYFRAMES: FlightKeyframe[] = TAKEOFF_POSES.map(({ pose: p, ...k }) => ({ ...k, transform: pose(p) }));
 
 /** The crouch the takeoff goes from: pulled back towards the tail, compressed, nose a little down. */
-export const CROUCH: Pose = { x: '-10px', y: '3px', rz: 3, sx: 0.88, sy: 1.14 };
+export const CROUCH: Pose = { x: '-7px', y: '2px', rz: 2, sx: 0.92, sy: 1.09 };
 export const CROUCH_POSE = pose(CROUCH);
 
 /** The last second: parked → crouched, quicker and quicker (play it over the time that is left). */
@@ -652,19 +659,32 @@ export const PRELAUNCH_KEYFRAMES: FlightKeyframe[] = [
 ];
 
 /**
- * The end's takeoff, from the crouch of the last second (`crouched`) or, after an early
- * "Siguiente", with a quick crouch first; then the same climb straight out of the top.
+ * How a takeoff starts: from the crouch of the last second; with the banner already folded (a
+ * quick crouch first); or with the banner out (it folds in first, then the quick crouch).
  */
-export function takeoffKeyframes(crouched: boolean): FlightKeyframe[] {
+export type LaunchStart = 'crouched' | 'folded' | 'open';
+
+/** How long after the takeoff's moment the rocket moves off (ms). */
+export const launchLeadMs = (start: LaunchStart) =>
+  start === 'crouched' ? 0 : start === 'folded' ? PRELAUNCH.quickMs : FLIGHT.foldMs + PRELAUNCH.quickMs;
+
+/** The start of a takeoff, up to the crouch it goes from (`at`: ms → offset), easing `go` from there. */
+function launchStartKeys(start: LaunchStart, at: (ms: number) => number, go: string): FlightKeyframe[] {
+  if (start === 'crouched') return [{ offset: 0, transform: CROUCH_POSE, opacity: 1, easing: go }];
+  const crouch = 'cubic-bezier(0.4, 0, 0.6, 1)';
+  return [
+    // (still while its banner folds in)
+    ...(start === 'open' ? [{ offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'linear' }] : []),
+    { offset: at(launchLeadMs(start) - PRELAUNCH.quickMs), transform: PARKED_POSE, opacity: 1, easing: crouch },
+    { offset: at(launchLeadMs(start)), transform: CROUCH_POSE, opacity: 1, easing: go },
+  ];
+}
+
+/** The end's takeoff, from its crouch (see LaunchStart); then the same climb straight out of the top. */
+export function takeoffKeyframes(start: LaunchStart): FlightKeyframe[] {
   const climb = TAKEOFF_POSES.filter((k) => k.offset >= UPRIGHT_AT).map(({ pose: p, ...k }) => ({ ...k, transform: pose(p) }));
-  const quick = PRELAUNCH.quickMs / FLIGHT.takeoffMs;
-  return crouched
-    ? [{ offset: 0, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' }, ...climb]
-    : [
-        { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
-        { offset: quick, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' },
-        ...climb,
-      ];
+  const at = (ms: number) => Math.round((ms / FLIGHT.takeoffMs) * 10000) / 10000;
+  return [...launchStartKeys(start, at, 'cubic-bezier(0.2, 0.7, 0.4, 1)'), ...climb];
 }
 
 /**
@@ -736,55 +756,62 @@ export interface CloudSpot {
 }
 
 /**
- * Parked → its place in the clouds → gone, over CLOUD_LEAVE_MS. Still while the banner folds in; a
- * crouch; then one continuous move (nose up, growing, to its place, a little past it and back);
- * it waits there (the bob of the rest keeps it alive) until it crouches and takes off straight up,
- * once, out of the top. `placed`: it is in its place already (the clouds played again).
+ * Parked → gone, through the clouds, over CLOUD_LEAVE_MS. From its crouch it shoots off to the
+ * RIGHT (where its nose points) out of the screen; a pause out of sight while the clouds close; it
+ * comes up from below standing, nose up and bigger, fast, and brakes ("the camera catches it in
+ * slow motion") into a slow but visible rise past its place by the words; and as the clouds are
+ * about to open it speeds up again out of the top. `placed`: it is there already (the clouds
+ * played again): it just goes on rising and leaves.
  */
-export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, crouched = false): FlightKeyframe[] {
+export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: LaunchStart = 'open'): FlightKeyframe[] {
   const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
   const lift = FLIGHT.cloudLiftMs;
+  const drift = FLIGHT.driftPx;
   const there = (y = 0, sx = 1, sy = 1) => pose({ x: `${num(dx)}px`, y: `${num(dy + y)}px`, rz: -90, sx: k * sx, sy: k * sy });
-  const up = (px: number) => pose({ x: `${num(dx)}px`, y: `${num(dy)}px - 100vh - ${px}px`, rz: -90, sx: k * 1.06, sy: k * 0.94 });
+  const up = (px: number) => pose({ x: `${num(dx)}px`, y: `${num(dy)}px - 100vh - ${px}px`, rz: -90, sx: k * 1.08, sy: k * 0.93 });
   const away: FlightKeyframe[] = [
-    { offset: at(lift - 180), transform: there(), opacity: 1, easing: 'cubic-bezier(0.3, 0, 0.5, 1)' },
-    // a crouch before it goes (squashed along its length)
-    { offset: at(lift), transform: there(6, 0.93, 1.06), opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)' },
+    // the slow rise (it never stops), then faster and faster out of the top
+    { offset: at(lift), transform: there(-drift), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.9, 0.5)' },
     { offset: at(lift + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT), transform: up(400), opacity: 1, easing: 'linear' },
     { offset: 1, transform: up(600), opacity: 0 },
   ];
-  if (placed) return [{ offset: 0, transform: there(), opacity: 1, easing: 'linear' }, ...away];
-  // from the crouch of its last second it shoots off at once; after an early "Siguiente" it
-  // crouches quickly first
-  const start: FlightKeyframe[] = crouched
-    ? [{ offset: 0, transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }]
-    : [
-        { offset: 0, transform: PARKED_POSE, opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
-        { offset: at(PRELAUNCH.quickMs), transform: CROUCH_POSE, opacity: 1, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' },
-      ];
+  if (placed) return [{ offset: 0, transform: there(drift / 2), opacity: 1, easing: 'linear' }, ...away];
+  const out = launchLeadMs(start) + FLIGHT.exitRightMs;
+  const right = pose({ x: '100vw + 260px', y: '-6px', rz: -2, sx: 1.25, sy: 0.86 });
+  const below = pose({ x: `${num(dx)}px`, y: `${num(dy)}px + 100vh`, rz: -90, sx: k * 1.12, sy: k * 0.92 });
   return [
-    ...start,
-    { offset: at(FLIGHT.placedMs), transform: there(-8, 1.03, 1.03), opacity: 1, easing: 'cubic-bezier(0.4, 0, 0.4, 1)' },
-    { offset: at(FLIGHT.settledMs), transform: there(), opacity: 1, easing: 'linear' },
+    // shooting off to the right, faster and faster (stretched)
+    ...launchStartKeys(start, at, 'cubic-bezier(0.55, 0, 0.9, 0.45)'),
+    { offset: at(out), transform: right, opacity: 1, easing: 'linear' },
+    // out of sight, it goes round to below the screen
+    { offset: at(out + 20), transform: right, opacity: 0, easing: 'linear' },
+    { offset: at(FLIGHT.appearMs - 20), transform: below, opacity: 0, easing: 'linear' },
+    // up from below, fast, braking into the slow rise (still moving as it gets there)
+    { offset: at(FLIGHT.appearMs), transform: below, opacity: 1, easing: 'cubic-bezier(0.12, 0.7, 0.4, 0.97)' },
+    { offset: at(FLIGHT.slowMs), transform: there(drift), opacity: 1, easing: 'linear' },
     ...away,
   ];
 }
 
-/** Its flame on that way: lit as it goes, burning low while it waits, full as it takes off. */
-export function cloudFlameKeyframes(placed = false, crouched = false) {
+/** Its flame on that way: full as it shoots off, out while out of sight, burning low as it rises slowly, full as it leaves. */
+export function cloudFlameKeyframes(placed = false, start: LaunchStart = 'open') {
   const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
   const lift = FLIGHT.cloudLiftMs;
   const tail = [
-    { offset: at(lift - 180), opacity: 1, transform: 'scale(0.7, 0.9)' },
-    { offset: at(lift), opacity: 1, transform: 'scale(1, 1)' },
+    { offset: at(lift), opacity: 1, transform: 'scale(0.7, 0.9)' },
     { offset: 1, opacity: 1, transform: 'scale(1.35, 1.08)' },
   ];
-  if (placed) return [{ offset: 0, opacity: 1, transform: 'scale(0.7, 0.9)' }, ...tail];
+  if (placed) return [{ offset: 0, opacity: 1, transform: 'scale(0.6, 0.85)' }, ...tail];
+  const go = launchLeadMs(start);
+  const out = go + FLIGHT.exitRightMs;
   return [
-    { offset: 0, opacity: crouched ? 1 : 0, transform: crouched ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
-    { offset: at(PRELAUNCH.quickMs), opacity: 1, transform: 'scale(0.7, 0.95)' },
-    { offset: at(FLIGHT.placedMs), opacity: 1, transform: 'scale(1, 1)' },
-    { offset: at(FLIGHT.settledMs + 300), opacity: 1, transform: 'scale(0.7, 0.9)' },
+    { offset: 0, opacity: start === 'crouched' ? 1 : 0, transform: start === 'crouched' ? 'scale(0.8, 1)' : 'scale(0.3, 0.7)' },
+    ...(go ? [{ offset: at(go), opacity: 1, transform: 'scale(0.8, 1)' }] : []),
+    { offset: at(out), opacity: 1, transform: 'scale(1.4, 1.1)' },
+    { offset: at(out + 20), opacity: 0, transform: 'scale(1.4, 1.1)' },
+    { offset: at(FLIGHT.appearMs - 20), opacity: 0, transform: 'scale(1.2, 1.05)' },
+    { offset: at(FLIGHT.appearMs), opacity: 1, transform: 'scale(1.2, 1.05)' },
+    { offset: at(FLIGHT.slowMs), opacity: 1, transform: 'scale(0.55, 0.85)' },
     ...tail,
   ];
 }

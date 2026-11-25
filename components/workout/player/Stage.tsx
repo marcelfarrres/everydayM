@@ -12,7 +12,7 @@ import { EndScreen } from './EndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
-import { MAST_HOIST_KEYFRAMES, MINI, growKeyframes, miniMast, miniPose, miniRect } from './miniHandoff';
+import { MINI, growKeyframes, handoffTimes, miniMast, miniPose, miniRect, swollenRect } from './miniHandoff';
 import { isExercise, type RestScreen } from './model';
 
 /*
@@ -27,10 +27,10 @@ import { isExercise, type RestScreen } from './model';
  * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
  * Phone, a long rest with talks: the next exercise plays in a small window above the rocket's
- * banner, on its own mast out of the rocket's body. It is already that exercise's own <video>:
- * when the rest ends the mast hoists it and the same element grows to the whole screen
- * (transforms only, see miniHandoff) and goes on as the clip, while the talk fades out under it
- * (silent). Two videos at most: the talk and that one.
+ * banner, on its own mast out of the rocket's body. It is already that exercise's own <video>: in
+ * the last seconds it swells a little and waits; when the rest ends the talk fades to black and
+ * then the same element grows to the whole screen (transforms only, see miniHandoff) and goes on
+ * as the clip. Two videos at most: the talk and that one.
  */
 export function Stage({
   queue,
@@ -83,17 +83,21 @@ export function Stage({
   const next = queue[displayIndex + 1];
   const windowed = phone && item?.kind === 'rest' && restScreen === 'talks' && miniNext && isExercise(next);
   // ...and, when that rest gives way to its exercise, the rest that fades out under it for a moment.
-  const [seen, setSeen] = useState({ index: displayIndex, windowed });
-  const [fading, setFading] = useState<number | null>(null);
-  if (seen.index !== displayIndex || seen.windowed !== windowed) {
-    setSeen({ index: displayIndex, windowed });
+  // (in its last seconds the window swells a little and waits)
+  const swell = windowed && live && timeLeft <= MINI.SWELL_S && !reduced;
+  const [seen, setSeen] = useState({ index: displayIndex, windowed, swell });
+  const [fading, setFading] = useState<{ index: number; fade: number; total: number } | null>(null);
+  if (seen.index !== displayIndex || seen.windowed !== windowed || seen.swell !== swell) {
+    setSeen({ index: displayIndex, windowed, swell });
     if (seen.index !== displayIndex) {
-      setFading(seen.windowed && displayIndex === seen.index + 1 && isExercise(item) && !reduced ? seen.index : null);
+      // the talk fades to black, longer after the swell than after "Saltar"; then the window grows
+      const times = handoffTimes(seen.swell);
+      setFading(seen.windowed && displayIndex === seen.index + 1 && isExercise(item) && !reduced ? { index: seen.index, ...times } : null);
     }
   }
   useEffect(() => {
     if (fading === null) return;
-    const t = setTimeout(() => setFading(null), MINI.GROW_MS + 60);
+    const t = setTimeout(() => setFading(null), fading.total + 60);
     return () => clearTimeout(t);
   }, [fading]);
 
@@ -102,6 +106,8 @@ export function Stage({
     <ClipLayer
       key={`clip-${index}`}
       small={small}
+      swell={small && swell}
+      growAfterMs={fading?.fade ?? 0}
       stack={stack}
       reduced={reduced}
       fadeIn={phone}
@@ -152,7 +158,8 @@ export function Stage({
     <div
       key={`rest-${index}`}
       className="absolute inset-0"
-      style={leaving ? { opacity: 0, transition: `opacity ${MINI.GROW_MS}ms ease-out` } : undefined}
+      // (fading to black: the stage is black under it)
+      style={leaving ? { opacity: 0, transition: `opacity ${fading?.fade ?? MINI.FADE_MS}ms ease-in-out` } : undefined}
     >
       {restScreen === 'talks' || leaving ? (
         <TalkReel
@@ -180,9 +187,9 @@ export function Stage({
 
   let content: React.ReactNode = null;
   if (isExercise(item)) {
-    const faded = fading !== null ? queue[fading] : undefined;
+    const faded = fading !== null ? queue[fading.index] : undefined;
     content = phone ? (
-      [faded?.kind === 'rest' && restLayer(fading as number, faded, true), clip(displayIndex, item.exercise, false, live)]
+      [faded?.kind === 'rest' && restLayer(fading?.index ?? -1, faded, true), clip(displayIndex, item.exercise, false, live)]
     ) : (
       <motion.div key={`clip-${displayIndex}`} {...fadeIn} className="absolute inset-0">
         {clip(displayIndex, item.exercise, false, live)}
@@ -233,6 +240,8 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
  */
 function ClipLayer({
   small,
+  swell,
+  growAfterMs,
   stack,
   reduced,
   fadeIn,
@@ -241,6 +250,10 @@ function ClipLayer({
   children,
 }: {
   small: boolean;
+  /** the window: swollen a little (the talk's last seconds) */
+  swell: boolean;
+  /** from the window to the whole screen: it waits this long first (the talk fading to black) */
+  growAfterMs: number;
   /** the rocket below (where the window's mast comes out) */
   stack: Stack;
   reduced: boolean;
@@ -264,8 +277,14 @@ function ClipLayer({
   const L = useMemo(() => widgetLayout(width, held), [width, held]);
   const rect = miniRect(vw, vh, L);
   const mast = miniMast(vw, vh, L);
-  const pose = small ? miniPose(rect, vw, vh, 0) : null;
+  const pose = small ? miniPose(swell ? swollenRect(rect) : rect, vw, vh, 0) : null;
   const was = useRef<boolean | null>(null);
+  // (whether it was swollen as it stopped being the window)
+  const swollen = useRef(false);
+  const ring = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (small) swollen.current = swell;
+  });
 
   useLayoutEffect(() => {
     const before = was.current;
@@ -285,32 +304,46 @@ function ClipLayer({
       return;
     }
     if (!(before && !small)) return;
-    // the window becomes the exercise: it starts now, from its first frame, and runs once
+    // the window becomes the exercise: once the talk has faded to black it fills the screen, and
+    // the clip starts from its first frame and runs once
+    const wait = reduced ? 0 : growAfterMs;
     const video = o.querySelector('video');
     if (video) {
       video.loop = false;
+      video.pause();
       video.currentTime = 0;
-      void video.play().catch(() => {});
     }
+    const go = setTimeout(() => void video?.play().catch(() => {}), wait);
     if (reduced) {
       const fade = o.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 200 });
-      return () => fade.cancel();
+      return () => {
+        clearTimeout(go);
+        fade.cancel();
+      };
     }
-    // its mast stretches and hoists it, on an arc, and goes back into the rocket as it grows
-    const keys = growKeyframes(rect, vw, vh);
-    const a = o.animate(
-      keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })),
-      { duration: MINI.GROW_MS, easing: 'linear' },
+    const from = swollen.current ? swollenRect(rect) : rect;
+    const keys = growKeyframes(from, vw, vh);
+    const timing: KeyframeAnimationOptions = { duration: MINI.GROW_MS, delay: wait, easing: 'linear', fill: 'backwards' };
+    const a = o.animate(keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })), timing);
+    const b = i.animate(keys.map((k) => ({ offset: k.offset, transform: k.inner })), timing);
+    // its mast and frame stay while the talk fades, and go as it grows
+    const stay = wait / (wait + 120);
+    const scale = swollen.current ? `scale(${MINI.SWELL})` : 'none';
+    const m = mastEl.current?.animate([{ opacity: 1 }, { opacity: 1, offset: stay }, { opacity: 0 }], { duration: wait + 120 });
+    const f = ring.current?.animate(
+      [
+        { opacity: 1, transform: scale },
+        { opacity: 1, transform: scale, offset: stay },
+        { opacity: 0, transform: scale },
+      ],
+      { duration: wait + 120 },
     );
-    const b = i.animate(
-      keys.map((k) => ({ offset: k.offset, transform: k.inner })),
-      { duration: MINI.GROW_MS, easing: 'linear' },
-    );
-    const m = mastEl.current?.animate(MAST_HOIST_KEYFRAMES, { duration: MINI.GROW_MS });
     return () => {
+      clearTimeout(go);
       a.cancel();
       b.cancel();
       m?.cancel();
+      f?.cancel();
     };
     // (only when it appears, and when it goes from the window to the whole screen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -343,20 +376,34 @@ function ClipLayer({
       <div
         ref={outer}
         className="absolute inset-0 overflow-hidden"
-        style={{ transformOrigin: '0 0', transform: pose?.outer ?? 'none', borderRadius: pose?.radius ?? 0 }}
+        style={{
+          transformOrigin: '0 0',
+          transform: pose?.outer ?? 'none',
+          borderRadius: pose?.radius ?? 0,
+          // (the swell: slow and calm)
+          transition: small && !reduced ? `transform ${MINI.SWELL_MS}ms ease-in-out, border-radius ${MINI.SWELL_MS}ms ease-in-out` : 'none',
+        }}
       >
         <div ref={inner} className="absolute inset-0" style={{ transform: pose?.inner ?? 'none' }}>
           {children}
         </div>
       </div>
       {/* the window's frame (apart, so the window's own scaling doesn't thin it) */}
-      {small && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute rounded-[12px] ring-2 ring-white"
-          style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
-        />
-      )}
+      <div
+        ref={ring}
+        aria-hidden="true"
+        className="pointer-events-none absolute rounded-[12px] ring-2 ring-white"
+        style={{
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          opacity: small ? 1 : 0,
+          transformOrigin: '50% 100%',
+          transform: small && swell ? `scale(${MINI.SWELL})` : 'none',
+          transition: small && !reduced ? `transform ${MINI.SWELL_MS}ms ease-in-out` : 'none',
+        }}
+      />
     </div>
   );
 }
