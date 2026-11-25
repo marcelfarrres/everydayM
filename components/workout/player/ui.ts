@@ -21,3 +21,18 @@ export const own = (fn: () => void) => (e: MouseEvent) => {
   e.stopPropagation();
   fn();
 };
+
+/**
+ * Where an element stands on the screen by layout alone (the sum of its offsets up to the fixed
+ * layer it is in): unlike getBoundingClientRect, a transform still playing on it or on a parent
+ * (a sentence sliding in, the words fading in) does not move it.
+ */
+export function layoutSpot(el: HTMLElement): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  for (let node: Element | null = el; node instanceof HTMLElement; node = node.offsetParent) {
+    x += node.offsetLeft;
+    y += node.offsetTop;
+  }
+  return { x, y };
+}

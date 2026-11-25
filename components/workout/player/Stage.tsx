@@ -7,13 +7,14 @@ import { rocketStack } from '@/components/workout/rocketStack';
 import { CLOUDS } from '@/components/workout/CloudTransition';
 import { POD, PREVIEW_OUT_AFTER_REST_MS, cloudExtraMs, podPopKeyframes } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
-import type { Exercise, RoutineItem } from '@/types/workout';
+import { restClipOf } from '@/lib/routine/restClips';
+import type { Exercise, RestClip, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
 import { MINI, growKeyframes, handoffTimes, miniMast, miniPose, miniRect, swollenRect } from './miniHandoff';
-import { blockExercises, isExercise, previewIndex, type RestScreen } from './model';
+import { isExercise, type RestScreen } from './model';
 
 /*
  * The full-screen picture. It shows `displayIndex`, which follows the routine but changes behind
@@ -22,15 +23,16 @@ import { blockExercises, isExercise, previewIndex, type RestScreen } from './mod
  *   short rest        the next exercise, looping, muted, behind a dark veil with the giant
  *                     countdown (RestCountdown)
  *   long rest         its talks with sound, one after another, from when the clouds open;
- *                     then (or with no talks) like a short rest
+ *                     then (or with no talks) on a phone the rest video (Marcel resting, looped,
+ *                     muted: RestLoop), on a computer like a short rest
  *   end               EndScreen
  * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
- * Phone, a long rest with talks: the next exercise plays in a small window above the rocket's
+ * Phone, a long rest (talks or the rest video): the next exercise plays in a small window above the rocket's
  * banner, on its own mast out of the rocket's body. It is already that exercise's own <video>: in
  * the last seconds it swells a little and waits; when the rest ends the talk fades to black and
  * then the same element grows to the whole screen (transforms only, see miniHandoff) and goes on
- * as the clip. Two videos at most: the talk and that one.
+ * as the clip. Two videos at most: the talk (or the rest video) and that one.
  */
 export function Stage({
   queue,
@@ -79,20 +81,23 @@ export function Stage({
     ? {}
     : { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.25, ease: 'easeOut' as const } };
 
-  // The window of the next exercise (phone, a long rest's talks)...
+  // The window of the next exercise (phone, a long rest: its talks or the rest video)...
   const next = queue[displayIndex + 1];
-  const windowed = phone && item?.kind === 'rest' && restScreen === 'talks' && miniNext && isExercise(next);
+  const windowed = phone && item?.kind === 'rest' && (restScreen === 'talks' || restScreen === 'resting') && miniNext && isExercise(next);
   // ...and, when that rest gives way to its exercise, the rest that fades out under it for a moment.
   // (in its last seconds the window swells a little and waits)
   const swell = windowed && live && timeLeft <= MINI.SWELL_S && !reduced;
-  const [seen, setSeen] = useState({ index: displayIndex, windowed, swell });
-  const [fading, setFading] = useState<{ index: number; fade: number; total: number } | null>(null);
-  if (seen.index !== displayIndex || seen.windowed !== windowed || seen.swell !== swell) {
-    setSeen({ index: displayIndex, windowed, swell });
+  const [seen, setSeen] = useState({ index: displayIndex, windowed, swell, screen: restScreen });
+  // (`talk`: what fades out is a talk; otherwise the rest video)
+  const [fading, setFading] = useState<{ index: number; fade: number; total: number; talk: boolean } | null>(null);
+  if (seen.index !== displayIndex || seen.windowed !== windowed || seen.swell !== swell || seen.screen !== restScreen) {
+    setSeen({ index: displayIndex, windowed, swell, screen: restScreen });
     if (seen.index !== displayIndex) {
-      // the talk fades to black, longer after the swell than after "Saltar"; then the window grows
+      // the rest fades to black, longer after the swell than after "Saltar"; then the window grows
       const times = handoffTimes(seen.swell);
-      setFading(seen.windowed && displayIndex === seen.index + 1 && isExercise(item) && !reduced ? { index: seen.index, ...times } : null);
+      setFading(
+        seen.windowed && displayIndex === seen.index + 1 && isExercise(item) && !reduced ? { index: seen.index, ...times, talk: seen.screen === 'talks' } : null,
+      );
     }
   }
   useEffect(() => {
@@ -161,8 +166,9 @@ export function Stage({
       // (fading to black: the stage is black under it)
       style={leaving ? { opacity: 0, transition: `opacity ${fading?.fade ?? MINI.FADE_MS}ms ease-in-out` } : undefined}
     >
-      {restScreen === 'preview' && !leaving ? (
-        <BlockPreview queue={queue} rest={rest} timeLeft={live ? timeLeft : 0} />
+      {/* (leaving: whichever it was, a talk or the rest video) */}
+      {(leaving ? !fading?.talk : restScreen === 'resting') ? (
+        <RestLoop clip={restClipOf(queue, rest)} paused={isPaused || leaving} />
       ) : restScreen === 'talks' || leaving ? (
         <TalkReel
           talks={rest.talks}
@@ -219,28 +225,32 @@ export function Stage({
 }
 
 /**
- * Phone, between blocks: the coming block's exercises full screen, one after another (and round
- * again), with a quiet caption "Bloque 2 · 1 de 4 · Sentadilla". One video at a time. It follows
- * the rest's clock (so it pauses with it).
+ * Phone, a long rest with no talk speaking: the rest video (Marcel resting on camera), full screen,
+ * looping, muted, paused with the routine.
  */
-function BlockPreview({ queue, rest, timeLeft }: { queue: RoutineItem[]; rest: Extract<RoutineItem, { kind: 'rest' }>; timeLeft: number }) {
-  const list = useMemo(() => blockExercises(queue, rest.nextRound), [queue, rest.nextRound]);
-  const [startLeft] = useState(timeLeft);
-  if (list.length === 0) return <LoopingExercise exercise={rest.nextExercise} />;
-  const i = previewIndex(list.length, startLeft, timeLeft);
-  const exercise = list[i];
+function RestLoop({ clip, paused }: { clip: RestClip; paused: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (paused) el.pause();
+    else el.play().catch(() => {});
+  }, [paused]);
   return (
-    <>
-      <motion.div key={`${exercise.id}-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }} className="absolute inset-0">
-        <LoopingExercise exercise={exercise} />
-      </motion.div>
-      <p
-        data-rw="preview-caption"
-        className="pointer-events-none absolute left-1/2 top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] max-w-[calc(100%-2rem)] -translate-x-1/2 truncate rounded-full bg-[rgb(14_14_14/0.55)] px-3.5 py-1.5 text-[14px] font-semibold text-white"
-      >
-        Bloque {rest.nextRound} · {i + 1} de {list.length} · {exercise.title}
-      </p>
-    </>
+    <video
+      ref={ref}
+      key={clip.id}
+      data-rw="rest-video"
+      src={playbackUrl(clip)}
+      poster={clip.poster_url ?? undefined}
+      autoPlay={!paused}
+      loop
+      muted
+      playsInline
+      aria-hidden="true"
+      onError={(e) => retryWithOriginal(e.currentTarget, clip)}
+      className="absolute inset-0 h-full w-full object-cover"
+    />
   );
 }
 

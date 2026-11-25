@@ -8,7 +8,7 @@ import {
   cloudExtraMs,
   cloudsFor,
 } from './rocketFlight';
-import { BLOCK_PREVIEW, blockEndWords, blockExercises, blockOrdinal, longRestWords, previewIndex, restScreenOf } from './player/model';
+import { blockEndWords, blockOrdinal, longRestWords, restScreenOf } from './player/model';
 import type { RoutineItem } from '@/types/workout';
 import {
   AWAY_POSE,
@@ -695,8 +695,12 @@ describe('the clouds after a block', () => {
     // the rocket is rising slowly by then, and the part has fallen before it leaves
     expect(BLOCK_END.dropMs).toBeGreaterThan(FLIGHT.slowMs);
     expect(BLOCK_END.dropMs + FLIGHT.dropFallMs).toBeLessThan(lift);
-    // the % badge is in the sentence before it can be read, and goes back as the clouds open
-    expect(BLOCK_END.travelMs).toBeLessThan(BLOCK_END.thirdMs - BLOCK_END.secondMs);
+    // the % badge stands in its sentence for a second, and is back in its corner (nearly) by the
+    // time the third sentence slides in: it never stands over another sentence
+    const arrives = BLOCK_END.secondMs + BLOCK_END.travelMs;
+    const leaves = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs;
+    expect(leaves - arrives).toBeGreaterThanOrEqual(1000);
+    expect(leaves + BLOCK_END.badgeBackMs).toBeLessThanOrEqual(BLOCK_END.thirdMs + BLOCK_END.swapMs * 0.6);
   });
 
   it('its flight waits longer in the clouds, rising a little further, and comes back later', () => {
@@ -743,28 +747,13 @@ describe('the minute between blocks (phone)', () => {
       talks: Array.from({ length: talks }, (_, i) => ({ id: `t${i}`, exercise_id: 'a', duration_seconds: 10 })),
     }) as unknown as RoutineItem;
 
-  it('talks first; then a preview of the coming block until its last seconds, then the countdown', () => {
+  it('talks first; then the rest video until the end (the computer keeps its countdown)', () => {
     const r = rest(true, 1);
-    expect(restScreenOf(r, null, 40, true)).toBe('talks');
-    expect(restScreenOf(r, r, 40, true)).toBe('preview');
-    expect(restScreenOf(r, r, BLOCK_PREVIEW.tailS, true)).toBe('countdown');
-    expect(restScreenOf(rest(true), null, 50, true)).toBe('preview');
-    // not after the warm-up, and the computer stays as it was
-    expect(restScreenOf(rest(false), null, 50, true)).toBe('countdown');
-    expect(restScreenOf(rest(true), null, 50, false)).toBe('countdown');
-  });
-
-  it('the preview goes through the block, a few seconds each, and round again', () => {
-    expect(BLOCK_PREVIEW.eachS).toBeGreaterThanOrEqual(6);
-    expect(BLOCK_PREVIEW.eachS).toBeLessThanOrEqual(8);
-    expect(previewIndex(4, 50, 50)).toBe(0);
-    expect(previewIndex(4, 50, 50 - BLOCK_PREVIEW.eachS)).toBe(1);
-    expect(previewIndex(4, 50, 50 - 4 * BLOCK_PREVIEW.eachS)).toBe(0);
-    expect(previewIndex(0, 50, 10)).toBe(0);
-    const serie = (title: string, round: number): RoutineItem =>
-      ({ kind: 'workout', exercise: exercise(title, ['gluteos']), round, totalRounds: 3, exerciseIndexInRound: 1, totalExercisesPerRound: 2 }) as RoutineItem;
-    const queue = [serie('a', 1), serie('b', 2), serie('c', 2), serie('b', 2), serie('d', 3)];
-    expect(blockExercises(queue, 2).map((e) => e.title)).toEqual(['b', 'c']);
+    expect(restScreenOf(r, null, true)).toBe('talks');
+    expect(restScreenOf(r, r, true)).toBe('resting');
+    expect(restScreenOf(rest(true), null, true)).toBe('resting');
+    expect(restScreenOf(rest(false), null, true)).toBe('resting');
+    expect(restScreenOf(rest(true), null, false)).toBe('countdown');
   });
 
   it('after the warm-up the clouds say so, and the boosters come off with the third sentence', () => {

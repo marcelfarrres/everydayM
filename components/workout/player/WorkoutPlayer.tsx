@@ -19,7 +19,9 @@ import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
 import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
-import { longRestWords, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { longRestWords, clock, cloudLabel, finalCount, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { FinalCount, RestingLabel } from './RestCues';
+import { layoutSpot } from './ui';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
@@ -144,9 +146,9 @@ export function WorkoutPlayer({
   // The rest whose talks have finished: from then on it shows the countdown, like a short rest.
   // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
   const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
-  // (phone, between blocks: a preview of the coming block once its talks are done)
-  const shownRest = restScreenOf(displayItem, talksDone, timeLeft, !desktop);
-  const currentRest = restScreenOf(currentItem, talksDone, timeLeft, !desktop);
+  // (phone, a long rest: the rest video once its talks are done, or with none)
+  const shownRest = restScreenOf(displayItem, talksDone, !desktop);
+  const currentRest = restScreenOf(currentItem, talksDone, !desktop);
 
   // The clouds play each time a rest begins.
   let cloudKey = currentIndex;
@@ -208,7 +210,7 @@ export function WorkoutPlayer({
       ? { ...longRestWords(cloudRest), percent, slot: travels }
       : undefined;
   const percentEl = useRef<HTMLParagraphElement>(null);
-  usePercentTravel(percentEl, cloudKey, travels, clouds.openingMs);
+  usePercentTravel(percentEl, cloudKey, travels);
 
   return (
     <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
@@ -245,7 +247,7 @@ export function WorkoutPlayer({
                 onExit={onExit}
                 onTap={() => setListOpen(false)}
                 phone={!desktop}
-                miniNext={shownRest === 'talks'}
+                miniNext={shownRest === 'talks' || shownRest === 'resting'}
               />
               <CheerHits
                 queue={queue}
@@ -333,7 +335,7 @@ export function WorkoutPlayer({
           listOpen={listOpen}
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
-          clockTab={currentRest === 'talks' || currentRest === 'preview'}
+          clockTab={currentRest === 'talks' || currentRest === 'resting'}
           cloudTop={cloudTop}
           reduced={reduced}
         />
@@ -349,6 +351,14 @@ export function WorkoutPlayer({
           aria-hidden="true"
           className="pointer-events-none absolute h-px w-px opacity-0"
         />
+      )}
+      {/* Phone: "Descansando…" at the top of every rest once the clouds open (not while a talk speaks),
+          and the big 3, 2, 1 over the stage at the end of a long rest */}
+      {!desktop && (
+        <>
+          <RestingLabel show={displayItem?.kind === 'rest' && !inClouds && shownRest !== 'talks'} reduced={reduced} />
+          <FinalCount value={displayIndex === currentIndex ? finalCount(currentRest, timeLeft) : null} reduced={reduced} />
+        </>
       )}
       {!desktop && kind === 'rest' && (
         <RestClock
@@ -377,41 +387,55 @@ export function WorkoutPlayer({
 
 /**
  * The rest after a block (phone): as its second sentence comes in, the % badge of the corner grows
- * and travels on an arc into the hole left for it in "Llevas el … completado." (the same element),
- * stays there, and goes back to its corner as the clouds open.
+ * and travels into the hole left for it in "Llevas el … completado." (the same element), stands
+ * there, and goes back to its corner before the third sentence takes that place (BLOCK_END): it is
+ * never over another sentence. Its way down the left edge and then across keeps it off the
+ * column of words (the kicker and the countdown above the hole).
  */
-function usePercentTravel(badge: RefObject<HTMLParagraphElement | null>, key: number, on: boolean, openingMs: number) {
+const TRAVEL_ID = 'pct-travel';
+const travelsOf = (el: HTMLElement | null) => el?.getAnimations().filter((a) => a.id === TRAVEL_ID) ?? [];
+
+function usePercentTravel(badge: RefObject<HTMLParagraphElement | null>, key: number, on: boolean) {
   useEffect(() => {
-    if (!on) return;
+    // (a rest left mid-way: the badge is back in its corner at once)
+    const home = () => travelsOf(badge.current).forEach((a) => a.cancel());
+    if (!on) return home;
     const t = setTimeout(() => {
       const el = badge.current;
-      const slot = document.querySelector('[data-cloud-slot]');
+      const slot = document.querySelector<HTMLElement>('[data-cloud-slot]');
       if (!el || !slot) return;
+      home(); // measured from its corner
+
       const a = el.getBoundingClientRect();
-      const b = slot.getBoundingClientRect();
-      const k = b.height / a.height;
-      const dx = b.left + (b.width - a.width * k) / 2 - a.left;
-      const dy = b.top - a.top;
-      const D = openingMs - BLOCK_END.secondMs + BLOCK_END.travelMs;
+      // (by layout: the sentence is still sliding in as it is measured)
+      const b = layoutSpot(slot);
+      const k = slot.offsetHeight / a.height;
+      const dx = b.x + (slot.offsetWidth - a.width * k) / 2 - a.left;
+      const dy = b.y - a.top;
+      const leaveAt = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs;
+      const D = leaveAt + BLOCK_END.badgeBackMs - BLOCK_END.secondMs;
       const there = BLOCK_END.travelMs / D;
-      const leave = (openingMs - BLOCK_END.secondMs) / D;
+      const leave = (leaveAt - BLOCK_END.secondMs) / D;
       const at = (x: number, y: number, s: number) => `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${s.toFixed(3)})`;
       const ease = 'cubic-bezier(0.45, 0, 0.25, 1)';
+      // (the bend of its way: down the left edge first, then across into the hole)
+      const bend = (s: number) => at(dx * 0.1, dy * 0.7, s);
       el.style.transformOrigin = '0 0';
       el.animate(
         [
           { offset: 0, transform: at(0, 0, 1), zIndex: 70, easing: ease },
-          // (an arc: out to the side as it grows)
-          { offset: there / 2, transform: at(dx * 0.5 + 48, dy * 0.4, (1 + k) / 2 + 0.08), zIndex: 70, easing: ease },
+          { offset: there / 2, transform: bend((1 + k) / 2), zIndex: 70, easing: ease },
           { offset: there, transform: at(dx, dy, k), zIndex: 70, easing: 'linear' },
           { offset: leave, transform: at(dx, dy, k), zIndex: 70, easing: ease },
-          { offset: leave + (1 - leave) / 2, transform: at(dx * 0.5 + 48, dy * 0.6, (1 + k) / 2), zIndex: 70, easing: ease },
+          { offset: leave + (1 - leave) / 2, transform: bend((1 + k) / 2), zIndex: 70, easing: ease },
           { offset: 1, transform: at(0, 0, 1), zIndex: 70 },
         ],
-        { duration: D },
+        { id: TRAVEL_ID, duration: D },
       );
     }, BLOCK_END.secondMs);
-    return () => clearTimeout(t);
-  }, [badge, key, on, openingMs]);
+    return () => {
+      clearTimeout(t);
+      home();
+    };
+  }, [badge, key, on]);
 }
-

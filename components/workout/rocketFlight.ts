@@ -143,13 +143,17 @@ export const cloudsFor = (extra: number) => ({
 
 /**
  * The three sentences after a block, from the rest's start (ms): each comes in with a short fade
- * and slide and stays more than a second; the % badge travels in with the second (`travelMs`) and
- * goes back as the clouds open; the segment comes off with the third (`dropMs`).
+ * and slide and stays more than a second, one in the place of the other; the % badge travels in
+ * with the second (`travelMs`), stands in its hole, and goes back to its corner before the third
+ * comes in (it leaves `badgeLeadMs` before it, in `badgeBackMs`: it never stands over another
+ * sentence); the segment comes off with the third (`dropMs`).
  */
 export const BLOCK_END = {
   firstMs: 1200,
-  secondMs: 2700,
-  travelMs: 700,
+  secondMs: 2300,
+  travelMs: 600,
+  badgeLeadMs: 400,
+  badgeBackMs: 550,
   thirdMs: 4300,
   dropMs: 4300,
   afterMs: 5500,

@@ -57,42 +57,28 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
 }
 
 /**
- * What a rest shows full screen: its talks (a long rest that has them, until they have played)
- * or the next exercise looping behind a dark veil with the giant countdown. Null if not a rest.
- * `talksDone` is the rest whose talks have finished.
+ * What a rest shows full screen:
+ *   talks      a long rest's vídeos hablados, until they have played (`talksDone` is the rest whose talks finished)
+ *   resting    phone, a long rest with no talk speaking: the rest video (Marcel resting), looped,
+ *              with the next exercise in the small window and the clock in the banner's tab
+ *   countdown  the next exercise looping behind a dark veil with the giant countdown (short rests;
+ *              on a computer also a long rest once its talks are done)
+ * Null if not a rest.
  */
-export type RestScreen = 'talks' | 'preview' | 'countdown';
+export type RestScreen = 'talks' | 'resting' | 'countdown';
 
-/**
- * Phone, between blocks: once its talks are done (or with none), a preview of the coming block
- * (its exercises one after another, `eachS` each) until `tailS` seconds are left: then the countdown.
- */
-export const BLOCK_PREVIEW = { tailS: 8, eachS: 7 } as const;
-
-export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null, timeLeft = 0, phone = false): RestScreen | null {
+export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null, phone = false): RestScreen | null {
   if (item?.kind !== 'rest') return null;
   if (item.restKind === 'long' && item.talks.length > 0 && talksDone !== item) return 'talks';
-  if (phone && item.restKind === 'long' && item.isEndOfRound && timeLeft > BLOCK_PREVIEW.tailS) return 'preview';
+  if (phone && item.restKind === 'long') return 'resting';
   return 'countdown';
 }
 
-/** Block `round`'s exercises, in order, each once. */
-export function blockExercises(queue: RoutineItem[], round: number): Exercise[] {
-  const seen = new Set<string>();
-  const out: Exercise[] = [];
-  for (const item of queue) {
-    if (item.kind === 'workout' && item.round === round && !seen.has(item.exercise.id)) {
-      seen.add(item.exercise.id);
-      out.push(item.exercise);
-    }
-  }
-  return out;
-}
-
-/** Which of `count` exercises the preview shows, begun with `startLeft` seconds left, now `timeLeft` (it loops). */
-export function previewIndex(count: number, startLeft: number, timeLeft: number): number {
-  if (count <= 0) return 0;
-  return Math.floor(Math.max(0, startLeft - timeLeft) / BLOCK_PREVIEW.eachS) % count;
+/** The big 3, 2, 1 over the stage at the end of a long rest (phone): the second shown, or null. */
+export function finalCount(screen: RestScreen | null, timeLeft: number): 1 | 2 | 3 | null {
+  if (screen !== 'talks' && screen !== 'resting') return null;
+  const s = Math.round(timeLeft);
+  return s === 1 || s === 2 || s === 3 ? s : null;
 }
 
 /** The next clip to play after `index` (the one a rest leads to). */

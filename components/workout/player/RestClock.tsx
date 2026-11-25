@@ -5,6 +5,7 @@ import { WORDS, railLeft } from '@/components/workout/rocketFlight';
 import { widgetLayout } from '@/components/workout/rocketShape';
 import { useRocketWidth } from './hooks';
 import { MINI } from './miniHandoff';
+import { layoutSpot } from './ui';
 
 /*
  * Phone: the countdown of a rest, one element from the first moment of the rest to its end.
@@ -27,7 +28,7 @@ const INK = '#131313';
 /** Its size in the clouds, px: CloudTransition leaves this much room under "Descanso". */
 export const CLOUD_CLOCK_PX = 84;
 // where its column starts: under the kicker of the words (CloudTransition's .cl-words)
-const COLUMN = { phone: 40, wide: 56, belowTop: 20 } as const;
+const COLUMN = { phone: 40, wide: 56, belowTop: 20, lift: 4 } as const;
 
 export type RestClockPhase = 'clouds' | 'side' | 'center' | 'hidden';
 
@@ -75,8 +76,16 @@ export function RestClock({
     let k: number;
     if (phase === 'clouds') {
       k = CLOUD_CLOCK_PX / el.offsetHeight;
-      left = railLeft(vw) * vw + (vw >= 640 ? COLUMN.wide : COLUMN.phone);
-      top = (cloudTop / 100) * vh + COLUMN.belowTop;
+      // the room the clouds leave for it under their kicker (it moves up on a short screen)
+      const room = document.querySelector<HTMLElement>('[data-cloud-clock]');
+      if (room) {
+        const spot = layoutSpot(room);
+        left = spot.x;
+        top = spot.y - COLUMN.lift;
+      } else {
+        left = railLeft(vw) * vw + (vw >= 640 ? COLUMN.wide : COLUMN.phone);
+        top = (cloudTop / 100) * vh + COLUMN.belowTop;
+      }
     } else {
       // in the tab on the banner's top right corner
       const L = widgetLayout(width);

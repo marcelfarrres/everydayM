@@ -87,8 +87,10 @@ export function CloudTransition({
   /** how much longer they stay closed (the rest after a block) */
   extraMs?: number;
   /**
-   * The rest after a block: three sentences instead of the title (see BLOCK_END), then `sub`. With
-   * `slot`, the second leaves a hole for the number (the % badge of the corner comes to it).
+   * The rest after a block: three sentences instead of the title (see BLOCK_END), then `sub`, one in
+   * the place of the other. With `slot`, the second leaves a hole for the number: the % badge of the
+   * corner comes to it with that sentence and goes back before the third comes in (usePercentTravel),
+   * so it never stands over another sentence.
    */
   blockEnd?: { first: string; second: { before: string; after: string }; third: string; percent: number; slot: boolean };
 }) {
@@ -216,64 +218,66 @@ export function CloudTransition({
             {/* (on a phone the widget's own rocket comes to this place: see RocketWidget) */}
             {!phone && <Rocket className="cl-ship absolute h-[min(58vh,36rem)] w-auto max-w-none -translate-x-1/2" style={{ top: `${top}%` }} />}
           </div>
-          {/* the words, beside the nose */}
-          <div
-            className="cl-words absolute left-10 w-[calc(66vw-3.5rem)] opacity-0 sm:left-14 sm:w-[min(50vw,24rem)]"
-            style={{ top: `calc(${top}% - 0.75rem)` }}
-          >
-            {kicker && (
-              <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#131313]">
-                <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-                {kicker}
-              </p>
-            )}
-            {/* phone: room for the rest's countdown (RestClock stands here), and the title a step smaller */}
-            {phone && <div aria-hidden="true" style={{ height: CLOUD_CLOCK_PX }} />}
-            {blockEnd ? (
-              // after a block: the three sentences, one in the place of the other, then where to
-              <div
-                className={`grid font-[family-name:var(--font-display)] font-semibold leading-[1.15] tracking-[-0.02em] text-[#131313] ${
-                  phone ? 'mt-1 text-[1.4rem]' : 'text-[clamp(1.75rem,3.6vw,2.75rem)]'
-                }`}
-              >
-                <p className="cl-be1 [grid-area:1/1]">{blockEnd.first}</p>
-                <p className="cl-be2 [grid-area:1/1]" style={{ opacity: 0 }}>
-                  {blockEnd.second.before}{' '}
-                  {blockEnd.slot ? (
-                    // (the hole the % badge comes to: as tall as it grows)
-                    <span data-cloud-slot="" className="inline-block align-middle" style={{ width: PERCENT_SLOT.w, height: PERCENT_SLOT.h }} />
-                  ) : (
-                    <span className="whitespace-nowrap">{blockEnd.percent}&#8239;%</span>
-                  )}{' '}
-                  {blockEnd.second.after}
+          {/* the words, beside the nose. Their top is by the nose, unless they would run off the
+              bottom of a short screen: then the space above them gives way (the spacer shrinks). */}
+          <div className="absolute inset-y-0 left-10 flex w-[calc(66vw-3.5rem)] flex-col sm:left-14 sm:w-[min(50vw,24rem)]">
+            <div aria-hidden="true" className="min-h-0 shrink" style={{ flexBasis: `calc(${top}% - 0.75rem)` }} />
+            <div className="cl-words relative shrink-0 pb-4 opacity-0">
+              {kicker && (
+                <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#131313]">
+                  <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+                  {kicker}
                 </p>
-                <p className="cl-be3 [grid-area:1/1]" style={{ opacity: 0 }}>
-                  {blockEnd.third}
-                </p>
-                <p className="cl-be4 [grid-area:1/1]" style={{ opacity: 0 }}>
-                  {sub}
-                </p>
-              </div>
-            ) : (
-              <>
-                {title && (
-                  <p
-                    className={`font-[family-name:var(--font-display)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313] ${
-                      phone ? 'mt-1 text-[1.75rem]' : 'text-[clamp(2.25rem,7vw,4.25rem)]'
-                    }`}
-                  >
-                    {title}
+              )}
+              {/* phone: room for the rest's countdown (RestClock stands here), and the title a step smaller */}
+              {phone && <div aria-hidden="true" data-cloud-clock="" style={{ height: CLOUD_CLOCK_PX }} />}
+              {blockEnd ? (
+                // after a block: the three sentences, one in the place of the other, then where to
+                <div
+                  className={`grid font-[family-name:var(--font-display)] font-semibold leading-[1.15] tracking-[-0.02em] text-[#131313] [overflow-wrap:anywhere] ${
+                    phone ? 'mt-1 text-[1.4rem]' : 'text-[clamp(1.75rem,3.6vw,2.75rem)]'
+                  }`}
+                >
+                  <p className="cl-be1 [grid-area:1/1]">{blockEnd.first}</p>
+                  <p className="cl-be2 [grid-area:1/1]" style={{ opacity: 0 }}>
+                    {blockEnd.second.before}{' '}
+                    {blockEnd.slot ? (
+                      // (the hole the % badge comes to: as tall as it grows)
+                      <span data-cloud-slot="" className="inline-block align-middle" style={{ width: PERCENT_SLOT.w, height: PERCENT_SLOT.h }} />
+                    ) : (
+                      <span className="whitespace-nowrap">{blockEnd.percent}&#8239;%</span>
+                    )}{' '}
+                    {blockEnd.second.after}
                   </p>
-                )}
-                {sub && <p className="mt-2 font-[family-name:var(--font-display)] text-lg font-medium text-[#2b2f36]">{sub}</p>}
-              </>
-            )}
-            {journey?.note && (
-              <p className="mt-3 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#131313]/65">
-                {current ? `${current.label} · ` : ''}
-                {journey.note}
-              </p>
-            )}
+                  <p className="cl-be3 [grid-area:1/1]" style={{ opacity: 0 }}>
+                    {blockEnd.third}
+                  </p>
+                  {/* (a long exercise name: three lines at most) */}
+                  <p className="cl-be4 line-clamp-3 [grid-area:1/1]" style={{ opacity: 0 }}>
+                    {sub}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {title && (
+                    <p
+                      className={`font-[family-name:var(--font-display)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313] ${
+                        phone ? 'mt-1 text-[1.75rem]' : 'text-[clamp(2.25rem,7vw,4.25rem)]'
+                      }`}
+                    >
+                      {title}
+                    </p>
+                  )}
+                  {sub && <p className="mt-2 line-clamp-2 font-[family-name:var(--font-display)] text-lg font-medium text-[#2b2f36] [overflow-wrap:anywhere]">{sub}</p>}
+                </>
+              )}
+              {journey?.note && (
+                <p className="mt-3 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#131313]/65">
+                  {current ? `${current.label} · ` : ''}
+                  {journey.note}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
