@@ -41,12 +41,15 @@ export function RestClock({
   phase,
   cloudTop,
   reduced,
+  next,
 }: {
   seconds: number;
   phase: RestClockPhase;
   /** the rail's height in the clouds, % of the screen (railTop) */
   cloudTop: number;
   reduced: boolean;
+  /** the next exercise, under the number in the middle */
+  next?: string;
 }) {
   const value = Math.max(0, Math.round(seconds));
   const number = useRef<HTMLParagraphElement>(null);
@@ -144,6 +147,15 @@ export function RestClock({
         </span>
         <span className="sr-only"> segundos de descanso</span>
       </p>
+      {next && (
+        // (as big as "Empiezas en", one line)
+        <p
+          className="mt-2 w-full max-w-[20rem] truncate text-[clamp(1rem,5.5vw,1.5rem)] font-medium leading-snug text-white/90"
+          style={{ opacity: phase === 'center' ? 1 : 0, transition: fade }}
+        >
+          {next}
+        </p>
+      )}
     </div>
     </>
   );

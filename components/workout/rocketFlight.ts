@@ -1,4 +1,4 @@
-import { TALK_LEAD_MS } from '@/lib/routine/duration';
+import { BLOCK_END_EXTRA_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
 import type { RoutineItem } from '@/types/workout';
 
 /*
@@ -118,6 +118,41 @@ export const PARKED_AFTER_CLOUDS_MS = FLIGHT.returnStartMs + FLIGHT.returnMs;
 
 /** Its whole way through the clouds, from parked to gone out of the top. */
 export const CLOUD_LEAVE_MS = CLOUD_TIMING.liftMs + CLOUD_EXIT_MS;
+
+// ---------------------------------------------------------------------------------------------
+// The rest after a block (its segment comes off): its clouds last BLOCK_END_EXTRA_MS longer, and
+// the words come in three sentences (CloudTransition): "Has acabado el primer bloque.", "Llevas el
+// NN % completado." (on a phone the % badge of the corner travels into it), and "Retirando el
+// primer bloque del cohete…", when the segment comes off; then the usual "Luego: …".
+
+/** Is this the rest after a block? (not the one after the warm-up, nor a short one) */
+export const blockEnds = (item: RoutineItem | undefined) => item?.kind === 'rest' && item.restKind === 'long' && item.isEndOfRound;
+
+/** How much longer the clouds of this rest last (ms). */
+export const cloudExtraMs = (item: RoutineItem | undefined) => (blockEnds(item) ? BLOCK_END_EXTRA_MS : 0);
+
+/** The clouds' moments for a rest whose clouds last `extra` ms longer. */
+export const cloudsFor = (extra: number) => ({
+  coveredMs: CLOUDS.coveredMs,
+  openingMs: CLOUDS.openingMs + extra,
+  clearMs: CLOUDS.clearMs + extra,
+});
+
+/**
+ * The three sentences after a block, from the rest's start (ms): each comes in with a short fade
+ * and slide and stays more than a second; the % badge travels in with the second (`travelMs`) and
+ * goes back as the clouds open; the segment comes off with the third (`dropMs`).
+ */
+export const BLOCK_END = {
+  firstMs: 1200,
+  secondMs: 2700,
+  travelMs: 700,
+  thirdMs: 4300,
+  dropMs: 4300,
+  afterMs: 5500,
+  /** each sentence's fade and slide in */
+  swapMs: 280,
+} as const;
 /** The part of its exit after which it is out of the top of the screen. */
 export const CLOUD_OFFSCREEN_AT = 0.85;
 
@@ -136,6 +171,8 @@ export interface Flight {
   how: 'clouds' | 'takeoff' | 'fade';
   placed?: boolean;
   returnAt: number | null;
+  /** how much longer its clouds last (the rest after a block) */
+  extra?: number;
 }
 
 export type Phase = 'parked' | 'leaving' | 'away' | 'returning';
@@ -145,11 +182,12 @@ export const PARKED: Flight = { leftAt: null, how: 'fade', returnAt: null };
 /** The player opens: the rocket arrives from the depth and parks, from the first second. */
 export const arrival = (now: number): Flight => ({ leftAt: -Infinity, how: 'fade', returnAt: now });
 
-export const leaveMs = (how: Flight['how']) => (how === 'clouds' ? CLOUD_LEAVE_MS : how === 'takeoff' ? FLIGHT.takeoffMs : FLIGHT.fadeMs);
+export const leaveMs = (how: Flight['how'], extra = 0) =>
+  how === 'clouds' ? CLOUD_LEAVE_MS + extra : how === 'takeoff' ? FLIGHT.takeoffMs : FLIGHT.fadeMs;
 
 export function phaseAt(f: Flight, now: number): Phase {
   if (f.leftAt === null) return 'parked';
-  if (now < f.leftAt + leaveMs(f.how)) return 'leaving';
+  if (now < f.leftAt + leaveMs(f.how, f.extra)) return 'leaving';
   if (f.returnAt === null || now < f.returnAt) return 'away';
   if (now < f.returnAt + FLIGHT.returnMs) return 'returning';
   return 'parked';
@@ -169,22 +207,29 @@ export function parkedFrom(f: Flight): number {
  */
 export type FlightEvent = 'clouds' | 'end' | 'show';
 
-export function nextFlight(f: Flight, event: FlightEvent, now: number): Flight {
+export function nextFlight(f: Flight, event: FlightEvent, now: number, extra = 0): Flight {
   const phase = phaseAt(f, now);
   if (event === 'show') {
     if ((phase === 'away' || phase === 'leaving') && f.returnAt === null) {
-      return { ...f, returnAt: Math.max(now, (f.leftAt ?? now) + leaveMs(f.how)) };
+      return { ...f, returnAt: Math.max(now, (f.leftAt ?? now) + leaveMs(f.how, f.extra)) };
     }
     return f;
   }
-  const returnAt = event === 'clouds' ? now + FLIGHT.returnStartMs : null;
+  const returnAt = event === 'clouds' ? now + FLIGHT.returnStartMs + extra : null;
+  const more = event === 'clouds' && extra ? { extra } : {};
   switch (phase) {
     case 'parked':
-      return { leftAt: now, how: event === 'clouds' ? 'clouds' : 'takeoff', returnAt };
+      return { leftAt: now, how: event === 'clouds' ? 'clouds' : 'takeoff', returnAt, ...more };
     case 'leaving':
       // waiting in the clouds and they play again: it waits in its place for the new ones
-      if (event === 'clouds' && f.how === 'clouds' && f.leftAt !== null && now >= f.leftAt + FLIGHT.slowMs && now < f.leftAt + FLIGHT.cloudLiftMs) {
-        return { leftAt: now, how: 'clouds', placed: true, returnAt };
+      if (
+        event === 'clouds' &&
+        f.how === 'clouds' &&
+        f.leftAt !== null &&
+        now >= f.leftAt + FLIGHT.slowMs &&
+        now < f.leftAt + FLIGHT.cloudLiftMs + (f.extra ?? 0)
+      ) {
+        return { leftAt: now, how: 'clouds', placed: true, returnAt, ...more };
       }
       return { ...f, returnAt };
     case 'away':
@@ -210,7 +255,7 @@ export function widgetOnScreenAt(f: Flight, now: number): boolean {
     return now < f.leftAt + FLIGHT.takeoffMs * TAKEOFF_OFFSCREEN_AT;
   }
   if (phase === 'leaving' && f.how === 'clouds' && f.leftAt !== null) {
-    return now < f.leftAt + FLIGHT.cloudLiftMs + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT;
+    return now < f.leftAt + FLIGHT.cloudLiftMs + (f.extra ?? 0) + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT;
   }
   return phase !== 'away';
 }
@@ -755,18 +800,22 @@ export interface CloudSpot {
   k: number;
 }
 
+/** How far it rises each way of its place in the clouds (px): a little further when they last longer. */
+export const cloudDriftPx = (extra = 0) => Math.round(FLIGHT.driftPx + extra * 0.012);
+
 /**
- * Parked → gone, through the clouds, over CLOUD_LEAVE_MS. From its crouch it shoots off to the
+ * Parked → gone, through the clouds, over CLOUD_LEAVE_MS (+ `extra`, the rest after a block). From its crouch it shoots off to the
  * RIGHT (where its nose points) out of the screen; a pause out of sight while the clouds close; it
  * comes up from below standing, nose up and bigger, fast, and brakes ("the camera catches it in
  * slow motion") into a slow but visible rise past its place by the words; and as the clouds are
  * about to open it speeds up again out of the top. `placed`: it is there already (the clouds
  * played again): it just goes on rising and leaves.
  */
-export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: LaunchStart = 'open'): FlightKeyframe[] {
-  const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
-  const lift = FLIGHT.cloudLiftMs;
-  const drift = FLIGHT.driftPx;
+export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: LaunchStart = 'open', extra = 0): FlightKeyframe[] {
+  const at = (ms: number) => Math.round((ms / (CLOUD_LEAVE_MS + extra)) * 10000) / 10000;
+  const lift = FLIGHT.cloudLiftMs + extra;
+  // (longer clouds: a little further, still slow)
+  const drift = cloudDriftPx(extra);
   const there = (y = 0, sx = 1, sy = 1) => pose({ x: `${num(dx)}px`, y: `${num(dy + y)}px`, rz: -90, sx: k * sx, sy: k * sy });
   const up = (px: number) => pose({ x: `${num(dx)}px`, y: `${num(dy)}px - 100vh - ${px}px`, rz: -90, sx: k * 1.08, sy: k * 0.93 });
   const away: FlightKeyframe[] = [
@@ -794,9 +843,9 @@ export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: 
 }
 
 /** Its flame on that way: full as it shoots off, out while out of sight, burning low as it rises slowly, full as it leaves. */
-export function cloudFlameKeyframes(placed = false, start: LaunchStart = 'open') {
-  const at = (ms: number) => Math.round((ms / CLOUD_LEAVE_MS) * 10000) / 10000;
-  const lift = FLIGHT.cloudLiftMs;
+export function cloudFlameKeyframes(placed = false, start: LaunchStart = 'open', extra = 0) {
+  const at = (ms: number) => Math.round((ms / (CLOUD_LEAVE_MS + extra)) * 10000) / 10000;
+  const lift = FLIGHT.cloudLiftMs + extra;
   const tail = [
     { offset: at(lift), opacity: 1, transform: 'scale(0.7, 0.9)' },
     { offset: 1, opacity: 1, transform: 'scale(1.35, 1.08)' },

@@ -36,9 +36,33 @@ export function getLongRestBase(restSeconds: number): number {
  */
 export const TALK_LEAD_MS = 3370;
 
-/** Whole seconds a long rest needs so `talkSeconds` of talks finish: the lead time plus the talks. */
-export function getTalkRestSeconds(talkSeconds: number): number {
-  return talkSeconds > 0 ? Math.ceil(talkSeconds + TALK_LEAD_MS / 1000) : 0;
+/**
+ * The rest after a block (its segment comes off the rocket, 25-11-2026): its clouds last this much
+ * longer (three sentences: the block done, the % done, the segment coming off), so they open
+ * BLOCK_END_LEAD_MS into the rest, and the rest is this much longer (in whole seconds) so the
+ * countdown keeps its time once they have opened.
+ */
+export const BLOCK_END_EXTRA_MS = 3500;
+export const BLOCK_END_LEAD_MS = TALK_LEAD_MS + BLOCK_END_EXTRA_MS;
+
+/** A plain rest after a block, without talks to fit: a long rest and the clouds' extra time. */
+export function getBlockEndRestBase(restSeconds: number): number {
+  return getLongRestBase(restSeconds) + Math.ceil(BLOCK_END_EXTRA_MS / 1000);
+}
+
+/**
+ * Whole seconds a long rest needs so `talkSeconds` of talks finish: the lead time (when its clouds
+ * open: BLOCK_END_LEAD_MS after a block) plus the talks.
+ */
+export function getTalkRestSeconds(talkSeconds: number, leadMs: number = TALK_LEAD_MS): number {
+  return talkSeconds > 0 ? Math.ceil(talkSeconds + leadMs / 1000) : 0;
+}
+
+/** A long rest: before block 1 (after the warm-up) or after a block (`afterBlock`: the longer clouds). */
+export function getLongRestSeconds(restSeconds: number, talkSeconds: number, afterBlock: boolean): number {
+  return afterBlock
+    ? Math.max(getBlockEndRestBase(restSeconds), getTalkRestSeconds(talkSeconds, BLOCK_END_LEAD_MS))
+    : Math.max(getLongRestBase(restSeconds), getTalkRestSeconds(talkSeconds));
 }
 
 export function getDefaultSlotSeconds(difficulty: number): number {

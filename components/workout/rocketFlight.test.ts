@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { exercise } from '@/lib/routine/fixtures.test-helpers';
-import { TALK_LEAD_MS } from '@/lib/routine/duration';
+import { BLOCK_END_EXTRA_MS, BLOCK_END_LEAD_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
+import {
+  BLOCK_END,
+  blockEnds,
+  cloudDriftPx,
+  cloudExtraMs,
+  cloudsFor,
+} from './rocketFlight';
+import { blockEndWords, blockOrdinal } from './player/model';
 import type { RoutineItem } from '@/types/workout';
 import {
   AWAY_POSE,
@@ -660,5 +668,63 @@ describe("the creator's rocket on the minutes", () => {
       expect(e.shake).toBeGreaterThan(prev.shake);
       prev = e;
     }
+  });
+});
+
+describe('the clouds after a block', () => {
+  const longRest = (isEndOfRound: boolean): RoutineItem =>
+    ({ kind: 'rest', duration: 30, prepSeconds: 0, nextExercise: exercise('b', ['gluteos']), nextRound: 2, totalRounds: 3, isEndOfRound, restKind: 'long', talks: [] }) as RoutineItem;
+
+  it('last 3.5 s longer only after a block (not after the warm-up, not between series)', () => {
+    expect(blockEnds(longRest(true))).toBe(true);
+    expect(blockEnds(longRest(false))).toBe(false);
+    expect(blockEnds({ ...longRest(true), restKind: 'short' } as RoutineItem)).toBe(false);
+    expect(cloudExtraMs(longRest(true))).toBe(BLOCK_END_EXTRA_MS);
+    expect(cloudExtraMs(longRest(false))).toBe(0);
+    // they open when the engine says a long rest's talks start
+    expect(cloudsFor(BLOCK_END_EXTRA_MS).openingMs).toBe(BLOCK_END_LEAD_MS);
+    expect(cloudsFor(0).openingMs).toBe(TALK_LEAD_MS);
+  });
+
+  it('three sentences, each in for more than a second, the segment coming off with the third', () => {
+    const lift = FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS;
+    const moments = [BLOCK_END.firstMs, BLOCK_END.secondMs, BLOCK_END.thirdMs, BLOCK_END.afterMs, lift];
+    for (let i = 1; i < moments.length; i++) expect(moments[i] - moments[i - 1]).toBeGreaterThanOrEqual(1000);
+    expect(BLOCK_END.firstMs).toBeGreaterThanOrEqual(WORDS.phoneDelayMs + WORDS.fadeMs);
+    expect(BLOCK_END.dropMs).toBe(BLOCK_END.thirdMs);
+    // the rocket is rising slowly by then, and the part has fallen before it leaves
+    expect(BLOCK_END.dropMs).toBeGreaterThan(FLIGHT.slowMs);
+    expect(BLOCK_END.dropMs + FLIGHT.dropFallMs).toBeLessThan(lift);
+    // the % badge is in the sentence before it can be read, and goes back as the clouds open
+    expect(BLOCK_END.travelMs).toBeLessThan(BLOCK_END.thirdMs - BLOCK_END.secondMs);
+  });
+
+  it('its flight waits longer in the clouds, rising a little further, and comes back later', () => {
+    const f = nextFlight(PARKED, 'clouds', 0, BLOCK_END_EXTRA_MS);
+    expect(f.extra).toBe(BLOCK_END_EXTRA_MS);
+    expect(f.returnAt).toBe(FLIGHT.returnStartMs + BLOCK_END_EXTRA_MS);
+    expect(phaseAt(f, CLOUD_LEAVE_MS + 100)).toBe('leaving');
+    expect(phaseAt(f, CLOUD_LEAVE_MS + BLOCK_END_EXTRA_MS + 1)).toBe('away');
+    expect(parkedFrom(f)).toBe(PARKED_AFTER_CLOUDS_MS + BLOCK_END_EXTRA_MS);
+    expect(nextFlight(PARKED, 'clouds', 0).extra).toBeUndefined();
+    const spot = { dx: -60, dy: -420, k: 1.35 };
+    const keys = cloudKeyframes(spot, false, 'crouched', BLOCK_END_EXTRA_MS);
+    const total = CLOUD_LEAVE_MS + BLOCK_END_EXTRA_MS;
+    const lift = keys.find((k) => Math.abs(k.offset - (FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS) / total) < 0.0002);
+    expect(lift?.transform).toContain(`calc((${spot.dy - cloudDriftPx(BLOCK_END_EXTRA_MS)}px) / 1)`);
+    // still slow: well under the pace of the usual clouds
+    const pace = (2 * cloudDriftPx(BLOCK_END_EXTRA_MS)) / ((FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS - FLIGHT.slowMs) / 1000);
+    expect(pace).toBeGreaterThanOrEqual(20);
+    expect(pace).toBeLessThanOrEqual((2 * FLIGHT.driftPx) / ((FLIGHT.cloudLiftMs - FLIGHT.slowMs) / 1000));
+  });
+
+  it('says which block was done', () => {
+    expect(blockOrdinal(1)).toBe('primer');
+    expect(blockOrdinal(3)).toBe('tercer');
+    expect(blockOrdinal(4)).toBe('cuarto');
+    const words = blockEndWords(2);
+    expect(words.first).toBe('Has acabado el segundo bloque.');
+    expect(words.second).toEqual({ before: 'Llevas el', after: 'completado.' });
+    expect(words.third).toBe('Retirando el segundo bloque del cohete…');
   });
 });

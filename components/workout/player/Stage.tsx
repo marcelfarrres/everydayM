@@ -5,7 +5,7 @@ import { motion } from 'motion/react';
 import { BANNER, widgetLayout, type Stack } from '@/components/workout/rocketShape';
 import { rocketStack } from '@/components/workout/rocketStack';
 import { CLOUDS } from '@/components/workout/CloudTransition';
-import { POD, PREVIEW_OUT_AFTER_REST_MS, podPopKeyframes } from '@/components/workout/rocketFlight';
+import { POD, PREVIEW_OUT_AFTER_REST_MS, cloudExtraMs, podPopKeyframes } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { Exercise, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
@@ -112,7 +112,7 @@ export function Stage({
       reduced={reduced}
       fadeIn={phone}
       // the window springs out of the rocket just after its banner (it mounts as the clouds cover the screen)
-      popInMs={small ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS - CLOUDS.coveredMs) : null}
+      popInMs={small ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS + cloudExtraMs(item) - CLOUDS.coveredMs) : null}
       // in its last moment it waits on its first frame, so growing into the exercise doesn't jump
       hold={small && live && timeLeft <= MINI.HOLD_S}
     >
@@ -165,7 +165,7 @@ export function Stage({
         <TalkReel
           talks={rest.talks}
           // mounted once the clouds cover the screen; it speaks when they open
-          delayMs={reduced ? 0 : CLOUDS.openingMs - CLOUDS.coveredMs}
+          delayMs={reduced ? 0 : CLOUDS.openingMs + cloudExtraMs(rest) - CLOUDS.coveredMs}
           paused={isPaused || leaving}
           onFinished={() => {
             if (!leaving) onTalksDone(rest);

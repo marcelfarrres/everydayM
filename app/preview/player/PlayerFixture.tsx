@@ -42,6 +42,8 @@ const JUMPS: Jump[] = [
   { label: 'Calentamiento', find: (q) => q.kind === 'warmup' },
   { label: 'Serie', find: (q) => q.kind === 'workout' },
   { label: 'Última serie (antes del final)', find: (q) => q.kind === 'outro' },
+  // (its "Ignición" leads into the longer clouds after a block)
+  { label: 'Última serie de un bloque', find: (q) => q.kind === 'rest' && q.restKind === 'long' && q.isEndOfRound },
   { label: 'Descanso corto', find: (q) => q.kind === 'rest' && q.restKind === 'short' },
   { label: 'Descanso largo con vídeos hablados', find: (q) => q.kind === 'rest' && q.restKind === 'long' && q.talks.length > 0 },
   { label: 'Descanso largo sin vídeos hablados', find: (q) => q.kind === 'rest' && q.restKind === 'long' && q.talks.length === 0 },

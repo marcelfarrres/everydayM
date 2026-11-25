@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
 import { CLOUD_CLOCK_PX } from '@/components/workout/player/RestClock';
-import { CLOUDS, CLOUD_TIMING, WORDS, railTop } from '@/components/workout/rocketFlight';
+import { BLOCK_END, CLOUDS, CLOUD_TIMING, WORDS, railTop } from '@/components/workout/rocketFlight';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -62,6 +62,8 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // (The rail, railTop, runs from 66% (start) to 22% (done) of the screen height: even at the start
 // most of the rocket is on screen.)
 const INK = '#131313';
+/** The hole for the % badge in "Llevas el NN % completado.": the badge (44 px tall) grows 1.4 times into it. */
+export const PERCENT_SLOT = { w: 104, h: 62 } as const;
 
 export function CloudTransition({
   playKey,
@@ -71,6 +73,8 @@ export function CloudTransition({
   color = INK,
   journey,
   phone = false,
+  extraMs = 0,
+  blockEnd,
 }: {
   playKey: number;
   title?: string;
@@ -80,6 +84,13 @@ export function CloudTransition({
   journey?: Journey;
   /** Phone: the widget's rocket is the rocket of the clouds (see the comment at the top). */
   phone?: boolean;
+  /** how much longer they stay closed (the rest after a block) */
+  extraMs?: number;
+  /**
+   * The rest after a block: three sentences instead of the title (see BLOCK_END), then `sub`. With
+   * `slot`, the second leaves a hole for the number (the % badge of the corner comes to it).
+   */
+  blockEnd?: { first: string; second: { before: string; after: string }; third: string; percent: number; slot: boolean };
 }) {
   const reduced = useReducedMotion();
   const [scope, animate] = useAnimate();
@@ -112,6 +123,17 @@ export function CloudTransition({
       if (!phone) animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
       animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
       animate('.cl-words', { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: phone ? WORDS.fadeMs / 1000 : 0.5, delay: phone ? WORDS.phoneDelayMs / 1000 : 1.2, ease: [0.22, 1, 0.36, 1] });
+      if (root.querySelector('.cl-be1')) {
+        // after a block, one sentence after another (each in with a short fade and slide)
+        const swap = BLOCK_END.swapMs / 1000;
+        const moments = [BLOCK_END.secondMs, BLOCK_END.thirdMs, BLOCK_END.afterMs];
+        for (let i = 2; i <= 4; i++) animate(`.cl-be${i}`, { opacity: 0 }, { duration: 0 });
+        animate('.cl-be1', { opacity: 1, transform: 'translateY(0px)' }, { duration: 0 });
+        moments.forEach((at, i) => {
+          animate(`.cl-be${i + 1}`, { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-10px)'] }, { duration: swap * 0.8, delay: at / 1000, ease: [0.4, 0, 1, 1] });
+          animate(`.cl-be${i + 2}`, { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: swap, delay: at / 1000 + swap * 0.5, ease: [0.22, 1, 0.36, 1] });
+        });
+      }
       await Promise.all([
         animate('.cl-l', { transform: [OFF.l, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
         animate('.cl-r', { transform: [OFF.r, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
@@ -119,9 +141,9 @@ export function CloudTransition({
       ]);
       if (id !== run.current) return;
       // while closed, the clouds keep drifting a little
-      animate('.cl-l', { transform: [SHUT, DRIFT.l] }, { duration: HOLD_MS / 1000, ease: 'linear' });
-      animate('.cl-r', { transform: [SHUT, DRIFT.r] }, { duration: HOLD_MS / 1000, ease: 'linear' });
-      await wait(HOLD_MS - LIFT_LEAD_MS);
+      animate('.cl-l', { transform: [SHUT, DRIFT.l] }, { duration: (HOLD_MS + extraMs) / 1000, ease: 'linear' });
+      animate('.cl-r', { transform: [SHUT, DRIFT.r] }, { duration: (HOLD_MS + extraMs) / 1000, ease: 'linear' });
+      await wait(HOLD_MS + extraMs - LIFT_LEAD_MS);
       if (id !== run.current) return;
       // lift-off: the words go, the rocket shoots off the top, the clouds part
       animate('.cl-words', { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-8px)'] }, { duration: 0.25 });
@@ -140,6 +162,8 @@ export function CloudTransition({
       animate(scope.current, { visibility: 'hidden' }, { duration: 0 });
     };
     void play();
+    // (the moment's words and length are read when its key changes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playKey, reduced, animate, scope, top, phone]);
 
   return (
@@ -205,16 +229,45 @@ export function CloudTransition({
             )}
             {/* phone: room for the rest's countdown (RestClock stands here), and the title a step smaller */}
             {phone && <div aria-hidden="true" style={{ height: CLOUD_CLOCK_PX }} />}
-            {title && (
-              <p
-                className={`font-[family-name:var(--font-display)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313] ${
-                  phone ? 'mt-1 text-[1.75rem]' : 'text-[clamp(2.25rem,7vw,4.25rem)]'
+            {blockEnd ? (
+              // after a block: the three sentences, one in the place of the other, then where to
+              <div
+                className={`grid font-[family-name:var(--font-display)] font-semibold leading-[1.15] tracking-[-0.02em] text-[#131313] ${
+                  phone ? 'mt-1 text-[1.4rem]' : 'text-[clamp(1.75rem,3.6vw,2.75rem)]'
                 }`}
               >
-                {title}
-              </p>
+                <p className="cl-be1 [grid-area:1/1]">{blockEnd.first}</p>
+                <p className="cl-be2 [grid-area:1/1]" style={{ opacity: 0 }}>
+                  {blockEnd.second.before}{' '}
+                  {blockEnd.slot ? (
+                    // (the hole the % badge comes to: as tall as it grows)
+                    <span data-cloud-slot="" className="inline-block align-middle" style={{ width: PERCENT_SLOT.w, height: PERCENT_SLOT.h }} />
+                  ) : (
+                    <span className="whitespace-nowrap">{blockEnd.percent}&#8239;%</span>
+                  )}{' '}
+                  {blockEnd.second.after}
+                </p>
+                <p className="cl-be3 [grid-area:1/1]" style={{ opacity: 0 }}>
+                  {blockEnd.third}
+                </p>
+                <p className="cl-be4 [grid-area:1/1]" style={{ opacity: 0 }}>
+                  {sub}
+                </p>
+              </div>
+            ) : (
+              <>
+                {title && (
+                  <p
+                    className={`font-[family-name:var(--font-display)] font-semibold leading-[1] tracking-[-0.035em] text-[#131313] ${
+                      phone ? 'mt-1 text-[1.75rem]' : 'text-[clamp(2.25rem,7vw,4.25rem)]'
+                    }`}
+                  >
+                    {title}
+                  </p>
+                )}
+                {sub && <p className="mt-2 font-[family-name:var(--font-display)] text-lg font-medium text-[#2b2f36]">{sub}</p>}
+              </>
             )}
-            {sub && <p className="mt-2 font-[family-name:var(--font-display)] text-lg font-medium text-[#2b2f36]">{sub}</p>}
             {journey?.note && (
               <p className="mt-3 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#131313]/65">
                 {current ? `${current.label} · ` : ''}

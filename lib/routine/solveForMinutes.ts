@@ -3,9 +3,8 @@ import {
   OUTRO_DURATION_SECONDS,
   getClipDuration,
   getDefaultSlotSeconds,
-  getLongRestBase,
+  getLongRestSeconds,
   getRestDuration,
-  getTalkRestSeconds,
 } from './duration';
 
 export interface SolveForMinutesOptions {
@@ -47,8 +46,7 @@ function estimateCircuitDuration(
   exercisesPerRound: number,
   { slotSeconds, restSec, candidateExercises, fixedOverheadSeconds, hasWarmup, longRestTalkSeconds }: EstimateParams,
 ): number {
-  const longRest = (base: number) => Math.max(base, getTalkRestSeconds(longRestTalkSeconds));
-  let total = fixedOverheadSeconds + (hasWarmup ? longRest(getLongRestBase(restSec)) : 0);
+  let total = fixedOverheadSeconds + (hasWarmup ? getLongRestSeconds(restSec, longRestTalkSeconds, false) : 0);
 
   for (let r = 1; r <= rounds; r++) {
     for (let i = 0; i < exercisesPerRound; i++) {
@@ -66,7 +64,7 @@ function estimateCircuitDuration(
       } else {
         const isEndOfRound = i === exercisesPerRound - 1;
         // (rests are always the decided length: nothing of a short clip's slot is added to them)
-        total += clipSeconds + (isEndOfRound ? longRest(getLongRestBase(restSec)) : restSec);
+        total += clipSeconds + (isEndOfRound ? getLongRestSeconds(restSec, longRestTalkSeconds, true) : restSec);
       }
     }
   }

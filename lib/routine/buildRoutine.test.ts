@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { buildRoutine } from './buildRoutine';
 import { cheerFor } from './cheers';
 import {
+  BLOCK_END_EXTRA_MS,
+  BLOCK_END_LEAD_MS,
   TALK_LEAD_MS,
+  getBlockEndRestBase,
+  getLongRestSeconds,
   getItemDuration,
   getLongRestBase,
   getRestDuration,
@@ -151,7 +155,7 @@ describe('talks in long rests', () => {
     for (const rest of rests(queue)) {
       expect(rest.prepSeconds).toBe(0);
       if (rest.restKind === 'short') expect(rest.duration).toBe(base);
-      else if (rest.talks.length === 0) expect(rest.duration).toBe(getLongRestBase(base));
+      else if (rest.talks.length === 0) expect(rest.duration).toBe(rest.isEndOfRound ? getBlockEndRestBase(base) : getLongRestBase(base));
     }
     // each serie lasts its clip
     queue.forEach((item) => {
@@ -170,16 +174,29 @@ describe('talks in long rests', () => {
       );
       for (const rest of rests(queue).filter((r) => r.restKind === 'long')) {
         const talkSum = rest.talks.reduce((acc, t) => acc + t.duration_seconds, 0);
-        expect(rest.duration).toBeGreaterThanOrEqual(base);
-        // the talks start TALK_LEAD_MS into the rest, when the clouds open
-        expect(rest.duration * 1000).toBeGreaterThanOrEqual(TALK_LEAD_MS + talkSum * 1000);
+        // after a block its clouds last longer, and so does the rest
+        const usual = rest.isEndOfRound ? getBlockEndRestBase(getRestDuration(5)) : base;
+        const lead = rest.isEndOfRound ? BLOCK_END_LEAD_MS : TALK_LEAD_MS;
+        expect(rest.duration).toBeGreaterThanOrEqual(usual);
+        // the talks start when the clouds open
+        expect(rest.duration * 1000).toBeGreaterThanOrEqual(lead + talkSum * 1000);
         expect(Number.isInteger(rest.duration)).toBe(true);
-        if (rest.talks.length > 0 && rest.duration > base) stretched++;
+        if (rest.talks.length > 0 && rest.duration > usual) stretched++;
         // without talks to fit, exactly its usual time
-        if (rest.talks.length === 0) expect(rest.duration).toBe(base);
+        if (rest.talks.length === 0) expect(rest.duration).toBe(usual);
       }
     }
     expect(stretched).toBeGreaterThan(0); // the talks really set the length somewhere
+  });
+
+  it('gives the rest after a block its longer clouds (3.5 s), before the talks and in the countdown', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(3500);
+    expect(BLOCK_END_LEAD_MS).toBe(TALK_LEAD_MS + BLOCK_END_EXTRA_MS);
+    expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 4);
+    expect(getTalkRestSeconds(25, BLOCK_END_LEAD_MS)).toBe(Math.ceil(25 + BLOCK_END_LEAD_MS / 1000));
+    expect(getLongRestSeconds(15, 0, true)).toBe(getBlockEndRestBase(15));
+    expect(getLongRestSeconds(15, 0, false)).toBe(getLongRestBase(15));
+    expect(getLongRestSeconds(15, 40, true)).toBe(getTalkRestSeconds(40, BLOCK_END_LEAD_MS));
   });
 
   it('adds the lead time only when there are talks', () => {

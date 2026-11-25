@@ -73,6 +73,26 @@ export function nextExerciseAfter(queue: RoutineItem[], index: number): Exercise
   return isExercise(next) ? next.exercise : undefined;
 }
 
+const ORDINALS = ['primer', 'segundo', 'tercer', 'cuarto', 'quinto', 'sexto', 'séptimo', 'octavo', 'noveno', 'décimo'];
+
+/** "primer", "segundo", "tercer"… for block `n` (1-based; past the tenth, "bloque 11"-style "11.º"). */
+export function blockOrdinal(n: number): string {
+  return ORDINALS[n - 1] ?? `${n}.º`;
+}
+
+/**
+ * The three sentences on the clouds of the rest after block `done`: the second is split round the
+ * % done (`before`, the number, `after`), where on a phone the % badge itself comes to stand.
+ */
+export function blockEndWords(done: number) {
+  const ordinal = blockOrdinal(done);
+  return {
+    first: `Has acabado el ${ordinal} bloque.`,
+    second: { before: 'Llevas el', after: 'completado.' },
+    third: `Retirando el ${ordinal} bloque del cohete…`,
+  };
+}
+
 /** The words on the clouds as a rest begins: where you are going. */
 export function cloudLabel(item: RoutineItem | undefined): { title: string; sub?: string } {
   if (item?.kind !== 'rest') return { title: '' };

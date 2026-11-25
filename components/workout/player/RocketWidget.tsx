@@ -7,6 +7,7 @@ import { FlameDrawing, RocketShip, boxStyle, flameBox, type Piece } from '@/comp
 import { dropBetween, rocketStack } from '@/components/workout/rocketStack';
 import { BANNER, SHIP, stackGeometry, widgetLayout, type ShipGeometry, type Stack, type WidgetLayout } from '@/components/workout/rocketShape';
 import {
+  BLOCK_END,
   CLOUD_LEAVE_MS,
   FLIGHT,
   PAM_KEYFRAMES,
@@ -43,6 +44,8 @@ import {
   sputtersBetween,
   warningFlame,
   warningLevel,
+  blockEnds,
+  cloudExtraMs,
   launchLeadMs,
   takeoffKeyframes,
   type CloudSpot,
@@ -144,8 +147,9 @@ export function RocketWidget({
   // lasts. What is drawn changes in the clouds, when a part comes off (after the rocket has stood
   // there a moment); where it stands, centred, changes only once it is away, before it comes back.
   const entering = item?.kind === 'rest' && !reduced;
-  const drawnAt = useLagged(currentIndex, entering ? FLIGHT.dropMs : 0);
-  const centredAt = useLagged(currentIndex, entering ? FLIGHT.returnStartMs : 0);
+  // (after a block the clouds last longer, and the segment comes off with their third sentence)
+  const drawnAt = useLagged(currentIndex, entering ? (blockEnds(item) ? BLOCK_END.dropMs : FLIGHT.dropMs) : 0);
+  const centredAt = useLagged(currentIndex, entering ? FLIGHT.returnStartMs + cloudExtraMs(item) : 0);
   const drawn = useMemo(() => rocketStack(queue, drawnAt), [queue, drawnAt]);
   const centred = useMemo(() => rocketStack(queue, centredAt), [queue, centredAt]);
   const L = useMemo(() => widgetLayout(width, centred), [width, centred]);
@@ -554,7 +558,7 @@ function useRocketFlight({
     // (coming from "Empezar", it arrives once the creator's rocket has gone: see rocketHandoff)
     if (!prev) next = arrival(now + arrivalDelay(now));
     else if (ending && !prev.ending) next = nextFlight(flight.current, 'end', now);
-    else if (!ending && cloudKey !== prev.cloudKey && !reduced) next = nextFlight(flight.current, 'clouds', now);
+    else if (!ending && cloudKey !== prev.cloudKey && !reduced) next = nextFlight(flight.current, 'clouds', now, cloudExtraMs(item));
     else if (!ending && (prev.ending || queue !== prev.queue)) next = nextFlight(flight.current, 'show', now);
     else {
       // No flight: the moment changed with the rocket in its place.
@@ -688,8 +692,9 @@ function playFlight(
       // off to the right from its crouch, up from below in the clouds, and out of the top
       if (!f.placed) foldIn(at);
       else run(el.pod, [...podIn, ...podIn], { duration: 1, fill: 'forwards' });
-      run(el.flight, cloudKeyframes(spotOf(), f.placed, start), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
-      run(el.flame, cloudFlameKeyframes(f.placed, start), { duration: CLOUD_LEAVE_MS, delay: at, fill: 'forwards' });
+      const extra = f.extra ?? 0;
+      run(el.flight, cloudKeyframes(spotOf(), f.placed, start, extra), { duration: CLOUD_LEAVE_MS + extra, delay: at, fill: 'forwards' });
+      run(el.flame, cloudFlameKeyframes(f.placed, start, extra), { duration: CLOUD_LEAVE_MS + extra, delay: at, fill: 'forwards' });
     } else if (f.how === 'takeoff' && !reduced) {
       // from its crouch it turns its nose up and climbs straight out of the top
       foldIn(at);

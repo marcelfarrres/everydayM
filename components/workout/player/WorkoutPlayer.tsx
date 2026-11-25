@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
-import { FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, railTop } from '@/components/workout/rocketFlight';
+import { BLOCK_END, FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, blockEnds, cloudExtraMs, cloudsFor, railTop } from '@/components/workout/rocketFlight';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -18,7 +18,7 @@ import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
 import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
-import { clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { blockEndWords, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
@@ -149,12 +149,16 @@ export function WorkoutPlayer({
 
   // The list belongs to the stretch between two rests: a new rest closes it, and it can't open
   // while the clouds and the rocket are still on screen (they are drawn above the widget).
-  const clouding = useBusyAfter(cloudKey, CLOUDS.clearMs, !reduced);
+  // (after a block they stay closed longer: BLOCK_END)
+  const cloudRest = queue[cloudKey];
+  const extra = cloudExtraMs(cloudRest);
+  const clouds = cloudsFor(extra);
+  const clouding = useBusyAfter(cloudKey, clouds.clearMs, !reduced);
   // Phone: the rest's countdown stands in the clouds until they start to open (RestClock).
-  const inClouds = useBusyAfter(cloudKey, CLOUDS.openingMs, !reduced);
+  const inClouds = useBusyAfter(cloudKey, clouds.openingMs, !reduced);
   // With talks it is a tab of the rocket's banner while they play (it fades out as the clouds
   // open and comes back as the banner springs out); then the middle.
-  const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + POD.inDelayMs, !reduced);
+  const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + POD.inDelayMs, !reduced);
   const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : bannerPending ? 'hidden' : 'side';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;
@@ -190,6 +194,13 @@ export function WorkoutPlayer({
   // Where the routine is, for the clouds (and, on a phone, where the rocket stands in them).
   const journey = journeyOf(queue, timeline, currentIndex, total);
   const cloudTop = railTop(journey?.progress ?? 0.5);
+
+  // After a block: three sentences on the clouds, and on a phone the % badge travels into the second.
+  const travels = blockEnds(cloudRest) && !desktop && !reduced;
+  const blockEnd =
+    cloudRest?.kind === 'rest' && blockEnds(cloudRest) ? { ...blockEndWords(cloudRest.nextRound - 1), percent, slot: travels } : undefined;
+  const percentEl = useRef<HTMLParagraphElement>(null);
+  usePercentTravel(percentEl, cloudKey, travels, clouds.openingMs);
 
   return (
     <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
@@ -271,6 +282,7 @@ export function WorkoutPlayer({
           margins and line, so the two read as a pair. It steps aside for "Activar sonido" of a talk. */}
       {displayItem?.kind !== 'outro' && (
         <p
+          ref={percentEl}
           data-rw="percent"
           aria-label={`${percent} % de la rutina`}
           className="pointer-events-none fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex h-11 min-w-11 items-center justify-center rounded-full bg-[rgb(14_14_14/0.6)] px-3 text-[14px] font-semibold leading-none tabular-nums text-white group-has-[[data-unmute]]/player:invisible lg:hidden"
@@ -331,13 +343,22 @@ export function WorkoutPlayer({
         />
       )}
       {!desktop && kind === 'rest' && (
-        <RestClock key={cloudKey} seconds={timeLeft} phase={clockPhase} cloudTop={cloudTop} reduced={reduced} />
+        <RestClock
+          key={cloudKey}
+          seconds={timeLeft}
+          phase={clockPhase}
+          cloudTop={cloudTop}
+          reduced={reduced}
+          next={currentItem?.kind === 'rest' ? currentItem.nextExercise.title : undefined}
+        />
       )}
       <CloudTransition
         playKey={cloudKey}
         title={label.title}
         sub={label.sub}
         kicker="Descanso"
+        extraMs={extra}
+        blockEnd={blockEnd}
         color={REST_BLUE}
         journey={journey}
         phone={!desktop}
@@ -345,3 +366,44 @@ export function WorkoutPlayer({
     </div>
   );
 }
+
+/**
+ * The rest after a block (phone): as its second sentence comes in, the % badge of the corner grows
+ * and travels on an arc into the hole left for it in "Llevas el … completado." (the same element),
+ * stays there, and goes back to its corner as the clouds open.
+ */
+function usePercentTravel(badge: RefObject<HTMLParagraphElement | null>, key: number, on: boolean, openingMs: number) {
+  useEffect(() => {
+    if (!on) return;
+    const t = setTimeout(() => {
+      const el = badge.current;
+      const slot = document.querySelector('[data-cloud-slot]');
+      if (!el || !slot) return;
+      const a = el.getBoundingClientRect();
+      const b = slot.getBoundingClientRect();
+      const k = b.height / a.height;
+      const dx = b.left + (b.width - a.width * k) / 2 - a.left;
+      const dy = b.top - a.top;
+      const D = openingMs - BLOCK_END.secondMs + BLOCK_END.travelMs;
+      const there = BLOCK_END.travelMs / D;
+      const leave = (openingMs - BLOCK_END.secondMs) / D;
+      const at = (x: number, y: number, s: number) => `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${s.toFixed(3)})`;
+      const ease = 'cubic-bezier(0.45, 0, 0.25, 1)';
+      el.style.transformOrigin = '0 0';
+      el.animate(
+        [
+          { offset: 0, transform: at(0, 0, 1), zIndex: 70, easing: ease },
+          // (an arc: out to the side as it grows)
+          { offset: there / 2, transform: at(dx * 0.5 + 48, dy * 0.4, (1 + k) / 2 + 0.08), zIndex: 70, easing: ease },
+          { offset: there, transform: at(dx, dy, k), zIndex: 70, easing: 'linear' },
+          { offset: leave, transform: at(dx, dy, k), zIndex: 70, easing: ease },
+          { offset: leave + (1 - leave) / 2, transform: at(dx * 0.5 + 48, dy * 0.6, (1 + k) / 2), zIndex: 70, easing: ease },
+          { offset: 1, transform: at(0, 0, 1), zIndex: 70 },
+        ],
+        { duration: D },
+      );
+    }, BLOCK_END.secondMs);
+    return () => clearTimeout(t);
+  }, [badge, key, on, openingMs]);
+}
+

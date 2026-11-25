@@ -2,12 +2,16 @@ export {
   DEFAULT_CLIP_SECONDS,
   LONG_REST_EXTRA_SECONDS,
   OUTRO_DURATION_SECONDS,
+  BLOCK_END_EXTRA_MS,
+  BLOCK_END_LEAD_MS,
   TALK_LEAD_MS,
   getClipDuration,
   getDefaultSlotSeconds,
   getItemDuration,
   getLongRestBase,
   getRestDuration,
+  getBlockEndRestBase,
+  getLongRestSeconds,
   getTalkRestSeconds,
 } from './duration';
 
