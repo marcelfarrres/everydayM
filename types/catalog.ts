@@ -19,6 +19,20 @@ export interface MusicTrack {
   enabled: boolean; // false = out of the playlist, not deleted
 }
 
+/**
+ * Marcel resting on camera (stretching, breathing: no exercise, no voice). The player loops one,
+ * muted, in a long rest while no vídeo hablado is speaking.
+ */
+export interface RestVideo {
+  id: string;
+  title: string;
+  video_url: string; // original
+  video_lite_url: string | null; // lighter copy the app plays
+  poster_url: string | null; // still from the middle of the clip
+  duration_seconds: number;
+  enabled: boolean; // false = not used by the app, not deleted
+}
+
 /** An exercise as stored in the catalog: its vídeos hablados always present (maybe empty). */
 export type CatalogExercise = Exercise & { talks: ExerciseTalk[] };
 
@@ -27,4 +41,5 @@ export interface Catalog {
   updatedAt: string; // ISO 8601
   exercises: CatalogExercise[]; // newest first
   music: MusicTrack[]; // newest first
+  rests?: RestVideo[]; // newest first; absent in catalogs written before rest videos existed
 }
