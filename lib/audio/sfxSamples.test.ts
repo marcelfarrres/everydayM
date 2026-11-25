@@ -8,11 +8,11 @@ const PUBLIC_SFX = path.join(process.cwd(), 'public', 'sfx');
 const entries = Object.entries(SFX_SAMPLES) as [SfxName, NonNullable<(typeof SFX_SAMPLES)[SfxName]>][];
 
 describe('recorded effects', () => {
-  it('records every sound the user kept, and leaves the 3-2-1 and the rumble synthesised', () => {
+  it('records every sound the user kept, and leaves the 3-2-1 synthesised', () => {
     expect(entries.map(([name]) => name).sort()).toEqual(
-      ['banner', 'boost', 'clack', 'hammer', 'ignite', 'land', 'launch', 'pam', 'puff', 'ratchet', 'separate', 'slowMo'].sort(),
+      ['banner', 'boost', 'clack', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
     );
-    for (const name of ['beep', 'beepFinal', 'engineRumble'] as const) expect(SFX_SAMPLES[name]).toBeUndefined();
+    for (const name of ['beep', 'beepFinal'] as const) expect(SFX_SAMPLES[name]).toBeUndefined();
     // every recording still has its recipe to fall back on
     for (const [name] of entries) expect(name in SFX_RECIPES || name in SFX_LOOPS).toBe(true);
   });
@@ -37,7 +37,7 @@ describe('recorded effects', () => {
     expect(total).toBeLessThan(1.2 * 1024 * 1024);
   });
 
-  it('keeps the levels in range: flight above the repair hits, the clicks lowest', () => {
+  it('keeps the levels in range: flight above the thud, the clicks lowest', () => {
     for (const [, sample] of entries) {
       expect(sample.gain).toBeGreaterThan(0);
       expect(sample.gain).toBeLessThanOrEqual(1);
@@ -45,7 +45,7 @@ describe('recorded effects', () => {
     }
     const gain = (name: SfxName) => SFX_SAMPLES[name]?.gain ?? 0;
     for (const loud of ['launch', 'boost', 'land', 'separate'] as const) {
-      for (const soft of ['hammer', 'ratchet', 'puff', 'pam'] as const) expect(gain(loud)).toBeGreaterThan(gain(soft));
+      expect(gain(loud)).toBeGreaterThan(gain('pam'));
     }
     for (const click of ['banner', 'clack'] as const) {
       for (const other of entries.filter(([n]) => n !== 'banner' && n !== 'clack')) expect(gain(click)).toBeLessThan(other[1].gain);
@@ -60,10 +60,6 @@ describe('recorded effects', () => {
     // slowMo's recipe has the same level at every intensity: so does the recording
     expect(sampleLoopGain('slowMo', slow!, 0)).toBeCloseTo(slow!.gain);
     expect(sampleLoopGain('slowMo', slow!, 1)).toBeCloseTo(slow!.gain);
-    // a growing loop grows the recording with it, never above its gain
-    const fake = { file: 'x.mp3', gain: 0.5 };
-    expect(sampleLoopGain('engineRumble', fake, 1)).toBeCloseTo(0.5);
-    expect(sampleLoopGain('engineRumble', fake, 0)).toBeLessThan(0.5);
-    expect(sampleLoopGain('engineRumble', fake, Number.NaN)).toBeCloseTo(sampleLoopGain('engineRumble', fake, 0));
+    expect(sampleLoopGain('slowMo', slow!, Number.NaN)).toBeCloseTo(slow!.gain);
   });
 });

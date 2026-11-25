@@ -10,7 +10,7 @@ import { SFX_LOOPS, type SfxName } from './sfxRecipes';
  * its mp3 (same name); to make it louder or softer, change its `gain` here.
  *
  * Levels (not yet checked by ear) relative to the music, which plays at the same volume knob:
- * flight and separation clearly audible but under it, repair hits softer, interface clicks subtle.
+ * flight and separation clearly audible but under it, the stands' thud softer, interface clicks subtle.
  */
 
 export interface SfxSample {
@@ -34,16 +34,13 @@ export const SFX_SAMPLES: Partial<Record<SfxName, SfxSample>> = {
   boost: { file: 'boost.mp3', gain: 0.7 },
   land: { file: 'land.mp3', gain: 0.7 },
   separate: { file: 'separate.mp3', gain: 0.75 },
-  // Repair (they repeat every ~0.6 s: the recipe's `vary` still changes pitch and level a little)
-  hammer: { file: 'hammer.mp3', gain: 0.45 },
-  ratchet: { file: 'ratchet.mp3', gain: 0.55 },
-  puff: { file: 'puff.mp3', gain: 0.4 },
+  // The rocket drops off its stands (the repair crew itself is silent)
   pam: { file: 'pam.mp3', gain: 0.55 },
   // Interface
   banner: { file: 'banner.mp3', gain: 0.3 },
   clack: { file: 'clack.mp3', gain: 0.28 },
   ignite: { file: 'ignite.mp3', gain: 0.4 },
-  // beep, beepFinal (3-2-1) and engineRumble stay synthesised.
+  // beep and beepFinal (3-2-1) stay synthesised.
 };
 
 export function sampleUrl(sample: SfxSample): string {

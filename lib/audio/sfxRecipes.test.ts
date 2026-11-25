@@ -17,6 +17,7 @@ import {
   tooSoon,
   variation,
   voicesToSteal,
+  type LoopRecipe,
   type SfxLayer,
   type SfxName,
 } from './sfxRecipes';
@@ -32,14 +33,10 @@ describe('sound table', () => {
         'beepFinal',
         'boost',
         'clack',
-        'engineRumble',
-        'hammer',
         'ignite',
         'land',
         'launch',
         'pam',
-        'puff',
-        'ratchet',
         'separate',
         'slowMo',
       ].sort(),
@@ -47,8 +44,8 @@ describe('sound table', () => {
     expect(sfxCategory('beep')).toBe('alert');
     expect(sfxCategory('beepFinal')).toBe('alert');
     for (const name of ALL.filter((n) => n !== 'beep' && n !== 'beepFinal')) expect(sfxCategory(name)).toBe('ambient');
-    expect(isLoop('engineRumble')).toBe(true);
-    expect(isLoop('hammer')).toBe(false);
+    expect(isLoop('slowMo')).toBe(true);
+    expect(isLoop('pam')).toBe(false);
   });
 
   it('keeps every level conservative and every sound short', () => {
@@ -76,8 +73,8 @@ describe('sound table', () => {
     expect(recipeDuration(SFX_RECIPES.beepFinal)).toBeGreaterThan(recipeDuration(SFX_RECIPES.beep));
   });
 
-  it('varies the repair sounds, which repeat', () => {
-    for (const name of ['hammer', 'ratchet', 'puff'] as const) expect(SFX_RECIPES[name].vary).toBeDefined();
+  it('has no repair sounds: the crew works in silence (their hits were confused with the 3-2-1)', () => {
+    for (const name of ['hammer', 'ratchet', 'puff', 'engineRumble']) expect(ALL).not.toContain(name);
   });
 });
 
@@ -148,17 +145,24 @@ describe('variation', () => {
 });
 
 describe('loopParams', () => {
-  it('grows the engine rumble with intensity', () => {
-    const quiet = loopParams(SFX_LOOPS.engineRumble, 0);
-    const mid = loopParams(SFX_LOOPS.engineRumble, 0.5);
-    const loud = loopParams(SFX_LOOPS.engineRumble, 1);
-    expect(quiet).toEqual(SFX_LOOPS.engineRumble.low);
-    expect(loud).toEqual(SFX_LOOPS.engineRumble.high);
+  it('grows a loop with intensity, between its low and high', () => {
+    const grows: LoopRecipe = {
+      category: 'ambient',
+      low: { gain: 0.05, oscFreq: 42, cutoff: 160, noiseMix: 0.35, flutterRate: 7, flutterDepth: 0.25 },
+      high: { gain: 0.22, oscFreq: 68, cutoff: 520, noiseMix: 0.55, flutterRate: 16, flutterDepth: 0.35 },
+      fadeIn: 0.3,
+      fadeOut: 0.35,
+    };
+    const quiet = loopParams(grows, 0);
+    const mid = loopParams(grows, 0.5);
+    const loud = loopParams(grows, 1);
+    expect(quiet).toEqual(grows.low);
+    expect(loud).toEqual(grows.high);
     expect(mid.gain).toBeGreaterThan(quiet.gain);
     expect(mid.gain).toBeLessThan(loud.gain);
     expect(mid.cutoff).toBeGreaterThan(quiet.cutoff);
-    expect(loopParams(SFX_LOOPS.engineRumble, 5)).toEqual(loud);
-    expect(loopParams(SFX_LOOPS.engineRumble, -1)).toEqual(quiet);
+    expect(loopParams(grows, 5)).toEqual(loud);
+    expect(loopParams(grows, -1)).toEqual(quiet);
   });
 });
 
@@ -166,13 +170,13 @@ describe('voicesToSteal', () => {
   const v = (id: number, name: SfxName, startedAt: number) => ({ id, name, startedAt });
 
   it('cuts the oldest of the same sound beyond its limit', () => {
-    const active = [v(1, 'hammer', 1), v(2, 'hammer', 2), v(3, 'puff', 0)];
-    expect(voicesToSteal(active, 'hammer', 2, 8)).toEqual([1]);
-    expect(voicesToSteal(active, 'puff', 2, 8)).toEqual([]);
+    const active = [v(1, 'clack', 1), v(2, 'clack', 2), v(3, 'pam', 0)];
+    expect(voicesToSteal(active, 'clack', 2, 8)).toEqual([1]);
+    expect(voicesToSteal(active, 'pam', 2, 8)).toEqual([]);
   });
 
   it('cuts the oldest overall beyond the total', () => {
-    const active = [v(1, 'clack', 3), v(2, 'pam', 1), v(3, 'puff', 2)];
+    const active = [v(1, 'clack', 3), v(2, 'pam', 1), v(3, 'banner', 2)];
     expect(voicesToSteal(active, 'beep', 2, 3)).toEqual([2]);
     expect(voicesToSteal(active, 'beep', 2, 4)).toEqual([]);
   });
@@ -190,7 +194,7 @@ describe('without Web Audio (server)', () => {
   it('does nothing and never throws', () => {
     expect(() => playSfx('beep')).not.toThrow();
     expect(() => playSfx('ignite', { gesture: true })).not.toThrow();
-    const stop = startSfxLoop('engineRumble', { intensity: 0.3 });
+    const stop = startSfxLoop('slowMo', { intensity: 0.3 });
     expect(() => stop.setIntensity(1)).not.toThrow();
     expect(() => stop()).not.toThrow();
     const slow = startSfxLoop('slowMo');

@@ -506,7 +506,7 @@ function startSynthLoop(ctx: AudioContext, b: Bus, recipe: LoopRecipe, intensity
 }
 
 /**
- * Start a looping effect (`engineRumble`, `slowMo`). Returns its stop function, which can be
+ * Start a looping effect (`slowMo`). Returns its stop function, which can be
  * returned straight from a `useEffect`; `stop.setIntensity(0..1)` changes it live.
  */
 export function startSfxLoop(name: SfxLoopName, opts: { intensity?: number } = {}): SfxLoopStop {

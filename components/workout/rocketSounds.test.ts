@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FLIGHT, POD, PRELAUNCH, RETURN_BRAKE_AT, arrival, nextFlight, PARKED } from './rocketFlight';
-import { flightSounds, rumbleIntensity } from './rocketSounds';
+import { flightSounds } from './rocketSounds';
 
 const names = (s: ReturnType<typeof flightSounds>) => s.hits.map((h) => h.sfx);
 
@@ -46,15 +46,5 @@ describe('flightSounds', () => {
     const fade = { leftAt: 0, how: 'fade' as const, returnAt: 3000 };
     expect(flightSounds(fade, 'open').launchAt).toBeNull();
     expect(names(flightSounds(fade, 'open'))).toEqual(['land', 'banner']);
-  });
-});
-
-describe('rumbleIntensity', () => {
-  it('grows from 0 at the warning to almost full at the last second', () => {
-    expect(rumbleIntensity(FLIGHT.warningS)).toBe(0);
-    expect(rumbleIntensity(5)).toBeCloseTo(0.5);
-    expect(rumbleIntensity(1)).toBeCloseTo(0.9);
-    expect(rumbleIntensity(20)).toBe(0);
-    expect(rumbleIntensity(Number.NaN)).toBe(0);
   });
 });

@@ -3,8 +3,6 @@
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { ShipGeometry } from '@/components/workout/rocketShape';
 import { STANDS, repairPlan, type RepairPlan } from '@/components/workout/rocketFlight';
-import { playSfx, type SfxOneShot } from '@/lib/audio/sfx';
-import { sfxCue } from '@/lib/audio/sfxCue';
 
 /*
  * The repair of a rest (phone): two little line-drawn mechanics (white, ink line, a cap in the
@@ -407,17 +405,7 @@ export function RepairCrew({
     });
     const lift = liftRef.current;
     if (lift) add(lift, keys(c.lift, c.D));
-    // the sounds of their work, at each blow, turn and puff of the plan (paused and cancelled with the rest)
-    const sound = (times: number[], sfx: SfxOneShot) =>
-      times.forEach((t) => {
-        const cue = sfxCue(startAt + t, () => playSfx(sfx));
-        if (!cue) return;
-        if (paused) cue.pause();
-        anims.current.push(cue);
-      });
-    sound(plan.hits, 'hammer');
-    sound(plan.turns, 'ratchet');
-    sound(plan.puffs, 'puff');
+    // (they work in silence: their hammer was taken for the 3-2-1 beeps, and the music is enough)
     const list = anims.current;
     return () => {
       // (gone: its animations go too; React's dev double mount runs this effect again)
@@ -453,7 +441,6 @@ export function RepairCrew({
     // (the rocket's lift is left to the "¡pam!", which takes it from where it is)
     anims.current.forEach((a) => {
       const target = (a.effect as KeyframeEffect | null)?.target;
-      // (a sound cue has no target: they stop working, so it goes)
       if (!target) a.cancel();
       else if (target !== liftRef.current && target !== el && !target.matches('[data-part$="-x"]')) a.cancel();
     });

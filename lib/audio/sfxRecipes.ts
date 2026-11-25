@@ -4,8 +4,8 @@
  *
  * Most sounds are real recordings now (`sfxSamples.ts`, files in public/sfx/): for those, the
  * recipe's layers and `gain` are the fallback while a file is missing or can't be decoded, and its
- * category, `vary`, `maxVoices` and `minGap` still apply to the recording. `beep`, `beepFinal`
- * and `engineRumble` are only synthesised. They never duck the music.
+ * category, `vary`, `maxVoices` and `minGap` still apply to the recording. `beep` and `beepFinal`
+ * are only synthesised. They never duck the music.
  *
  * To adjust a synthesised sound, change its `gain` (the whole sound) or a layer's `gain` (one
  * part of it) here; a recording's level is its `gain` in `sfxSamples.ts`.
@@ -24,14 +24,11 @@ export type SfxOneShot =
   | 'boost'
   | 'land'
   | 'banner'
-  | 'hammer'
-  | 'ratchet'
-  | 'puff'
   | 'pam'
   | 'clack'
   | 'ignite';
 
-export type SfxLoopName = 'engineRumble' | 'slowMo';
+export type SfxLoopName = 'slowMo';
 
 export type SfxName = SfxOneShot | SfxLoopName;
 
@@ -196,47 +193,7 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
     ],
   },
 
-  // Repair: these repeat every ~0.6 s, hence the variation.
-  hammer: {
-    category: 'ambient',
-    gain: 0.3,
-    maxVoices: 2,
-    minGap: 0.08,
-    vary: { pitch: 1.5, gain: 0.2 },
-    layers: [
-      { kind: 'noise', filter: 'bandpass', freq: 2500, q: 1.5, gain: 0.8, env: { attack: 0.001, decay: 0.04 } },
-      { kind: 'tone', wave: 'sine', freq: 180, freqEnd: 120, gain: 0.8, env: { attack: 0.002, decay: 0.09 } },
-      { kind: 'tone', wave: 'sine', freq: 1900, gain: 0.15, env: { attack: 0.001, decay: 0.12 } },
-    ],
-  },
-  ratchet: {
-    category: 'ambient',
-    gain: 0.24,
-    maxVoices: 2,
-    minGap: 0.08,
-    vary: { pitch: 1, gain: 0.2 },
-    layers: [
-      {
-        kind: 'noise',
-        filter: 'bandpass',
-        freq: 3200,
-        q: 3,
-        gain: 0.9,
-        env: { attack: 0.001, decay: 0.012 },
-        repeat: { count: 5, every: 0.035, fade: 0.85 },
-      },
-    ],
-  },
-  puff: {
-    category: 'ambient',
-    gain: 0.22,
-    maxVoices: 2,
-    minGap: 0.08,
-    vary: { pitch: 2, gain: 0.25 },
-    layers: [
-      { kind: 'noise', filter: 'lowpass', freq: 900, freqEnd: 300, gain: 1, env: { attack: 0.02, decay: 0.3 } },
-    ],
-  },
+  // The rocket drops off its stands at the end of a rest.
   pam: {
     category: 'ambient',
     gain: 0.34,
@@ -282,14 +239,6 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
 };
 
 export const SFX_LOOPS: Record<SfxLoopName, LoopRecipe> = {
-  // Grows with `intensity` from 10 s before lift-off (0) to the launch (1).
-  engineRumble: {
-    category: 'ambient',
-    low: { gain: 0.05, oscFreq: 42, cutoff: 160, noiseMix: 0.35, flutterRate: 7, flutterDepth: 0.25 },
-    high: { gain: 0.22, oscFreq: 68, cutoff: 520, noiseMix: 0.55, flutterRate: 16, flutterDepth: 0.35 },
-    fadeIn: 0.3,
-    fadeOut: 0.35,
-  },
   // Distant, slowed-down engine while climbing through the clouds.
   slowMo: {
     category: 'ambient',

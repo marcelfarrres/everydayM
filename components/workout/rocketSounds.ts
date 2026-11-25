@@ -16,7 +16,7 @@ export interface FlightSounds {
   hits: FlightSound[];
   /** the slow rise in the clouds: when the `slowMo` loop starts and stops (null: none) */
   slowMo: [number, number] | null;
-  /** when the rocket shoots off (the engine's rumble stops there); null: it doesn't */
+  /** when the rocket shoots off; null: it doesn't */
   launchAt: number | null;
 }
 
@@ -49,10 +49,4 @@ export function flightSounds(f: Flight, start: LaunchStart): FlightSounds {
   }
 
   return { hits, slowMo, launchAt };
-}
-
-/** The engine's rumble before a takeoff, 0..1: from the warning's start (FLIGHT.warningS left) to the launch. */
-export function rumbleIntensity(timeLeft: number): number {
-  if (!Number.isFinite(timeLeft)) return 0;
-  return Math.min(1, Math.max(0, 1 - timeLeft / FLIGHT.warningS));
 }
