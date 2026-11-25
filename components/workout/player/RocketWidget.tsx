@@ -53,7 +53,7 @@ import {
   type Flight,
 } from '@/components/workout/rocketFlight';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
-import { flightSounds, rumbleIntensity, type FlightSounds } from '@/components/workout/rocketSounds';
+import { flightSounds, type FlightSounds } from '@/components/workout/rocketSounds';
 import { playSfx, startSfxLoop, type SfxLoopStop } from '@/lib/audio/sfx';
 import { sfxCue } from '@/lib/audio/sfxCue';
 import type { RoutineItem } from '@/types/workout';
@@ -194,8 +194,6 @@ export function RocketWidget({
   const puffsEl = useRef<HTMLDivElement>(null);
   const podEl = useRef<HTMLDivElement>(null);
   const sparkleEl = useRef<HTMLDivElement>(null);
-  // the engine's rumble before a takeoff (its loop is handed to the flight, which stops it at the launch)
-  const rumbleRef = useRef<SfxLoopStop | null>(null);
   const [sounds] = useState(() => new FlightSoundPlayer());
   const flight = useRocketFlight({
     els: { flightEl, liftEl, squashEl, flameEl, puffsEl, podEl, sparkleEl },
@@ -206,7 +204,6 @@ export function RocketWidget({
     currentIndex,
     reduced,
     sounds,
-    rumbleRef,
   });
   useEffect(() => sounds.setPaused(isPaused), [sounds, isPaused]);
   useEffect(() => {
@@ -243,22 +240,7 @@ export function RocketWidget({
   const warned = launching && timeLeft <= FLIGHT.warningS && ignition === 0;
   const engine = launching ? engineShake(timeLeft) : { amp: 0, period: SHAKE.period[0] };
   const shaking = engine.amp > 0 && !isPaused;
-  // ...and its sound, from the same 10 s, louder each second, silent while paused
-  const rumbling = launching && timeLeft <= FLIGHT.warningS && !isPaused;
-  useEffect(() => {
-    if (!rumbling) return;
-    const loop = startSfxLoop('engineRumble');
-    rumbleRef.current = loop;
-    return () => {
-      // (unless the flight has taken it over to stop it as the rocket shoots off)
-      if (rumbleRef.current !== loop) return;
-      rumbleRef.current = null;
-      loop();
-    };
-  }, [rumbling]);
-  useEffect(() => {
-    if (rumbling) rumbleRef.current?.setIntensity(rumbleIntensity(timeLeft));
-  }, [rumbling, timeLeft]);
+  // (no engine sound in those 10 s: too much, 25-11-2026; the flame and the tremble stay)
   const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && !clockTab && live;
@@ -551,7 +533,6 @@ function useRocketFlight({
   currentIndex,
   reduced,
   sounds,
-  rumbleRef,
 }: {
   els: FlightEls;
   /** its place in the clouds, measured now */
@@ -563,8 +544,6 @@ function useRocketFlight({
   reduced: boolean;
   /** the flight's sounds, put on the timeline with it */
   sounds: FlightSoundPlayer;
-  /** the engine's rumble, if it is on: the flight stops it as the rocket shoots off */
-  rumbleRef: RefObject<SfxLoopStop | null>;
 }): RefObject<Flight> {
   const flight = useRef<Flight>(PARKED);
   const seen = useRef<{ cloudKey: number; ending: boolean; queue: RoutineItem[]; item: RoutineItem | undefined } | null>(null);
@@ -656,16 +635,10 @@ function useRocketFlight({
     const start: LaunchStart = crouched ? 'crouched' : Number(getComputedStyle(el.pod).opacity) < 0.5 ? 'folded' : 'open';
     playFlight(next, now, reduced, start, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
     // its sounds, on the same timeline (with reduced motion nothing flies: no sound)
-    const engine = rumbleRef.current;
-    rumbleRef.current = null;
-    if (reduced) {
-      engine?.();
-      sounds.clear();
-    } else {
-      sounds.play(flightSounds(next, start), engine);
-    }
-    // (`sounds` and `rumbleRef` never change)
-  }, [cloudKey, ending, queue, currentIndex, reduced, sounds, rumbleRef]);
+    if (reduced) sounds.clear();
+    else sounds.play(flightSounds(next, start));
+    // (`sounds` never changes)
+  }, [cloudKey, ending, queue, currentIndex, reduced, sounds]);
 
   return flight;
 }
@@ -714,16 +687,11 @@ class FlightSoundPlayer {
   private live = false;
   private cues: Animation[] = [];
   private slow: SfxLoopStop | null = null;
-  private engine: SfxLoopStop | null = null;
 
-  /** A new flight. `engine`: the rumble before it, stopped as the rocket shoots off. */
-  play(plan: FlightSounds, engine: SfxLoopStop | null) {
+  /** A new flight. */
+  play(plan: FlightSounds) {
     this.clear();
     this.plan = plan;
-    if (engine) {
-      if (plan.launchAt !== null && plan.launchAt > performance.now() && this.cue(plan.launchAt, () => this.stopEngine())) this.engine = engine;
-      else engine();
-    }
     this.schedule();
   }
 
@@ -744,7 +712,6 @@ class FlightSoundPlayer {
     this.live = false;
     this.slow?.();
     this.slow = null;
-    this.stopEngine();
   }
 
   private schedule() {
@@ -767,11 +734,6 @@ class FlightSoundPlayer {
     const c = sfxCue(at, fn);
     if (c) this.cues.push(c);
     return c !== null;
-  }
-
-  private stopEngine() {
-    this.engine?.();
-    this.engine = null;
   }
 
   /** The slow-motion loop is on exactly while the slow rise lasts (and the routine isn't paused). */
