@@ -202,10 +202,13 @@ describe('talks in long rests', () => {
     expect(stretched).toBeGreaterThan(0); // the talks really set the length somewhere
   });
 
-  it('gives the rest after a block its longer clouds (3.5 s), before the talks and in the countdown', () => {
-    expect(BLOCK_END_EXTRA_MS).toBe(3500);
+  it('gives the rest after a block its longer clouds (4.5 s), before the talks and in the countdown', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(4500);
     expect(BLOCK_END_LEAD_MS).toBe(TALK_LEAD_MS + BLOCK_END_EXTRA_MS);
-    expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 4);
+    expect(BLOCK_END_LEAD_MS).toBe(7870);
+    expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 5);
+    // what is left of a minute's rest for talks once the clouds have opened
+    expect(BETWEEN_BLOCKS_TALK_SECONDS).toBe(52);
     expect(getTalkRestSeconds(25, BLOCK_END_LEAD_MS)).toBe(Math.ceil(25 + BLOCK_END_LEAD_MS / 1000));
     // after the warm-up: the longer clouds too, no minimum
     expect(getLongRestSeconds(15, 0, false)).toBe(getBlockEndRestBase(15));

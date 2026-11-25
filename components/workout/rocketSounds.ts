@@ -1,5 +1,5 @@
 import type { SfxOneShot } from '@/lib/audio/sfxRecipes';
-import { DOCK, FLIGHT, RETURN_BRAKE_AT, launchLeadMs, type Flight, type LaunchStart } from './rocketFlight';
+import { DOCK, FLIGHT, RETURN_BRAKE_AT, SEPARATION, launchLeadMs, separates, type Flight, type LaunchStart } from './rocketFlight';
 
 /*
  * The sounds of a flight of the widget rocket, at the same moments as its animations (see
@@ -36,8 +36,17 @@ export function flightSounds(f: Flight, start: LaunchStart): FlightSounds {
     }
     if (f.how === 'clouds') {
       const lift = t0 + FLIGHT.cloudLiftMs + (f.extra ?? 0);
-      // from coming up from below (braking into slow motion) until it speeds off out of the top
-      slowMo = [f.placed ? t0 : t0 + FLIGHT.appearMs, lift];
+      if (separates(f.extra) && !f.placed) {
+        // the separation (SEPARATION): the slow motion stops (with its fade) as the engine goes out;
+        // the part gives at the hammer's blow; the engine coughs twice and catches
+        const S = SEPARATION;
+        slowMo = [t0 + FLIGHT.appearMs, t0 + S.engineOffMs];
+        hits.push({ at: t0 + S.releaseMs, sfx: 'separate' });
+        for (const at of [...S.sputtersMs, S.catchMs]) hits.push({ at: t0 + at, sfx: 'ignite' });
+      } else {
+        // from coming up from below (braking into slow motion) until it speeds off out of the top
+        slowMo = [f.placed ? t0 : t0 + FLIGHT.appearMs, lift];
+      }
       hits.push({ at: lift, sfx: 'boost' });
     }
   }

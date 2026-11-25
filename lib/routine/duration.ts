@@ -40,9 +40,11 @@ export const TALK_LEAD_MS = 3370;
  * The rest after a block (its segment comes off the rocket, 25-11-2026): its clouds last this much
  * longer (three sentences: the block done, the % done, the segment coming off), so they open
  * BLOCK_END_LEAD_MS into the rest, and the rest is this much longer (in whole seconds) so the
- * countdown keeps its time once they have opened.
+ * countdown keeps its time once they have opened. (4.5 s since 25-11-2026, a second more than
+ * before: the segment is now taken off by the mechanics and falls slowly, and the engine relights
+ * before the rocket goes, one thing at a time: SEPARATION in rocketFlight.ts.)
  */
-export const BLOCK_END_EXTRA_MS = 3500;
+export const BLOCK_END_EXTRA_MS = 4500;
 export const BLOCK_END_LEAD_MS = TALK_LEAD_MS + BLOCK_END_EXTRA_MS;
 
 /** A plain rest after a block, without talks to fit: a long rest and the clouds' extra time. */

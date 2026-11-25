@@ -147,22 +147,69 @@ export const cloudsFor = (extra: number) => ({
  * and stays more than a second, one in the place of the other; the % badge travels in with the
  * second (`travelMs`: down the left edge, then across into its hole), stands in its hole, and
  * leaves it `badgeLeadMs` before the third (back out of the column in `badgeOutMs`, then up the
- * left edge in `badgeUpMs`); the segment comes off with the third (`dropMs`). All of it is read
- * from one clock (cloudClock.ts) through sentenceAt, badgeAt and wordsAt below.
+ * left edge in `badgeUpMs`); with the third the mechanics take the segment off (SEPARATION). All
+ * of it is read from one clock (cloudClock.ts) through sentenceAt, badgeAt and wordsAt below.
  */
 export const BLOCK_END = {
   firstMs: 1200,
-  secondMs: 2300,
+  secondMs: 2200,
   travelMs: 600,
   badgeLeadMs: 400,
   badgeOutMs: 250,
   badgeUpMs: 300,
-  thirdMs: 4300,
-  dropMs: 4300,
-  afterMs: 5500,
+  thirdMs: 4200,
+  afterMs: 6500,
   /** each sentence's fade in */
   swapMs: 280,
 } as const;
+
+/**
+ * The separation after a block (and after the warm-up), on the same clock, one thing at a time
+ * (ms from the rest's start; 25-11-2026, the clouds a second longer for it):
+ *   1  the rocket rises slowly into a near-hover and its engine goes out (the slow-motion roar
+ *      with it), while the first two sentences are read;
+ *   2  with the third, the two mechanics of the rests come in from the left (the words are on the
+ *      right), one undoes the latch with two turns of the wrench, the other knocks the part loose
+ *      with the hammer: the release;
+ *   3  they step back and run off while the part comes loose, and then it falls away slowly,
+ *      tumbling a little, out of the bottom, alone;
+ *   4  the engine tries: two sputters that die (a puff each), then it catches and grows;
+ *   5  only then the rocket speeds off out of the top, as ever.
+ * Pure numbers: the rocket's keyframes (cloudKeyframes, cloudFlameKeyframes), its sounds
+ * (rocketSounds.ts) and the scene's painter (separation.ts) all read them.
+ */
+const SEP_CREW_IN = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs + BLOCK_END.badgeOutMs + BLOCK_END.badgeUpMs;
+export const SEPARATION = {
+  /** the flame dies over this span (and the slow-motion loop stops, with its own fade, at the start) */
+  engineOffMs: 3000,
+  engineOutMs: 3500,
+  /** by now the slow rise has braked into a near-hover (it only creeps up from here) */
+  hoverMs: 3700,
+  /** the mechanics come in once the % badge is home in its corner (the left edge is theirs) */
+  crewInMs: SEP_CREW_IN,
+  crewWalkMs: 500,
+  crewLagMs: 120,
+  /** the one with the wrench undoes the latch: two turns */
+  turnsMs: [5080, 5300],
+  /** the one with the hammer winds up and knocks it loose: the blow is the release */
+  windupMs: 150,
+  releaseMs: 5600,
+  /** they step back, turn round and run off the way they came, gone by... */
+  crewOutMs: 5650,
+  crewGoneMs: 6100,
+  /** ...while the part comes loose (a few px, a tilt); then it falls away, out of the bottom */
+  creepMs: 500,
+  fallMs: 1400,
+  /** the engine tries: two sputters that die, then it catches and grows */
+  sputtersMs: [7040, 7260],
+  sputterMs: 200,
+  catchMs: 7480,
+  /** and the usual lift out of the top, a second later than it used to be */
+  liftMs: CLOUD_TIMING.liftMs + BLOCK_END_EXTRA_MS,
+} as const;
+
+/** Clouds that last this much longer have the separation (the long rests: BLOCK_END_EXTRA_MS). */
+export const separates = (extra = 0) => extra >= BLOCK_END_EXTRA_MS;
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const easeOut = (p: number) => 1 - (1 - clamp01(p)) ** 3;
@@ -962,7 +1009,12 @@ export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: 
   const drift = cloudDriftPx(extra);
   const there = (y = 0, sx = 1, sy = 1) => pose({ x: `${num(dx)}px`, y: `${num(dy + y)}px`, rz: -90, sx: k * sx, sy: k * sy });
   const up = (px: number) => pose({ x: `${num(dx)}px`, y: `${num(dy)}px - 100vh - ${px}px`, rz: -90, sx: k * 1.08, sy: k * 0.93 });
+  // (the separation: it brakes into a near-hover, where the part is taken off, and only creeps up)
+  const hover: FlightKeyframe[] = separates(extra)
+    ? [{ offset: at(SEPARATION.hoverMs), transform: there(-drift * 0.85), opacity: 1, easing: 'linear' }]
+    : [];
   const away: FlightKeyframe[] = [
+    ...hover,
     // the slow rise (it never stops), then faster and faster out of the top
     { offset: at(lift), transform: there(-drift), opacity: 1, easing: 'cubic-bezier(0.45, 0, 0.9, 0.5)' },
     { offset: at(lift + FLIGHT.cloudExitMs * CLOUD_OFFSCREEN_AT), transform: up(400), opacity: 1, easing: 'linear' },
@@ -981,8 +1033,28 @@ export function cloudKeyframes({ dx, dy, k }: CloudSpot, placed = false, start: 
     { offset: at(FLIGHT.appearMs - 20), transform: below, opacity: 0, easing: 'linear' },
     // up from below, fast, braking into the slow rise (still moving as it gets there)
     { offset: at(FLIGHT.appearMs), transform: below, opacity: 1, easing: 'cubic-bezier(0.12, 0.7, 0.4, 0.97)' },
-    { offset: at(FLIGHT.slowMs), transform: there(drift), opacity: 1, easing: 'linear' },
+    { offset: at(FLIGHT.slowMs), transform: there(drift), opacity: 1, easing: separates(extra) ? 'cubic-bezier(0.3, 0.45, 0.4, 1)' : 'linear' },
     ...away,
+  ];
+}
+
+/** The flame of the separation: out, two sputters that die, then it catches and grows towards the lift. */
+function separationFlameKeys(at: (ms: number) => number) {
+  const S = SEPARATION;
+  const off = (ms: number) => ({ offset: at(ms), opacity: 0, transform: 'scale(0.05, 0.4)' });
+  return [
+    { offset: at(S.engineOffMs), opacity: 1, transform: 'scale(0.45, 0.8)' },
+    off(S.engineOutMs),
+    ...S.sputtersMs.flatMap((s) => [
+      off(s),
+      { offset: at(s + 60), opacity: 1, transform: 'scale(0.3, 0.74)' },
+      { offset: at(s + 110), opacity: 0.6, transform: 'scale(0.16, 0.58)' },
+      { offset: at(s + 150), opacity: 0.9, transform: 'scale(0.22, 0.66)' },
+      off(s + S.sputterMs),
+    ]),
+    off(S.catchMs),
+    { offset: at(S.catchMs + 70), opacity: 1, transform: 'scale(0.4, 0.82)' },
+    { offset: at(S.catchMs + 150), opacity: 1, transform: 'scale(0.34, 0.8)' },
   ];
 }
 
@@ -1005,6 +1077,8 @@ export function cloudFlameKeyframes(placed = false, start: LaunchStart = 'open',
     { offset: at(FLIGHT.appearMs - 20), opacity: 0, transform: 'scale(1.2, 1.05)' },
     { offset: at(FLIGHT.appearMs), opacity: 1, transform: 'scale(1.2, 1.05)' },
     { offset: at(FLIGHT.slowMs), opacity: 1, transform: 'scale(0.55, 0.85)' },
+    // (the separation: the engine goes out by the hover, and lights again before the lift)
+    ...(separates(extra) ? separationFlameKeys(at) : []),
     ...tail,
   ];
 }

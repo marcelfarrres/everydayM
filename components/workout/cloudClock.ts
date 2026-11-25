@@ -26,12 +26,15 @@ export interface CloudMoment {
   t: number | null;
 }
 
+/** Paints one frame: 	 as in CloudMoment, and the rest whose clouds it is (key). */
+export type CloudPainter = (t: number | null, key: number | null) => void;
+
 const IDLE: CloudMoment = { key: null, t: null };
 let clock: Animation | null = null;
 let runKey: number | null = null;
 let moment: CloudMoment = IDLE;
 let frame = 0;
-const painters = new Set<(t: number | null) => void>();
+const painters = new Set<CloudPainter>();
 const listeners = new Set<() => void>();
 
 function read(): number | null {
@@ -45,7 +48,7 @@ function tick() {
   frame = 0;
   const t = read();
   if (t !== moment.t || runKey !== moment.key) moment = { key: runKey, t };
-  painters.forEach((paint) => paint(moment.t));
+  painters.forEach((paint) => paint(moment.t, moment.key));
   listeners.forEach((listener) => listener());
   if (t !== null) frame = requestAnimationFrame(tick);
 }
@@ -60,6 +63,10 @@ if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
 export function startCloudClock(host: HTMLElement, key: number, durationMs: number) {
   clock?.cancel();
   clock = host.animate([{ opacity: 0 }, { opacity: 0 }], { id: CLOUD_CLOCK_ID, duration: durationMs });
+  // Anchored to now, as the rocket's flight is (RocketWidget sets the same start on its animations):
+  // left pending, it would start only at the next frame, which a background page may not get for
+  // a second or more, and the rocket and the separation would no longer agree (25-11-2026).
+  clock.startTime = performance.now();
   runKey = key;
   tick();
 }
@@ -88,10 +95,10 @@ export function useCloudMoment<T extends string | number | boolean | null>(selec
 }
 
 /** Paint on every frame of the clock (and once now). `paint` should be stable (useCallback). */
-export function useCloudPainter(paint: (t: number | null) => void) {
+export function useCloudPainter(paint: CloudPainter) {
   useLayoutEffect(() => {
     painters.add(paint);
-    paint(moment.t);
+    paint(moment.t, moment.key);
     return () => {
       painters.delete(paint);
     };

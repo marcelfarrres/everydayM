@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FLIGHT, POD, PRELAUNCH, RETURN_BRAKE_AT, arrival, nextFlight, PARKED } from './rocketFlight';
+import { BLOCK_END_EXTRA_MS } from '@/lib/routine/duration';
+import { FLIGHT, POD, PRELAUNCH, RETURN_BRAKE_AT, SEPARATION, arrival, nextFlight, PARKED } from './rocketFlight';
 import { flightSounds } from './rocketSounds';
 
 const names = (s: ReturnType<typeof flightSounds>) => s.hits.map((h) => h.sfx);
@@ -25,6 +26,18 @@ describe('flightSounds', () => {
   it('longer clouds move the boost and the end of the slow motion', () => {
     const s = flightSounds(nextFlight(PARKED, 'clouds', 0, 3000), 'crouched');
     expect(s.slowMo?.[1]).toBe(FLIGHT.cloudLiftMs + 3000);
+  });
+
+  it('the separation after a block: the slow motion stops as the engine goes out, then the part, the coughs, the catch', () => {
+    const f = nextFlight(PARKED, 'clouds', 0, BLOCK_END_EXTRA_MS);
+    const s = flightSounds(f, 'crouched');
+    expect(s.slowMo).toEqual([FLIGHT.appearMs, SEPARATION.engineOffMs]);
+    expect(names(s)).toEqual(['launch', 'separate', 'ignite', 'ignite', 'ignite', 'boost', 'land', 'banner']);
+    const at = s.hits.map((h) => h.at);
+    expect(at).toEqual([...at].sort((x, y) => x - y));
+    expect(s.hits.find((h) => h.sfx === 'separate')?.at).toBe(SEPARATION.releaseMs);
+    expect(s.hits.filter((h) => h.sfx === 'ignite').map((h) => h.at)).toEqual([...SEPARATION.sputtersMs, SEPARATION.catchMs]);
+    expect(s.hits.find((h) => h.sfx === 'boost')?.at).toBe(SEPARATION.liftMs);
   });
 
   it('waiting in its place as the clouds play again: no launch, slow motion from now', () => {

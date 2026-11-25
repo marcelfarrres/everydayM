@@ -3,6 +3,8 @@ import { exercise } from '@/lib/routine/fixtures.test-helpers';
 import { BLOCK_END_EXTRA_MS, BLOCK_END_LEAD_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
 import {
   BLOCK_END,
+  SEPARATION,
+  separates,
   badgeAt,
   blockEnds,
   cloudDriftPx,
@@ -702,10 +704,9 @@ describe('the clouds after a block', () => {
     const moments = [BLOCK_END.firstMs, BLOCK_END.secondMs, BLOCK_END.thirdMs, BLOCK_END.afterMs, lift];
     for (let i = 1; i < moments.length; i++) expect(moments[i] - moments[i - 1]).toBeGreaterThanOrEqual(1000);
     expect(BLOCK_END.firstMs).toBeGreaterThanOrEqual(WORDS.phoneDelayMs + WORDS.fadeMs);
-    expect(BLOCK_END.dropMs).toBe(BLOCK_END.thirdMs);
-    // the rocket is rising slowly by then, and the part has fallen before it leaves
-    expect(BLOCK_END.dropMs).toBeGreaterThan(FLIGHT.slowMs);
-    expect(BLOCK_END.dropMs + FLIGHT.dropFallMs).toBeLessThan(lift);
+    // the mechanics come with the third, and the part has fallen before the rocket leaves
+    expect(SEPARATION.crewInMs).toBeGreaterThanOrEqual(BLOCK_END.thirdMs);
+    expect(SEPARATION.releaseMs + SEPARATION.fallMs).toBeLessThan(lift);
     // the % badge stands in its sentence for a second
     const arrives = BLOCK_END.secondMs + BLOCK_END.travelMs;
     const leaves = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs;
@@ -749,6 +750,80 @@ describe('the clouds after a block', () => {
     expect(sentenceFade(0, 1)).toBe(1);
     expect(luegoFade(BLOCK_END.afterMs - 1)).toBe(0);
     expect(luegoFade(BLOCK_END.afterMs + BLOCK_END.swapMs)).toBe(1);
+  });
+
+  it('a second longer than before, for the separation', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(3500 + 1000);
+    expect(SEPARATION.liftMs).toBe(FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS);
+    expect(cloudsOpenAt(BLOCK_END_EXTRA_MS)).toBe(TALK_LEAD_MS + 3500 + 1000);
+    expect(separates(BLOCK_END_EXTRA_MS)).toBe(true);
+    expect(separates(0)).toBe(false);
+  });
+
+  it('the separation: one thing at a time, in order, each in its own window', () => {
+    const S = SEPARATION;
+    const badgeHome = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs + BLOCK_END.badgeOutMs + BLOCK_END.badgeUpMs;
+    // the beats, each one's window [from, to): none starts before the last has ended
+    const beats: [string, number, number][] = [
+      ['engine out', S.engineOffMs, S.engineOutMs],
+      ['hover', FLIGHT.slowMs, S.hoverMs],
+      ['crew in', S.crewInMs, S.crewInMs + S.crewLagMs + S.crewWalkMs],
+      ['unlatch', S.turnsMs[0] - 90, S.turnsMs[1] + 140],
+      ['blow', S.releaseMs - S.windupMs, S.releaseMs],
+      ['crew out, the part comes loose', S.releaseMs, Math.max(S.crewGoneMs, S.releaseMs + S.creepMs)],
+      ['the part falls alone', S.releaseMs + S.creepMs, S.releaseMs + S.fallMs],
+      ['sputter 1', S.sputtersMs[0], S.sputtersMs[0] + S.sputterMs],
+      ['sputter 2', S.sputtersMs[1], S.sputtersMs[1] + S.sputterMs],
+      ['catch', S.catchMs, S.liftMs],
+      ['lift', S.liftMs, cloudsOpenAt(BLOCK_END_EXTRA_MS)],
+    ];
+    // (the rise and the engine going out are one beat: they share their time on purpose)
+    for (let i = 2; i < beats.length; i++) {
+      expect(beats[i][1], `${beats[i][0]} after ${beats[i - 1][0]}`).toBeGreaterThanOrEqual(beats[i - 1][2]);
+      expect(beats[i][2]).toBeGreaterThan(beats[i][1]);
+    }
+    // the engine is out and the rocket hovers before the mechanics come; they come once the badge is home
+    expect(S.hoverMs).toBeLessThanOrEqual(S.crewInMs);
+    expect(S.crewInMs).toBe(badgeHome);
+    expect(S.crewGoneMs).toBeLessThanOrEqual(S.releaseMs + S.creepMs);
+    // slower than it used to fall (1.3 s for 800 px): longer, and over a shorter way (out of the bottom)
+    expect(S.fallMs).toBeGreaterThan(FLIGHT.dropFallMs);
+  });
+
+  it('its flame: out by the hover, two sputters that die, then it catches before the lift', () => {
+    const flame = cloudFlameKeyframes(false, 'crouched', BLOCK_END_EXTRA_MS);
+    const total = CLOUD_LEAVE_MS + BLOCK_END_EXTRA_MS;
+    const at = (ms: number) => {
+      const o = ms / total;
+      let k = flame[0];
+      // (offsets are rounded to 1e-4 of the way)
+      for (const f of flame) if (f.offset <= o + 1e-4) k = f;
+      return k;
+    };
+    const offsets = flame.map((k) => k.offset);
+    expect(offsets).toEqual([...offsets].sort((x, y) => x - y));
+    expect(at(SEPARATION.engineOutMs).opacity).toBe(0);
+    expect(at(SEPARATION.releaseMs).opacity).toBe(0);
+    for (const s of SEPARATION.sputtersMs) {
+      expect(at(s + 60).opacity).toBe(1);
+      expect(at(s + SEPARATION.sputterMs).opacity).toBe(0);
+    }
+    expect(at(SEPARATION.catchMs + 70).opacity).toBe(1);
+    expect(at(SEPARATION.liftMs).transform).toBe('scale(0.7, 0.9)');
+    // the usual clouds keep theirs: it burns low all the way to the lift
+    expect(cloudFlameKeyframes(false, 'crouched').some((k) => k.opacity === 0 && k.offset > FLIGHT.slowMs / CLOUD_LEAVE_MS)).toBe(false);
+  });
+
+  it('it brakes into a near-hover for the separation (the usual clouds keep their slow rise)', () => {
+    const spot = { dx: -60, dy: -420, k: 1.35 };
+    const keys = cloudKeyframes(spot, false, 'crouched', BLOCK_END_EXTRA_MS);
+    const total = CLOUD_LEAVE_MS + BLOCK_END_EXTRA_MS;
+    const hover = keys.find((k) => Math.abs(k.offset - SEPARATION.hoverMs / total) < 0.0002);
+    const drift = cloudDriftPx(BLOCK_END_EXTRA_MS);
+    expect(hover?.transform).toContain(`calc((${Math.round((spot.dy - drift * 0.85) * 1000) / 1000}px) / 1)`);
+    // from the hover to the lift it only creeps (a few px in four seconds)
+    expect(drift * 0.15).toBeLessThan(20);
+    expect(cloudKeyframes(spot, false, 'crouched').some((k) => Math.abs(k.offset - SEPARATION.hoverMs / CLOUD_LEAVE_MS) < 0.0002)).toBe(false);
   });
 
   it('its flight waits longer in the clouds, rising a little further, and comes back later', () => {

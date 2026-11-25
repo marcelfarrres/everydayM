@@ -19,7 +19,6 @@ import {
   type WidgetLayout,
 } from '@/components/workout/rocketShape';
 import {
-  BLOCK_END,
   CLOUD_LEAVE_MS,
   DOCK,
   FLIGHT,
@@ -29,6 +28,7 @@ import {
   PRELAUNCH,
   PRELAUNCH_KEYFRAMES,
   RETURN_KEYFRAMES,
+  SEPARATION,
   SETTLE_KEYFRAMES,
   SHAKE,
   SPUTTER,
@@ -37,6 +37,7 @@ import {
   STANDS,
   UPRIGHT_AT,
   arrival,
+  cloudDriftPx,
   cloudFlameKeyframes,
   cloudKeyframes,
   compressTiming,
@@ -64,12 +65,15 @@ import {
   type LaunchStart,
   type Flight,
 } from '@/components/workout/rocketFlight';
+import { useCloudMoment } from '@/components/workout/cloudClock';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import { flightSounds, type FlightSounds } from '@/components/workout/rocketSounds';
 import { playSfx, startSfxLoop, type SfxLoopStop } from '@/lib/audio/sfx';
 import { sfxCue } from '@/lib/audio/sfxCue';
 import type { RoutineItem } from '@/types/workout';
+import { MECHANIC } from './Mechanic';
 import { RepairCrew } from './RepairCrew';
+import { Separation, type SeparationScene } from './Separation';
 import { SeriesList } from './SeriesList';
 import { useLagged, useRocketWidth, useTapGuard } from './hooks';
 import { blocksOf, clock, isExercise, serieState, warmupState, type StepState } from './model';
@@ -171,8 +175,18 @@ export function RocketWidget({
   // lasts. What is drawn changes in the clouds, when a part comes off (after the rocket has stood
   // there a moment); where it stands, centred, changes only once it is away, before it comes back.
   const entering = item?.kind === 'rest' && !reduced;
-  // (after a block the clouds last longer, and the segment comes off with their third sentence)
-  const drawnAt = useLagged(currentIndex, entering ? (blockEnds(item) ? BLOCK_END.dropMs : FLIGHT.dropMs) : 0);
+  // After a block (and the warm-up) the mechanics take the part off in the clouds (Separation): the
+  // rocket holds it until their blow, by the clouds' own clock (and from the very start of the rest,
+  // before that clock runs for it); any other part comes off a moment into the clouds.
+  const cloudRest = queue[cloudKey];
+  const separating = !reduced && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
+  const holding = useCloudMoment((m) =>
+    separating ? (m.key === cloudKey ? m.t !== null && m.t < SEPARATION.releaseMs : currentIndex === cloudKey) : false,
+  );
+  const [heldIndex, setHeldIndex] = useState(currentIndex);
+  if (!holding && heldIndex !== currentIndex) setHeldIndex(currentIndex);
+  const lagged = useLagged(currentIndex, entering && !separating ? FLIGHT.dropMs : 0);
+  const drawnAt = holding ? heldIndex : lagged;
   const centredAt = useLagged(currentIndex, entering ? FLIGHT.returnStartMs + cloudExtraMs(item) : 0);
   const drawn = useMemo(() => rocketStack(queue, drawnAt), [queue, drawnAt]);
   const centred = useMemo(() => rocketStack(queue, centredAt), [queue, centredAt]);
@@ -192,7 +206,7 @@ export function RocketWidget({
   const [falling, setFalling] = useState<{ key: number; g: ShipGeometry; piece: Piece; x: number } | null>(null);
   if (shownStack !== drawn) {
     const off = dropBetween(shownStack, drawn);
-    if (off && entering) {
+    if (off && entering && !separating) {
       const before = stackGeometry({ width: L.frame, ...shownStack });
       setFalling({
         key: (falling?.key ?? 0) + 1,
@@ -202,6 +216,11 @@ export function RocketWidget({
       });
     }
     setShownStack(drawn);
+  }
+  // the separation's scene, set once as its clouds begin (null: nothing comes off in them)
+  const [scene, setScene] = useState<{ key: number; data: SeparationScene | null } | null>(null);
+  if (holding && scene?.key !== cloudKey && typeof window !== 'undefined') {
+    setScene({ key: cloudKey, data: separationScene(drawn, rocketStack(queue, currentIndex), L, cloudTop, cloudExtraMs(cloudRest)) });
   }
 
   const shown = queue[displayIndex];
@@ -466,6 +485,7 @@ export function RocketWidget({
               <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                 <div className="absolute inset-0">
                   {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
+                  {scene?.data && scene.key === cloudKey && <Separation restKey={scene.key} scene={scene.data} hilo={hilo} reduced={reduced} />}
                   <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                     <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
                       <div ref={drawingEl} className="absolute inset-0">
@@ -1258,6 +1278,38 @@ function cloudSpot(root: HTMLElement | null, L: WidgetLayout, top: number): Clou
     dx: Math.round(railLeft(vw) * vw - parked.x),
     dy: Math.round((top / 100) * vh + half - parked.y),
     k: Math.round(k * 1000) / 1000,
+  };
+}
+
+/**
+ * Where the separation happens on the rocket that is in the clouds (`before`; `after`: once the
+ * part is off), in its drawing's px, and how far the part must fall to leave the screen (its upper
+ * end below the bottom: the rocket hovers with its nose `drift` above its place) and how far the
+ * screen's left edge is from the mechanics. Null: nothing comes off.
+ */
+function separationScene(before: Stack, after: Stack, L: WidgetLayout, top: number, extra: number): SeparationScene | null {
+  const off = dropBetween(before, after);
+  if (!off) return null;
+  const g = stackGeometry({ width: L.frame, ...before });
+  const seg = g.segments[0];
+  const b = g.boosters;
+  if (off === 'boosters' && !b) return null;
+  const [from, to] = off === 'segment' || !b ? [seg.start, seg.end] : [b.x0, b.x1];
+  // the latch: the segment's joint, or where the boosters' cones begin
+  const joint = off === 'segment' ? seg.end : to - SHIP.F * 1.5;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const k = Math.min(0.52 * vh, 544) / L.g.W;
+  const upperEnd = (top / 100) * vh - cloudDriftPx(extra) + (g.tip - to) * k;
+  return {
+    g,
+    piece: off === 'segment' ? `seg-${before.first}` : 'boosters',
+    joint,
+    part: joint - Math.max(40, (to - from) * 0.55),
+    edge: off === 'segment' ? SHIP.F : SHIP.STROKE / 2,
+    tail: stackGeometry({ width: L.frame, ...after }).xe,
+    fall: Math.max(150, Math.round((vh - upperEnd) / k + 30)),
+    off: Math.round((railLeft(vw) * vw) / k + MECHANIC.W + 24),
   };
 }
 
