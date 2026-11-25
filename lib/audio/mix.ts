@@ -14,7 +14,8 @@ export interface MusicSettings {
   muted: boolean;
 }
 
-export const DEFAULT_MUSIC_SETTINGS: MusicSettings = { volume: 0.8, muted: false };
+/** A fresh start: the music at half of the old 0.8 (the effects follow it, see sfxSamples.ts). */
+export const DEFAULT_MUSIC_SETTINGS: MusicSettings = { volume: 0.4, muted: false };
 
 function clampVolume(value: number): number {
   return Math.min(1, Math.max(0, value));

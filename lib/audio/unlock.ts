@@ -2,6 +2,7 @@ import { getAudioContext } from '@/lib/audio';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem } from '@/types/workout';
 import { getMusicEngine } from './music';
+import { preloadSfx } from './sfx';
 import { primeTalkVideo } from './talkVideo';
 
 /*
@@ -28,6 +29,7 @@ export function unlockPlayerAudio({
 } = {}) {
   try {
     getAudioContext(); // creates or resumes the shared context, inside the tap
+    preloadSfx(); // the recorded effects start loading now, so the first take-off isn't late
     getMusicEngine()?.unlock(startMusic);
     primeTalkVideo(firstTalkUrl(queue));
   } catch {

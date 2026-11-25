@@ -94,6 +94,7 @@ describe('talk ducking', () => {
 
 describe('music settings', () => {
   it('falls back to the defaults on missing or broken data', () => {
+    expect(DEFAULT_MUSIC_SETTINGS).toEqual({ volume: 0.4, muted: false }); // half of the old 0.8
     expect(parseMusicSettings(null)).toEqual(DEFAULT_MUSIC_SETTINGS);
     expect(parseMusicSettings('')).toEqual(DEFAULT_MUSIC_SETTINGS);
     expect(parseMusicSettings('{not json')).toEqual(DEFAULT_MUSIC_SETTINGS);
