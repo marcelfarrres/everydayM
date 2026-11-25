@@ -14,7 +14,7 @@ import {
   getRestDuration,
   getTalkRestSeconds,
 } from './duration';
-import { restClipOf } from './restClips';
+import { restClipOf, toRestClip } from './restClips';
 import { solveForMinutes } from './solveForMinutes';
 import { talksSeconds } from './talks';
 import {
@@ -461,5 +461,13 @@ describe('the rest video of each long rest', () => {
     expect(restClipOf(old, rest).id).toBe(firstWarmup.exercise.id);
     const noWarmups = old.filter((item) => item.kind !== 'warmup');
     expect(restClipOf(noWarmups, rest).id).toBe(rest.nextExercise.id);
+  });
+
+  it('keeps only what the player needs, with a usable length (0 when it is unknown)', () => {
+    const stored = { ...clip('r1'), title: 'Estirando', enabled: true };
+    expect(toRestClip(stored)).toEqual(clip('r1'));
+    expect(toRestClip({ ...clip('r1'), video_lite_url: undefined, poster_url: undefined })).toMatchObject({ video_lite_url: null, poster_url: null });
+    for (const bad of [Number.NaN, -3, 0, Infinity]) expect(toRestClip({ ...clip('r1'), duration_seconds: bad }).duration_seconds).toBe(0);
+    expect(toRestClip({ ...clip('r1'), duration_seconds: 12.5 }).duration_seconds).toBe(12.5);
   });
 });
