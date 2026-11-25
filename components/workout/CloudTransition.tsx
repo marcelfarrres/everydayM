@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { stagger, useAnimate, useReducedMotion } from 'motion/react';
 import { Rocket } from '@/components/workout/Rocket';
+import { startCloudClock, stopCloudClock, useCloudPainter } from '@/components/workout/cloudClock';
 import { CLOUD_CLOCK_PX } from '@/components/workout/player/RestClock';
-import { BLOCK_END, CLOUDS, CLOUD_TIMING, WORDS, railTop } from '@/components/workout/rocketFlight';
+import { useRocketWidth } from '@/components/workout/player/hooks';
+import { MINI } from '@/components/workout/player/miniHandoff';
+import { widgetLayout } from '@/components/workout/rocketShape';
+import { CLOUDS, CLOUD_TIMING, badgeAt, luegoFade, railTop, sentenceAt, sentenceFade, wordsAt } from '@/components/workout/rocketFlight';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -62,8 +66,16 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // (The rail, railTop, runs from 66% (start) to 22% (done) of the screen height: even at the start
 // most of the rocket is on screen.)
 const INK = '#131313';
-/** The hole for the % badge in "Llevas el NN % completado.": the badge (44 px tall) grows 1.4 times into it. */
-export const PERCENT_SLOT = { w: 104, h: 62 } as const;
+/**
+ * The hole for the % badge in "Llevas el NN % completado.": the badge (44 px tall) grows 1.4 times
+ * into it, `clear` px from its lines above and below (the glyphs of a line reach a little past it).
+ */
+export const PERCENT_SLOT = { w: 104, h: 70, clear: 4 } as const;
+/**
+ * Room around the countdown in the column: the digits' glyph box (Geist: 1.25 times the font
+ * size) reaches past their line box by an eighth of it each way, and RestClock lifts them 4 px.
+ */
+const CLOCK_ROOM_MARGIN = { top: 8, bottom: 16 } as const;
 
 export function CloudTransition({
   playKey,
@@ -87,10 +99,10 @@ export function CloudTransition({
   /** how much longer they stay closed (the rest after a block) */
   extraMs?: number;
   /**
-   * The rest after a block: three sentences instead of the title (see BLOCK_END), then `sub`, one in
-   * the place of the other. With `slot`, the second leaves a hole for the number: the % badge of the
-   * corner comes to it with that sentence and goes back before the third comes in (usePercentTravel),
-   * so it never stands over another sentence.
+   * The rest after a block: three sentences instead of the title (see BLOCK_END), one in the place
+   * of the other, then `sub` (phone: in its own row under them). With `slot`, the second leaves a
+   * hole for the number: the % badge of the corner comes to it with that sentence and is out of
+   * the column before the third comes in (paintPercent in WorkoutPlayer, from the same clock).
    */
   blockEnd?: { first: string; second: { before: string; after: string }; third: string; percent: number; slot: boolean };
 }) {
@@ -102,6 +114,52 @@ export function CloudTransition({
   const progress = journey?.progress ?? 0.5;
   const top = railTop(progress);
   const current = journey?.marks.filter((m) => m.at <= progress + 0.001).at(-1);
+  const width = useRocketWidth();
+  const clockHost = useRef<HTMLSpanElement>(null);
+  const words = useRef<HTMLDivElement>(null);
+  const sentences = useRef<HTMLDivElement>(null);
+  const luego = useRef<HTMLParagraphElement>(null);
+  const railTotal = useRef<HTMLParagraphElement>(null);
+  const hasBlockEnd = Boolean(blockEnd);
+  const travels = Boolean(blockEnd?.slot);
+
+  // Everything written on the clouds, from their one clock (cloudClock.ts), in the same frame:
+  // the words come in and go; of a block's sentences exactly one is visible (the others keep
+  // their room, hidden); "Luego: …" has its own row on a phone; the rail's "N min", in the left
+  // edge's lane, steps aside while the % badge goes down and up that lane (badgeAt).
+  const paint = useCallback(
+    (t: number | null) => {
+      const w = words.current;
+      if (!w) return;
+      const at = t === null ? { in: 0, out: 1 } : wordsAt(t, phone, extraMs);
+      w.style.opacity = (at.in * (1 - at.out)).toFixed(3);
+      // (on a computer they still slide a little; on a phone they only fade: the countdown is
+      // placed by layout in their column, so the column never moves under it)
+      if (!phone) w.style.transform = `translateY(${(12 * (1 - at.in) - 8 * at.out).toFixed(2)}px)`;
+      if (hasBlockEnd && sentences.current) {
+        const step = t === null ? 1 : sentenceAt(t, !phone);
+        sentences.current.querySelectorAll<HTMLElement>('[data-sentence]').forEach((el) => {
+          const on = Number(el.dataset.sentence) === step;
+          el.style.visibility = on ? 'visible' : 'hidden';
+          el.style.opacity = on && t !== null ? sentenceFade(t, step).toFixed(3) : on ? '1' : '0';
+        });
+        if (luego.current) {
+          const o = t === null ? 0 : luegoFade(t);
+          luego.current.style.visibility = o > 0 ? 'visible' : 'hidden';
+          luego.current.style.opacity = o.toFixed(3);
+        }
+      }
+      if (railTotal.current) {
+        railTotal.current.style.visibility = travels && t !== null && badgeAt(t).leg !== 'home' ? 'hidden' : 'visible';
+        // (phone: it goes with the words, before "Descansando…" comes in at the top as the clouds open)
+        if (phone) railTotal.current.style.opacity = t === null ? '' : (1 - at.out).toFixed(3);
+      }
+    },
+    [phone, extraMs, hasBlockEnd, travels],
+  );
+  useCloudPainter(paint);
+  // (the player closes: no clock goes on)
+  useEffect(() => stopCloudClock, []);
 
   useEffect(() => {
     if (lastKey.current === playKey) return;
@@ -116,6 +174,7 @@ export function CloudTransition({
     const root = scope.current as HTMLElement;
 
     const play = async () => {
+      if (clockHost.current) startCloudClock(clockHost.current, playKey, CLOUDS.clearMs + extraMs);
       animate(scope.current, { visibility: 'visible' }, { duration: 0 });
       // the flame flickers while it flies
       const flame = root.querySelector('.rocket-flame')
@@ -124,18 +183,7 @@ export function CloudTransition({
       animate('.cl-flight', { opacity: [1, 1] }, { duration: 0 });
       if (!phone) animate('.cl-rocket', { transform: [below, 'translateY(0%)'] }, { duration: 1.7, ease: [0.4, 0, 0.15, 1] });
       animate('.cl-rail', { opacity: [0, 1] }, { duration: 0.5, delay: 0.7 });
-      animate('.cl-words', { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: phone ? WORDS.fadeMs / 1000 : 0.5, delay: phone ? WORDS.phoneDelayMs / 1000 : 1.2, ease: [0.22, 1, 0.36, 1] });
-      if (root.querySelector('.cl-be1')) {
-        // after a block, one sentence after another (each in with a short fade and slide)
-        const swap = BLOCK_END.swapMs / 1000;
-        const moments = [BLOCK_END.secondMs, BLOCK_END.thirdMs, BLOCK_END.afterMs];
-        for (let i = 2; i <= 4; i++) animate(`.cl-be${i}`, { opacity: 0 }, { duration: 0 });
-        animate('.cl-be1', { opacity: 1, transform: 'translateY(0px)' }, { duration: 0 });
-        moments.forEach((at, i) => {
-          animate(`.cl-be${i + 1}`, { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-10px)'] }, { duration: swap * 0.8, delay: at / 1000, ease: [0.4, 0, 1, 1] });
-          animate(`.cl-be${i + 2}`, { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] }, { duration: swap, delay: at / 1000 + swap * 0.5, ease: [0.22, 1, 0.36, 1] });
-        });
-      }
+      // (the words, the sentences and the % badge run on the clouds' one clock: see paint below)
       await Promise.all([
         animate('.cl-l', { transform: [OFF.l, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
         animate('.cl-r', { transform: [OFF.r, SHUT] }, { duration: CLOSE_MS / 1000, ease: [0.4, 0, 0.2, 1], delay: stagger(STAGGER_S) }),
@@ -147,8 +195,7 @@ export function CloudTransition({
       animate('.cl-r', { transform: [SHUT, DRIFT.r] }, { duration: (HOLD_MS + extraMs) / 1000, ease: 'linear' });
       await wait(HOLD_MS + extraMs - LIFT_LEAD_MS);
       if (id !== run.current) return;
-      // lift-off: the words go, the rocket shoots off the top, the clouds part
-      animate('.cl-words', { opacity: [1, 0], transform: ['translateY(0px)', 'translateY(-8px)'] }, { duration: 0.25 });
+      // lift-off: the rocket shoots off the top (the words go now too, by the clock), the clouds part
       // (on a phone the widget's rocket takes off from here on its own timeline)
       if (!phone) animate('.cl-rocket', { transform: ['translateY(0%)', 'translateY(-130%)'] }, { duration: 1.1, ease: [0.55, 0, 0.9, 0.45] });
       await wait(LIFT_LEAD_MS);
@@ -170,6 +217,8 @@ export function CloudTransition({
 
   return (
     <div ref={scope} aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60] overflow-hidden" style={{ visibility: 'hidden' }}>
+      {/* the clouds' one clock runs on this (cloudClock.ts): nothing to see */}
+      <span ref={clockHost} className="absolute left-0 top-0 h-px w-px opacity-0" />
       {/* soft white core, so no gap shows where the banks meet */}
       <div
         className="cl-fog absolute inset-0 opacity-0"
@@ -198,7 +247,10 @@ export function CloudTransition({
           {journey && (
             <div className="cl-rail opacity-0">
               <div className="absolute bottom-[26%] top-[18%] w-px bg-[#131313]/15" />
-              <p className="absolute right-3 top-[18%] -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-[#131313]/60">
+              <p
+                ref={railTotal}
+                className="absolute right-3 top-[18%] -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-[#131313]/60"
+              >
                 {journey.total}
               </p>
               {journey.marks.map((mark) => (
@@ -220,9 +272,15 @@ export function CloudTransition({
           </div>
           {/* the words, beside the nose. Their top is by the nose, unless they would run off the
               bottom of a short screen: then the space above them gives way (the spacer shrinks). */}
-          <div className="absolute inset-y-0 left-10 flex w-[calc(66vw-3.5rem)] flex-col sm:left-14 sm:w-[min(50vw,24rem)]">
-            <div aria-hidden="true" className="min-h-0 shrink" style={{ flexBasis: `calc(${top}% - 0.75rem)` }} />
-            <div className="cl-words relative shrink-0 pb-4 opacity-0">
+          {/* (phone: the column ends above the widget's banner, whatever the banner is doing) */}
+          <div
+            className="absolute left-10 top-0 flex w-[calc(66vw-3.5rem)] flex-col sm:left-14 sm:w-[min(50vw,24rem)]"
+            style={{ bottom: phone ? MINI.BOTTOM + widgetLayout(width).box : 0 }}
+          >
+            <div aria-hidden="true" className="min-h-0 shrink" style={{ flexBasis: `calc(${top}dvh - 0.75rem)` }} />
+            {/* One column, top to bottom, each in its own row of the layout (nothing stands on
+                another): the kicker, the countdown's room, the sentences, "Luego: …", the note. */}
+            <div ref={words} className="cl-words relative shrink-0 pb-4" style={{ opacity: 0 }}>
               {kicker && (
                 <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#131313]">
                   <span className="h-2 w-2 rounded-full" style={{ background: color }} />
@@ -230,33 +288,53 @@ export function CloudTransition({
                 </p>
               )}
               {/* phone: room for the rest's countdown (RestClock stands here), and the title a step smaller */}
-              {phone && <div aria-hidden="true" data-cloud-clock="" style={{ height: CLOUD_CLOCK_PX }} />}
+              {phone && <div aria-hidden="true" data-cloud-clock="" style={{ height: CLOUD_CLOCK_PX, marginTop: CLOCK_ROOM_MARGIN.top, marginBottom: CLOCK_ROOM_MARGIN.bottom }} />}
               {blockEnd ? (
-                // after a block: the three sentences, one in the place of the other, then where to
-                <div
-                  className={`grid font-[family-name:var(--font-display)] font-semibold leading-[1.15] tracking-[-0.02em] text-[#131313] [overflow-wrap:anywhere] ${
-                    phone ? 'mt-1 text-[1.4rem]' : 'text-[clamp(1.75rem,3.6vw,2.75rem)]'
-                  }`}
-                >
-                  <p className="cl-be1 [grid-area:1/1]">{blockEnd.first}</p>
-                  <p className="cl-be2 [grid-area:1/1]" style={{ opacity: 0 }}>
-                    {blockEnd.second.before}{' '}
-                    {blockEnd.slot ? (
-                      // (the hole the % badge comes to: as tall as it grows)
-                      <span data-cloud-slot="" className="inline-block align-middle" style={{ width: PERCENT_SLOT.w, height: PERCENT_SLOT.h }} />
-                    ) : (
-                      <span className="whitespace-nowrap">{blockEnd.percent}&#8239;%</span>
-                    )}{' '}
-                    {blockEnd.second.after}
-                  </p>
-                  <p className="cl-be3 [grid-area:1/1]" style={{ opacity: 0 }}>
-                    {blockEnd.third}
-                  </p>
-                  {/* (a long exercise name: three lines at most) */}
-                  <p className="cl-be4 line-clamp-3 [grid-area:1/1]" style={{ opacity: 0 }}>
-                    {sub}
-                  </p>
-                </div>
+                <>
+                  {/* after a block: the sentences' zone. All of them are laid out in the same cell, so
+                      it is as tall as the tallest, but only the one of the clock's moment is visible
+                      (sentenceAt; on a computer "Luego: …" is its fourth, as before). */}
+                  <div
+                    ref={sentences}
+                    className={`grid font-[family-name:var(--font-display)] font-semibold leading-[1.15] tracking-[-0.02em] text-[#131313] [overflow-wrap:anywhere] ${
+                      phone ? 'mt-1 text-[1.4rem]' : 'text-[clamp(1.75rem,3.6vw,2.75rem)]'
+                    }`}
+                  >
+                    <p data-sentence="1" className="[grid-area:1/1]">
+                      {blockEnd.first}
+                    </p>
+                    <p data-sentence="2" className="[grid-area:1/1]" style={{ visibility: 'hidden' }}>
+                      {blockEnd.second.before}{' '}
+                      {blockEnd.slot ? (
+                        // (the hole the % badge comes to, as tall as it grows, on a line of its own:
+                        // nothing stands to its left, so the badge comes in from the left edge over nothing)
+                        <span data-cloud-slot="" className="block" style={{ width: PERCENT_SLOT.w, height: PERCENT_SLOT.h }} />
+                      ) : (
+                        <span className="whitespace-nowrap">{blockEnd.percent}&#8239;%</span>
+                      )}{' '}
+                      {blockEnd.second.after}
+                    </p>
+                    <p data-sentence="3" className="[grid-area:1/1]" style={{ visibility: 'hidden' }}>
+                      {blockEnd.third}
+                    </p>
+                    {!phone && (
+                      // (a long exercise name: three lines at most)
+                      <p data-sentence="4" className="line-clamp-3 [grid-area:1/1]" style={{ visibility: 'hidden' }}>
+                        {sub}
+                      </p>
+                    )}
+                  </div>
+                  {/* phone: "Luego: …" in a row of its own, under the sentences, from BLOCK_END.afterMs */}
+                  {phone && sub && (
+                    <p
+                      ref={luego}
+                      className="mt-2 line-clamp-3 font-[family-name:var(--font-display)] text-lg font-medium text-[#2b2f36] [overflow-wrap:anywhere]"
+                      style={{ visibility: 'hidden' }}
+                    >
+                      {sub}
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   {title && (

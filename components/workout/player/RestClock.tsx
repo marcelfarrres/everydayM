@@ -109,6 +109,9 @@ export function RestClock({
   // (in ink in the clouds and on its tab, white on the veil)
   const ink = inClouds || side;
   const fade = reduced ? 'none' : 'opacity 0.6s ease';
+  // "Empiezas en" and the next exercise come in only once the number has slid (1 s) to the middle:
+  // the same style change starts both, so the number never crosses them
+  const labelFade = phase === 'center' && !reduced ? 'opacity 0.5s ease 0.75s' : fade;
   return (
     <>
     {/* the tab: it springs out of the banner with it */}
@@ -133,7 +136,8 @@ export function RestClock({
         animation: inClouds && !reduced ? `rc-in ${WORDS.fadeMs}ms ease-out ${WORDS.phoneDelayMs}ms both` : undefined,
       }}
     >
-      <p className="mb-2 text-[clamp(1rem,5.5vw,1.5rem)] font-medium leading-snug text-white/90" style={{ opacity: phase === 'center' ? 1 : 0, transition: fade }}>
+      {/* (mb-6 / mt-6: the digits' glyph box reaches an eighth of their size past their line) */}
+      <p className="mb-6 text-[clamp(1rem,5.5vw,1.5rem)] font-medium leading-snug text-white/90" style={{ opacity: phase === 'center' ? 1 : 0, transition: labelFade }}>
         Empiezas en
       </p>
       <p
@@ -159,8 +163,8 @@ export function RestClock({
       {next && (
         // (as big as "Empiezas en", one line)
         <p
-          className="mt-2 w-full max-w-[20rem] truncate text-[clamp(1rem,5.5vw,1.5rem)] font-medium leading-snug text-white/90"
-          style={{ opacity: phase === 'center' ? 1 : 0, transition: fade }}
+          className="mt-6 w-full max-w-[20rem] truncate text-[clamp(1rem,5.5vw,1.5rem)] font-medium leading-snug text-white/90"
+          style={{ opacity: phase === 'center' ? 1 : 0, transition: labelFade }}
         >
           {next}
         </p>

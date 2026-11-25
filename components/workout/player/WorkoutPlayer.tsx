@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefO
 import { useReducedMotion } from 'motion/react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
-import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
-import { BLOCK_END, FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, blockEnds, cloudExtraMs, cloudsFor, railTop } from '@/components/workout/rocketFlight';
+import { CLOUDS, CloudTransition, PERCENT_SLOT } from '@/components/workout/CloudTransition';
+import { useCloudMoment, useCloudPainter } from '@/components/workout/cloudClock';
+import { FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, badgeAt, blockEnds, cloudExtraMs, cloudsFor, cloudsOpenAt, railTop } from '@/components/workout/rocketFlight';
 import { stopAllSfx } from '@/lib/audio/sfx';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
@@ -161,8 +162,12 @@ export function WorkoutPlayer({
   const extra = cloudExtraMs(cloudRest);
   const clouds = cloudsFor(extra);
   const clouding = useBusyAfter(cloudKey, clouds.clearMs, !reduced);
-  // Phone: the rest's countdown stands in the clouds until they start to open (RestClock).
-  const inClouds = useBusyAfter(cloudKey, clouds.openingMs, !reduced);
+  // Phone: the rest's countdown stands in the clouds until they start to open (RestClock). Read
+  // from the clouds' own clock once it runs for this rest (the words have gone by then: wordsAt);
+  // until then (the very first frames of the rest) from the moment the rest began.
+  const cloudsStarting = useBusyAfter(cloudKey, clouds.openingMs, !reduced);
+  const cloudsClosed = useCloudMoment((m) => (m.key === cloudKey ? m.t !== null && m.t < cloudsOpenAt(extra) : null));
+  const inClouds = !reduced && (cloudsClosed ?? cloudsStarting);
   // With talks it is a tab of the rocket's banner while they play (it fades out as the clouds
   // open and comes back as the banner springs out); then the middle.
   const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + POD.inDelayMs, !reduced);
@@ -210,7 +215,9 @@ export function WorkoutPlayer({
       ? { ...longRestWords(cloudRest), percent, slot: travels }
       : undefined;
   const percentEl = useRef<HTMLParagraphElement>(null);
-  usePercentTravel(percentEl, cloudKey, travels);
+  // (its way into its sentence, from the clouds' clock: paintPercent)
+  const paintBadge = useCallback((t: number | null) => paintPercent(percentEl.current, travels, t), [travels]);
+  useCloudPainter(paintBadge);
 
   return (
     <div className="group/player fixed inset-0 overflow-hidden bg-black font-[family-name:var(--font-display)] text-ink lg:bg-[#1c1d1b]">
@@ -386,56 +393,39 @@ export function WorkoutPlayer({
 }
 
 /**
- * The rest after a block (phone): as its second sentence comes in, the % badge of the corner grows
- * and travels into the hole left for it in "Llevas el … completado." (the same element), stands
- * there, and goes back to its corner before the third sentence takes that place (BLOCK_END): it is
- * never over another sentence. Its way down the left edge and then across keeps it off the
- * column of words (the kicker and the countdown above the hole).
+ * The rest after a block (phone): the % badge of the corner goes into the hole left for it in
+ * "Llevas el … completado." (the same element, grown), stands there, and is out of the column
+ * before the third sentence comes in. Where it is is a pure function of the clouds' clock
+ * (badgeAt), painted in the same frame as the sentences (CloudTransition), so it can't be late or
+ * early for them: home / down the left edge / across into the hole, which starts its own line /
+ * landed / back out to the left edge / up to its corner. Over the clouds while it is out.
  */
-const TRAVEL_ID = 'pct-travel';
-const travelsOf = (el: HTMLElement | null) => el?.getAnimations().filter((a) => a.id === TRAVEL_ID) ?? [];
+const easeInOut = (p: number) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
 
-function usePercentTravel(badge: RefObject<HTMLParagraphElement | null>, key: number, on: boolean) {
-  useEffect(() => {
-    // (a rest left mid-way: the badge is back in its corner at once)
-    const home = () => travelsOf(badge.current).forEach((a) => a.cancel());
-    if (!on) return home;
-    const t = setTimeout(() => {
-      const el = badge.current;
-      const slot = document.querySelector<HTMLElement>('[data-cloud-slot]');
-      if (!el || !slot) return;
-      home(); // measured from its corner
-
-      const a = el.getBoundingClientRect();
-      // (by layout: the sentence is still sliding in as it is measured)
-      const b = layoutSpot(slot);
-      const k = slot.offsetHeight / a.height;
-      const dx = b.x + (slot.offsetWidth - a.width * k) / 2 - a.left;
-      const dy = b.y - a.top;
-      const leaveAt = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs;
-      const D = leaveAt + BLOCK_END.badgeBackMs - BLOCK_END.secondMs;
-      const there = BLOCK_END.travelMs / D;
-      const leave = (leaveAt - BLOCK_END.secondMs) / D;
-      const at = (x: number, y: number, s: number) => `translate(${Math.round(x)}px, ${Math.round(y)}px) scale(${s.toFixed(3)})`;
-      const ease = 'cubic-bezier(0.45, 0, 0.25, 1)';
-      // (the bend of its way: down the left edge first, then across into the hole)
-      const bend = (s: number) => at(dx * 0.1, dy * 0.7, s);
-      el.style.transformOrigin = '0 0';
-      el.animate(
-        [
-          { offset: 0, transform: at(0, 0, 1), zIndex: 70, easing: ease },
-          { offset: there / 2, transform: bend((1 + k) / 2), zIndex: 70, easing: ease },
-          { offset: there, transform: at(dx, dy, k), zIndex: 70, easing: 'linear' },
-          { offset: leave, transform: at(dx, dy, k), zIndex: 70, easing: ease },
-          { offset: leave + (1 - leave) / 2, transform: bend((1 + k) / 2), zIndex: 70, easing: ease },
-          { offset: 1, transform: at(0, 0, 1), zIndex: 70 },
-        ],
-        { id: TRAVEL_ID, duration: D },
-      );
-    }, BLOCK_END.secondMs);
-    return () => {
-      clearTimeout(t);
-      home();
-    };
-  }, [badge, key, on]);
+function paintPercent(el: HTMLElement | null, on: boolean, t: number | null) {
+  if (!el) return;
+  const { leg, p } = on && t !== null ? badgeAt(t) : { leg: 'home' as const, p: 0 };
+  const slot = leg === 'home' ? null : document.querySelector<HTMLElement>('[data-cloud-slot]');
+  if (!slot) {
+    if (el.style.transform) {
+      el.style.transform = '';
+      el.style.zIndex = '';
+    }
+    return;
+  }
+  // by layout, without transforms: its corner (a fixed element: offsets from the screen) and the hole
+  const hole = layoutSpot(slot);
+  const k = (slot.offsetHeight - 2 * PERCENT_SLOT.clear) / el.offsetHeight;
+  const dx = hole.x + (slot.offsetWidth - el.offsetWidth * k) / 2 - el.offsetLeft;
+  const dy = hole.y + PERCENT_SLOT.clear - el.offsetTop;
+  const e = easeInOut(p);
+  const [x, y, s] =
+    leg === 'down' ? [0, dy * e, 1]
+    : leg === 'across' ? [dx * e, dy, 1 + (k - 1) * e]
+    : leg === 'landed' ? [dx, dy, k]
+    : leg === 'back' ? [dx * (1 - e), dy, k + (1 - k) * e]
+    : [0, dy * (1 - e), 1];
+  el.style.transformOrigin = '0 0';
+  el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${s.toFixed(3)})`;
+  el.style.zIndex = '70';
 }

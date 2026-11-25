@@ -64,7 +64,7 @@ export const railTop = (progress: number) => 66 - Math.min(1, Math.max(0, progre
 export const railLeft = (width: number) => (width >= 640 ? 0.42 : 0.34);
 
 /** The words of the clouds come in by this moment on a phone (the rocket is already placed). */
-export const WORDS = { phoneDelayMs: 750, fadeMs: 450 } as const;
+export const WORDS = { phoneDelayMs: 750, fadeMs: 450, desktopDelayMs: 1200, desktopFadeMs: 500, desktopOutMs: 250 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // The flight of the widget rocket
@@ -143,23 +143,90 @@ export const cloudsFor = (extra: number) => ({
 
 /**
  * The three sentences after a block, from the rest's start (ms): each comes in with a short fade
- * and slide and stays more than a second, one in the place of the other; the % badge travels in
- * with the second (`travelMs`), stands in its hole, and goes back to its corner before the third
- * comes in (it leaves `badgeLeadMs` before it, in `badgeBackMs`: it never stands over another
- * sentence); the segment comes off with the third (`dropMs`).
+ * and stays more than a second, one in the place of the other; the % badge travels in with the
+ * second (`travelMs`: down the left edge, then across into its hole), stands in its hole, and
+ * leaves it `badgeLeadMs` before the third (back out of the column in `badgeOutMs`, then up the
+ * left edge in `badgeUpMs`); the segment comes off with the third (`dropMs`). All of it is read
+ * from one clock (cloudClock.ts) through sentenceAt, badgeAt and wordsAt below.
  */
 export const BLOCK_END = {
   firstMs: 1200,
   secondMs: 2300,
   travelMs: 600,
   badgeLeadMs: 400,
-  badgeBackMs: 550,
+  badgeOutMs: 250,
+  badgeUpMs: 300,
   thirdMs: 4300,
   dropMs: 4300,
   afterMs: 5500,
-  /** each sentence's fade and slide in */
+  /** each sentence's fade in */
   swapMs: 280,
 } as const;
+
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+const easeOut = (p: number) => 1 - (1 - clamp01(p)) ** 3;
+
+/**
+ * The words of the clouds at `t` ms after the rest began: how far they have come in and gone out
+ * (0..1 each, eased). On a phone they are all gone by the moment the clouds start to open, which
+ * is when the countdown leaves their column (cloudsOpenAt): the two never meet.
+ */
+export function wordsAt(t: number, phone: boolean, extra: number): { in: number; out: number } {
+  const inAt = phone ? WORDS.phoneDelayMs : WORDS.desktopDelayMs;
+  const inMs = phone ? WORDS.fadeMs : WORDS.desktopFadeMs;
+  const outAt = CLOUD_TIMING.liftMs + extra;
+  const outMs = phone ? LIFT_LEAD_MS : WORDS.desktopOutMs;
+  return { in: easeOut((t - inAt) / inMs), out: clamp01((t - outAt) / outMs) };
+}
+
+/** When the clouds of a rest whose clouds last `extra` ms longer start to open (the words are gone). */
+export const cloudsOpenAt = (extra: number) => CLOUDS.openingMs + extra;
+
+/**
+ * Which of a block's sentences stands in its zone at `t`: one at a time, never two. 4 is
+ * "Luego: …", where it shares that zone (the computer; on a phone it has a zone of its own).
+ */
+export function sentenceAt(t: number, luegoShares: boolean): 1 | 2 | 3 | 4 {
+  if (t < BLOCK_END.secondMs) return 1;
+  if (t < BLOCK_END.thirdMs) return 2;
+  return luegoShares && t >= BLOCK_END.afterMs ? 4 : 3;
+}
+
+/** How far the sentence standing at `t` has faded in (0..1); the first comes in with the words. */
+export function sentenceFade(t: number, step: 1 | 2 | 3 | 4): number {
+  const since = [0, BLOCK_END.secondMs, BLOCK_END.thirdMs, BLOCK_END.afterMs][step - 1];
+  return step === 1 ? 1 : easeOut((t - since) / BLOCK_END.swapMs);
+}
+
+/** "Luego: …" in its own zone (phone): how far it has faded in at `t`. */
+export const luegoFade = (t: number) => (t < BLOCK_END.afterMs ? 0 : easeOut((t - BLOCK_END.afterMs) / BLOCK_END.swapMs));
+
+/**
+ * Where the % badge is at `t`, as a leg of its one way and how far along it (0..1):
+ *   home    in its corner (under the clouds)
+ *   down    down the left edge, at its size, left of the rail and of every word
+ *   across  across into its hole, growing (the hole starts its own line: nothing is left of it)
+ *   landed  in the hole of the second sentence
+ *   back    out of the hole to the left edge, shrinking, done before the third sentence comes in
+ *   up      up the left edge to its corner
+ * It is anywhere but home only while the second sentence stands (or in the left edge's lane).
+ */
+export type BadgeLeg = 'home' | 'down' | 'across' | 'landed' | 'back' | 'up';
+
+export function badgeAt(t: number): { leg: BadgeLeg; p: number } {
+  const B = BLOCK_END;
+  const half = B.travelMs / 2;
+  const leave = B.thirdMs - B.badgeLeadMs;
+  const legs: [BadgeLeg, number, number][] = [
+    ['down', B.secondMs, B.secondMs + half],
+    ['across', B.secondMs + half, B.secondMs + B.travelMs],
+    ['landed', B.secondMs + B.travelMs, leave],
+    ['back', leave, leave + B.badgeOutMs],
+    ['up', leave + B.badgeOutMs, leave + B.badgeOutMs + B.badgeUpMs],
+  ];
+  for (const [leg, from, to] of legs) if (t >= from && t < to) return { leg, p: (t - from) / (to - from) };
+  return { leg: 'home', p: 0 };
+}
 /** The part of its exit after which it is out of the top of the screen. */
 export const CLOUD_OFFSCREEN_AT = 0.85;
 

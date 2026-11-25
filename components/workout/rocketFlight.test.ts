@@ -3,10 +3,16 @@ import { exercise } from '@/lib/routine/fixtures.test-helpers';
 import { BLOCK_END_EXTRA_MS, BLOCK_END_LEAD_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
 import {
   BLOCK_END,
+  badgeAt,
   blockEnds,
   cloudDriftPx,
   cloudExtraMs,
   cloudsFor,
+  cloudsOpenAt,
+  luegoFade,
+  sentenceAt,
+  sentenceFade,
+  wordsAt,
 } from './rocketFlight';
 import { blockEndWords, blockOrdinal, longRestWords, restScreenOf } from './player/model';
 import type { RoutineItem } from '@/types/workout';
@@ -695,12 +701,49 @@ describe('the clouds after a block', () => {
     // the rocket is rising slowly by then, and the part has fallen before it leaves
     expect(BLOCK_END.dropMs).toBeGreaterThan(FLIGHT.slowMs);
     expect(BLOCK_END.dropMs + FLIGHT.dropFallMs).toBeLessThan(lift);
-    // the % badge stands in its sentence for a second, and is back in its corner (nearly) by the
-    // time the third sentence slides in: it never stands over another sentence
+    // the % badge stands in its sentence for a second
     const arrives = BLOCK_END.secondMs + BLOCK_END.travelMs;
     const leaves = BLOCK_END.thirdMs - BLOCK_END.badgeLeadMs;
     expect(leaves - arrives).toBeGreaterThanOrEqual(1000);
-    expect(leaves + BLOCK_END.badgeBackMs).toBeLessThanOrEqual(BLOCK_END.thirdMs + BLOCK_END.swapMs * 0.6);
+  });
+
+  it('one clock: one sentence at a time, and the badge in the column only while its sentence stands', () => {
+    const open = cloudsOpenAt(BLOCK_END_EXTRA_MS);
+    for (let t = 0; t <= open + 2000; t += 10) {
+      const { leg } = badgeAt(t);
+      // across, landed and back are in the column, at the hole's row: only with the second sentence
+      if (leg === 'across' || leg === 'landed' || leg === 'back') expect(sentenceAt(t, false)).toBe(2);
+      // home before it and long before the clouds open (the corner is free again under them)
+      if (t < BLOCK_END.secondMs || t >= BLOCK_END.thirdMs + BLOCK_END.swapMs + 200) expect(leg).toBe('home');
+      // the computer's "Luego: …" takes the third sentence's place, never stands with it
+      expect([1, 2, 3, 4]).toContain(sentenceAt(t, true));
+      if (t >= BLOCK_END.afterMs) expect(sentenceAt(t, true)).toBe(4);
+    }
+    // the badge's legs follow one another without a gap
+    const legs: string[] = [];
+    for (let t = 0; t < 6000; t += 5) if (legs.at(-1) !== badgeAt(t).leg) legs.push(badgeAt(t).leg);
+    expect(legs).toEqual(['home', 'down', 'across', 'landed', 'back', 'up', 'home']);
+  });
+
+  it('on a phone the words are gone when the clouds start to open (and the countdown leaves them)', () => {
+    for (const extra of [0, BLOCK_END_EXTRA_MS]) {
+      const open = cloudsOpenAt(extra);
+      expect(open).toBe(cloudsFor(extra).openingMs);
+      const at = (t: number) => {
+        const w = wordsAt(t, true, extra);
+        return w.in * (1 - w.out);
+      };
+      expect(at(WORDS.phoneDelayMs - 1)).toBe(0);
+      expect(at(WORDS.phoneDelayMs + WORDS.fadeMs + 10)).toBe(1);
+      expect(at(open)).toBe(0);
+      expect(at(open - 200)).toBe(1);
+    }
+    // the sentences fade in, the first comes with the words
+    expect(sentenceFade(BLOCK_END.secondMs, 2)).toBe(0);
+    expect(sentenceFade(BLOCK_END.secondMs + BLOCK_END.swapMs, 2)).toBe(1);
+    expect(sentenceFade(0, 1)).toBe(1);
+    expect(luegoFade(BLOCK_END.afterMs - 1)).toBe(0);
+    expect(luegoFade(BLOCK_END.afterMs + BLOCK_END.swapMs)).toBe(1);
   });
 
   it('its flight waits longer in the clouds, rising a little further, and comes back later', () => {
