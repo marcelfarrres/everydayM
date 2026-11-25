@@ -23,6 +23,11 @@ export function getAudioContext(): AudioContext | null {
   return sharedAudioCtx;
 }
 
+/** The shared AudioContext only if it already exists: never creates one outside a tap. */
+export function peekAudioContext(): AudioContext | null {
+  return sharedAudioCtx;
+}
+
 export function playCountdownBeep(secondsRemaining: number) {
   try {
     const ctx = getAudioContext();

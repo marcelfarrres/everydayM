@@ -1,0 +1,198 @@
+import { describe, expect, it } from 'vitest';
+import { playSfx, startSfxLoop, stopAllSfx } from './sfx';
+import {
+  SFX_LOOPS,
+  SFX_MASTER,
+  SFX_RECIPES,
+  SILENCE,
+  envelopeLength,
+  envelopePoints,
+  isLoop,
+  layerHits,
+  loopParams,
+  recipeDuration,
+  sfxAudible,
+  sfxBusLevels,
+  sfxCategory,
+  tooSoon,
+  variation,
+  voicesToSteal,
+  type SfxLayer,
+  type SfxName,
+} from './sfxRecipes';
+
+const ALL: SfxName[] = [...(Object.keys(SFX_RECIPES) as SfxName[]), ...(Object.keys(SFX_LOOPS) as SfxName[])];
+
+describe('sound table', () => {
+  it('has every sound the interface needs, with the right category', () => {
+    expect(ALL.sort()).toEqual(
+      [
+        'banner',
+        'beep',
+        'beepFinal',
+        'boost',
+        'clack',
+        'engineRumble',
+        'hammer',
+        'ignite',
+        'land',
+        'launch',
+        'pam',
+        'puff',
+        'ratchet',
+        'separate',
+        'slowMo',
+      ].sort(),
+    );
+    expect(sfxCategory('beep')).toBe('alert');
+    expect(sfxCategory('beepFinal')).toBe('alert');
+    for (const name of ALL.filter((n) => n !== 'beep' && n !== 'beepFinal')) expect(sfxCategory(name)).toBe('ambient');
+    expect(isLoop('engineRumble')).toBe(true);
+    expect(isLoop('hammer')).toBe(false);
+  });
+
+  it('keeps every level conservative and every sound short', () => {
+    for (const recipe of Object.values(SFX_RECIPES)) {
+      expect(recipe.gain).toBeGreaterThan(0);
+      expect(recipe.gain).toBeLessThanOrEqual(0.5);
+      expect(recipe.maxVoices).toBeGreaterThanOrEqual(1);
+      expect(recipeDuration(recipe)).toBeLessThan(1.2);
+      for (const layer of recipe.layers) {
+        expect(layer.gain).toBeGreaterThan(0);
+        expect(layer.gain).toBeLessThanOrEqual(1);
+        expect(layer.freq).toBeGreaterThan(0);
+      }
+    }
+    for (const loop of Object.values(SFX_LOOPS)) {
+      expect(loop.high.gain).toBeLessThanOrEqual(0.3);
+      expect(loop.low.gain).toBeGreaterThan(0);
+    }
+  });
+
+  it('makes the final beep higher and longer than the others', () => {
+    const beep = SFX_RECIPES.beep.layers[0];
+    const final = SFX_RECIPES.beepFinal.layers[0];
+    expect(final.freq).toBeGreaterThan(beep.freq);
+    expect(recipeDuration(SFX_RECIPES.beepFinal)).toBeGreaterThan(recipeDuration(SFX_RECIPES.beep));
+  });
+
+  it('varies the repair sounds, which repeat', () => {
+    for (const name of ['hammer', 'ratchet', 'puff'] as const) expect(SFX_RECIPES[name].vary).toBeDefined();
+  });
+});
+
+describe('sfxBusLevels', () => {
+  it('follows the music volume and mute', () => {
+    expect(sfxBusLevels({ volume: 1, muted: false, talkSpeaking: false }).master).toBeCloseTo(SFX_MASTER);
+    expect(sfxBusLevels({ volume: 0.5, muted: false, talkSpeaking: false }).master).toBeCloseTo(SFX_MASTER / 2);
+    expect(sfxBusLevels({ volume: 1, muted: true, talkSpeaking: false }).master).toBe(0);
+    expect(sfxBusLevels({ volume: 7, muted: false, talkSpeaking: false }).master).toBeCloseTo(SFX_MASTER);
+    expect(sfxBusLevels({ volume: Number.NaN, muted: false, talkSpeaking: false }).master).toBe(0);
+  });
+
+  it('silences only the ambient sounds under a talk', () => {
+    const levels = sfxBusLevels({ volume: 0.8, muted: false, talkSpeaking: true });
+    expect(levels.ambient).toBe(0);
+    expect(levels.alert).toBe(1);
+    expect(sfxAudible('alert', { volume: 0.8, muted: false, talkSpeaking: true })).toBe(true);
+    expect(sfxAudible('ambient', { volume: 0.8, muted: false, talkSpeaking: true })).toBe(false);
+    expect(sfxAudible('ambient', { volume: 0.8, muted: false, talkSpeaking: false })).toBe(true);
+    expect(sfxAudible('alert', { volume: 0, muted: false, talkSpeaking: false })).toBe(false);
+    expect(sfxAudible('alert', { volume: 1, muted: true, talkSpeaking: false })).toBe(false);
+  });
+});
+
+describe('envelopes', () => {
+  it('goes silence → peak → hold → silence', () => {
+    const points = envelopePoints({ attack: 0.01, hold: 0.05, decay: 0.1 }, 0.5);
+    expect(points.map((p) => p.value)).toEqual([SILENCE, 0.5, 0.5, SILENCE]);
+    expect(points.map((p) => p.time)).toEqual([0, 0.01, expect.closeTo(0.06), expect.closeTo(0.16)]);
+    expect(envelopeLength({ attack: 0.01, hold: 0.05, decay: 0.1 })).toBeCloseTo(0.16);
+  });
+
+  it('never asks Web Audio to ramp to zero or backwards', () => {
+    const points = envelopePoints({ attack: 0, decay: 0 }, 0);
+    for (const p of points) expect(p.value).toBeGreaterThan(0);
+    for (let i = 1; i < points.length; i++) expect(points[i].time).toBeGreaterThanOrEqual(points[i - 1].time);
+  });
+
+  it('spreads repeats and fades them', () => {
+    const layer: SfxLayer = {
+      kind: 'noise',
+      filter: 'highpass',
+      freq: 3000,
+      at: 0.1,
+      gain: 1,
+      env: { attack: 0.001, decay: 0.01 },
+      repeat: { count: 3, every: 0.05, fade: 0.5 },
+    };
+    expect(layerHits(layer)).toEqual([
+      { at: 0.1, gain: 1 },
+      { at: expect.closeTo(0.15), gain: 0.5 },
+      { at: expect.closeTo(0.2), gain: 0.25 },
+    ]);
+  });
+});
+
+describe('variation', () => {
+  it('stays within ± the pitch range and never gets louder', () => {
+    for (const r of [0, 0.25, 0.5, 0.99]) {
+      const v = variation({ pitch: 2, gain: 0.3 }, () => r);
+      expect(v.pitch).toBeGreaterThanOrEqual(2 ** (-2 / 12) - 1e-9);
+      expect(v.pitch).toBeLessThanOrEqual(2 ** (2 / 12) + 1e-9);
+      expect(v.gain).toBeLessThanOrEqual(1);
+      expect(v.gain).toBeGreaterThanOrEqual(0.7);
+    }
+    expect(variation(undefined)).toEqual({ pitch: 1, gain: 1 });
+  });
+});
+
+describe('loopParams', () => {
+  it('grows the engine rumble with intensity', () => {
+    const quiet = loopParams(SFX_LOOPS.engineRumble, 0);
+    const mid = loopParams(SFX_LOOPS.engineRumble, 0.5);
+    const loud = loopParams(SFX_LOOPS.engineRumble, 1);
+    expect(quiet).toEqual(SFX_LOOPS.engineRumble.low);
+    expect(loud).toEqual(SFX_LOOPS.engineRumble.high);
+    expect(mid.gain).toBeGreaterThan(quiet.gain);
+    expect(mid.gain).toBeLessThan(loud.gain);
+    expect(mid.cutoff).toBeGreaterThan(quiet.cutoff);
+    expect(loopParams(SFX_LOOPS.engineRumble, 5)).toEqual(loud);
+    expect(loopParams(SFX_LOOPS.engineRumble, -1)).toEqual(quiet);
+  });
+});
+
+describe('voicesToSteal', () => {
+  const v = (id: number, name: SfxName, startedAt: number) => ({ id, name, startedAt });
+
+  it('cuts the oldest of the same sound beyond its limit', () => {
+    const active = [v(1, 'hammer', 1), v(2, 'hammer', 2), v(3, 'puff', 0)];
+    expect(voicesToSteal(active, 'hammer', 2, 8)).toEqual([1]);
+    expect(voicesToSteal(active, 'puff', 2, 8)).toEqual([]);
+  });
+
+  it('cuts the oldest overall beyond the total', () => {
+    const active = [v(1, 'clack', 3), v(2, 'pam', 1), v(3, 'puff', 2)];
+    expect(voicesToSteal(active, 'beep', 2, 3)).toEqual([2]);
+    expect(voicesToSteal(active, 'beep', 2, 4)).toEqual([]);
+  });
+});
+
+describe('tooSoon', () => {
+  it('ignores a repeat inside the gap', () => {
+    expect(tooSoon(undefined, 5, 0.1)).toBe(false);
+    expect(tooSoon(5, 5.05, 0.1)).toBe(true);
+    expect(tooSoon(5, 5.2, 0.1)).toBe(false);
+  });
+});
+
+describe('without Web Audio (server)', () => {
+  it('does nothing and never throws', () => {
+    expect(() => playSfx('beep')).not.toThrow();
+    expect(() => playSfx('ignite', { gesture: true })).not.toThrow();
+    const stop = startSfxLoop('engineRumble', { intensity: 0.3 });
+    expect(() => stop.setIntensity(1)).not.toThrow();
+    expect(() => stop()).not.toThrow();
+    expect(() => stopAllSfx()).not.toThrow();
+  });
+});
