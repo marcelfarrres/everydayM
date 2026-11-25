@@ -90,8 +90,20 @@ const lastStart = new Map<SfxOneShot, number>();
 // ── Recordings: fetched and decoded once, then reused (an AudioBuffer works in any context) ──
 
 const buffers = new Map<SfxName, AudioBuffer>();
-const pendingLoads = new Set<SfxName>();
-const failedLoads = new Set<SfxName>(); // missing or undecodable: the recipe plays instead
+/**
+ * Each file's one load (fetch + decode), kept for the page's whole life from the moment it starts:
+ * a second call (React's dev double mount, a first use while it is still loading, another screen)
+ * gets the same promise, so each file is downloaded and decoded once per page. Null: missing or
+ * undecodable, the recipe plays instead (not retried). Kept on `globalThis` so a module evaluated
+ * twice (a dev refresh) still shares it.
+ */
+const SFX_LOADS_KEY = '__everydaymSfxLoads';
+type SfxLoads = Map<string, Promise<AudioBuffer | null>>;
+function sfxLoads(): SfxLoads {
+  const g = globalThis as typeof globalThis & { [SFX_LOADS_KEY]?: SfxLoads };
+  g[SFX_LOADS_KEY] ??= new Map();
+  return g[SFX_LOADS_KEY];
+}
 
 /** decodeAudioData in both its forms (older Safari only has the callbacks). */
 function decode(ctx: BaseAudioContext, data: ArrayBuffer): Promise<AudioBuffer> {
@@ -102,23 +114,23 @@ function decode(ctx: BaseAudioContext, data: ArrayBuffer): Promise<AudioBuffer> 
 }
 
 function loadSample(ctx: BaseAudioContext, name: SfxName, sample: SfxSample) {
-  if (buffers.has(name) || pendingLoads.has(name) || failedLoads.has(name)) return;
-  pendingLoads.add(name);
-  fetch(sampleUrl(sample))
-    .then((res) => {
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.arrayBuffer();
-    })
-    .then((data) => decode(ctx, data))
-    .then((buffer) => {
-      buffers.set(name, buffer);
-    })
-    .catch(() => {
-      failedLoads.add(name);
-    })
-    .finally(() => {
-      pendingLoads.delete(name);
-    });
+  if (buffers.has(name)) return;
+  const url = sampleUrl(sample);
+  const loads = sfxLoads();
+  let load = loads.get(url);
+  if (!load) {
+    load = fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((data) => decode(ctx, data))
+      .catch(() => null);
+    loads.set(url, load);
+  }
+  void load.then((buffer) => {
+    if (buffer) buffers.set(name, buffer);
+  });
 }
 
 /**
