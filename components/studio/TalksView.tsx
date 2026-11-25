@@ -15,7 +15,6 @@ import {
   uploadFile,
 } from '@/components/studio/studioClient';
 
-type Filter = 'all' | 'missing';
 type JobStatus = 'waiting' | 'working' | 'done' | 'error';
 
 interface TalkJob {
@@ -27,6 +26,29 @@ interface TalkJob {
 }
 
 const VIDEO_ACCEPT = 'video/quicktime,video/mp4,video/*,.mov,.mp4,.m4v';
+
+/**
+ * The first vídeo hablado of an exercise, next to its thumbnail and about 3/4 of its size, with
+ * «+N» when there are more. A neutral tile with a microphone when the talk has no poster.
+ */
+function TalkThumb({ talk, more }: { talk: ExerciseTalk; more: number }) {
+  return (
+    <span aria-hidden="true" className="relative shrink-0">
+      {talk.poster_url ? (
+        <Poster src={talk.poster_url} className="block aspect-[4/5] w-9 rounded-lg" />
+      ) : (
+        <span className="flex aspect-[4/5] w-9 items-center justify-center rounded-lg bg-ink/6 text-ink/30">
+          <Mic className="h-3.5 w-3.5" strokeWidth={1.5} />
+        </span>
+      )}
+      {more > 0 && (
+        <span className="absolute -bottom-1 -right-1.5 rounded-full bg-ink px-1 text-[10px] font-semibold leading-[14px] text-white ring-2 ring-white">
+          +{more}
+        </span>
+      )}
+    </span>
+  );
+}
 
 /**
  * Vídeos hablados: go through the exercises (built for the phone, one by one), see which have
@@ -50,7 +72,6 @@ export function TalksView({
   setOpenId: (id: string | null) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('missing');
   const [note, setNote] = useState('');
   const [jobs, setJobs] = useState<TalkJob[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -63,7 +84,6 @@ export function TalksView({
   const query = searchable(searchQuery.trim());
   const searched = query ? exercises.filter((ex) => searchable(ex.title).includes(query)) : exercises;
   const missingCount = exercises.filter((ex) => ex.talks.length === 0).length;
-  const visible = filter === 'missing' ? searched.filter((ex) => ex.talks.length === 0) : searched;
   const current = openId ? exercises.find((ex) => ex.id === openId) ?? null : null;
 
   const pendingJobs = (exerciseId: string) =>
@@ -158,52 +178,29 @@ export function TalksView({
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <label className="relative block flex-1">
-          <span className="sr-only">Buscar ejercicio</span>
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/40" aria-hidden="true" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar ejercicio"
-            className="h-12 w-full rounded-full bg-ink/6 pl-11 pr-4 text-[16px] placeholder:text-ink/40 focus:outline-2 focus:outline-ink"
-          />
-        </label>
-        <div role="radiogroup" aria-label="Filtro" className="flex h-12 shrink-0 rounded-full bg-ink/6 p-1">
-          {([
-            ['missing', `Sin vídeo hablado (${missingCount})`],
-            ['all', 'Todos'],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={filter === value}
-              onClick={() => setFilter(value)}
-              className={`flex-auto whitespace-nowrap rounded-full px-4 text-[14px] font-semibold ${filter === value ? 'bg-white text-ink shadow-sm' : 'text-ink/55'} ${FOCUS}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <label className="relative block">
+        <span className="sr-only">Buscar ejercicio</span>
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/40" aria-hidden="true" />
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Buscar ejercicio"
+          className="h-12 w-full rounded-full bg-ink/6 pl-11 pr-4 text-[16px] placeholder:text-ink/40 focus:outline-2 focus:outline-ink"
+        />
+      </label>
 
       {loading ? (
         <p className="flex items-center justify-center gap-2 py-16 text-ink/55">
           <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> Cargando…
         </p>
-      ) : visible.length === 0 ? (
+      ) : searched.length === 0 ? (
         <p className="py-16 text-center text-ink/55">
-          {exercises.length === 0
-            ? 'Aún no hay ejercicios. Súbelos en «Vídeos».'
-            : filter === 'missing' && !query
-              ? 'Todos los ejercicios tienen vídeo hablado.'
-              : 'Nada con ese nombre.'}
+          {exercises.length === 0 ? 'Aún no hay ejercicios. Súbelos en «Vídeos».' : 'Nada con ese nombre.'}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {visible.map((ex) => {
+          {searched.map((ex) => {
             const busy = pendingJobs(ex.id);
             return (
               <li key={ex.id}>
@@ -212,18 +209,18 @@ export function TalksView({
                   onClick={() => open(ex.id)}
                   className={`flex w-full items-center gap-3 rounded-2xl bg-white p-2 pr-4 text-left ${FOCUS}`}
                 >
-                  <Poster src={ex.poster_url} className="aspect-[4/5] w-12 shrink-0 rounded-lg" />
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <Poster src={ex.poster_url} className="aspect-[4/5] w-12 rounded-lg" />
+                    {ex.talks.length > 0 && <TalkThumb talk={ex.talks[0]} more={ex.talks.length - 1} />}
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[16px] font-semibold">{ex.title}</span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-[13px] font-medium text-ink/55">
-                      {busy > 0 ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Subiendo {busy}…
-                        </>
-                      ) : (
-                        talkCountLabel(ex.talks.length)
-                      )}
-                    </span>
+                    {ex.talks.length > 0 && <span className="sr-only">{talkCountLabel(ex.talks.length)}</span>}
+                    {busy > 0 && (
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[13px] font-medium text-ink/55">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Subiendo {busy}…
+                      </span>
+                    )}
                   </span>
                   <ChevronRight className="h-5 w-5 shrink-0 text-ink/30" aria-hidden="true" />
                 </button>
