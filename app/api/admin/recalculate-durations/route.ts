@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 interface DurationResult {
   id: string;
   title: string;
-  kind: 'exercise' | 'talk';
+  kind: 'exercise' | 'talk' | 'rest';
   previousDuration: number;
   newDuration: number | null;
   status: 'updated' | 'unchanged' | 'error';
@@ -19,8 +19,8 @@ interface DurationResult {
 }
 
 /**
- * Read the real length of every exercise clip and every vídeo hablado with ffprobe (headers
- * only) and fix the catalog where it disagrees, in a single write at the end.
+ * Read the real length of every exercise clip, every vídeo hablado and every rest video with
+ * ffprobe (headers only) and fix the catalog where it disagrees, in a single write at the end.
  */
 export async function POST(req: NextRequest) {
   const denied = guardStudioApi(req);
@@ -28,16 +28,26 @@ export async function POST(req: NextRequest) {
 
   try {
     const catalog = await readCatalog();
-    const targets = catalog.exercises.flatMap((exercise) => [
-      { id: exercise.id, title: exercise.title, kind: 'exercise' as const, url: exercise.video_url, duration: exercise.duration_seconds },
-      ...exercise.talks.map((talk) => ({
-        id: talk.id,
-        title: `Vídeo hablado · ${exercise.title}`,
-        kind: 'talk' as const,
-        url: talk.video_url,
-        duration: talk.duration_seconds,
+    const targets: { id: string; title: string; kind: DurationResult['kind']; url: string; duration: number }[] = [
+      ...catalog.exercises.flatMap((exercise) => [
+        { id: exercise.id, title: exercise.title, kind: 'exercise' as const, url: exercise.video_url, duration: exercise.duration_seconds },
+        ...exercise.talks.map((talk) => ({
+          id: talk.id,
+          title: `Vídeo hablado · ${exercise.title}`,
+          kind: 'talk' as const,
+          url: talk.video_url,
+          duration: talk.duration_seconds,
+        })),
+      ]),
+      // the rest videos (absent in catalogs written before they existed)
+      ...(catalog.rests ?? []).map((rest) => ({
+        id: rest.id,
+        title: `Descanso · ${rest.title}`,
+        kind: 'rest' as const,
+        url: rest.video_url,
+        duration: rest.duration_seconds,
       })),
-    ]);
+    ];
 
     const results: DurationResult[] = [];
     const changes = new Map<string, number>();
@@ -77,6 +87,10 @@ export async function POST(req: NextRequest) {
             if (talkDuration !== undefined) talk.duration_seconds = talkDuration;
           }
         }
+        for (const rest of fresh.rests ?? []) {
+          const restDuration = changes.get(`rest:${rest.id}`);
+          if (restDuration !== undefined) rest.duration_seconds = restDuration;
+        }
       });
     }
 
@@ -89,6 +103,7 @@ export async function POST(req: NextRequest) {
       failed: results.filter((r) => r.status === 'error').length,
       exercises: { total: count('exercise'), updated: count('exercise', 'updated'), failed: count('exercise', 'error') },
       talks: { total: count('talk'), updated: count('talk', 'updated'), failed: count('talk', 'error') },
+      rests: { total: count('rest'), updated: count('rest', 'updated'), failed: count('rest', 'error') },
       results,
     });
   } catch (err: unknown) {
