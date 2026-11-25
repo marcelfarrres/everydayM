@@ -790,6 +790,9 @@ export const AWAY_POSE = TAKEOFF_KEYFRAMES[TAKEOFF_KEYFRAMES.length - 1];
 /** How far it runs past its place before it pulls back (it leaves the screen a little that way). */
 export const RUN_PAST = '22vw';
 
+/** The part of its way back at which it goes through its place at speed and starts to brake. */
+export const RETURN_BRAKE_AT = 0.44;
+
 /**
  * Gone → parked: from the depth at the left, growing, fast; it runs past its place and off the right
  * edge a little (squashed by the brake), pulls back past it the other way, and eases into it.
@@ -800,7 +803,7 @@ export const RETURN_KEYFRAMES: FlightKeyframe[] = [
   { offset: 0.06, transform: pose({ x: '-52vw', y: '-25vh', s: 0.28, rz: 27, ry: -58 }), opacity: 1, easing: 'cubic-bezier(0.3, 0.1, 0.6, 1)' },
   { offset: 0.34, transform: pose({ x: '-14vw', y: '-5vh', s: 0.82, rz: 8, ry: -18 }), opacity: 1, easing: 'linear' },
   // through its place at speed...
-  { offset: 0.44, transform: pose({ x: '0px', y: '-1px', rz: -1, sx: 1.04, sy: 0.97 }), opacity: 1, easing: 'cubic-bezier(0.2, 0.6, 0.35, 1)' },
+  { offset: RETURN_BRAKE_AT, transform: pose({ x: '0px', y: '-1px', rz: -1, sx: 1.04, sy: 0.97 }), opacity: 1, easing: 'cubic-bezier(0.2, 0.6, 0.35, 1)' },
   // ...past it and off the right edge, braking
   { offset: 0.58, transform: pose({ x: RUN_PAST, y: '-2px', rz: -3, sx: 0.95, sy: 1.05 }), opacity: 1, easing: 'cubic-bezier(0.5, 0, 0.3, 1)' },
   // it pulls back, a little past the other way

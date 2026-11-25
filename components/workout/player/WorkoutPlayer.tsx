@@ -6,6 +6,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { ChalkBoard } from '@/components/workout/ChalkBoard';
 import { CLOUDS, CloudTransition } from '@/components/workout/CloudTransition';
 import { BLOCK_END, FLIGHT, PARKED_AFTER_CLOUDS_MS, POD, blockEnds, cloudExtraMs, cloudsFor, railTop } from '@/components/workout/rocketFlight';
+import { stopAllSfx } from '@/lib/audio/sfx';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
@@ -125,6 +126,9 @@ export function WorkoutPlayer({
   }, [onTogglePause, handleNext, handlePrev]);
 
   useCountdownBeep(timeLeft, beepOn && !isPaused && kind !== 'outro');
+
+  // Leaving the player: no effect goes on sounding.
+  useEffect(() => stopAllSfx, []);
 
   // Background music: started in the "Empezar" tap, paused with the player, stopped on exit.
   usePlayerMusic(isPaused);

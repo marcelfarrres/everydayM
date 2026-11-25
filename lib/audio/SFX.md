@@ -9,6 +9,7 @@ Tabla de sonidos y niveles (para ajustar de oído): `sfxRecipes.ts`. Reglas pura
   Sirve tal cual en un efecto: `useEffect(() => startSfxLoop('slowMo'), [])`.
 - `stopAllSfx()`: silencio inmediato (al salir del reproductor).
 - Antes del toque de «Empezar», en el servidor o sin Web Audio: todo es no-op.
+- `sfxCue(at, play)` (`sfxCue.ts`): un sonido en la línea de tiempo de las animaciones (se pausa y se cancela como ellas). Los del cohete salen de `flightSounds` (`components/workout/rocketSounds.ts`).
 
 ## Volumen, silencio y vídeos hablados
 - Siguen solos al volumen y al silencio de la música (menú «···»), sin cablear nada.

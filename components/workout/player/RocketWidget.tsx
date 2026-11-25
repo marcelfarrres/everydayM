@@ -53,6 +53,9 @@ import {
   type Flight,
 } from '@/components/workout/rocketFlight';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
+import { flightSounds, rumbleIntensity, type FlightSounds } from '@/components/workout/rocketSounds';
+import { playSfx, startSfxLoop, type SfxLoopStop } from '@/lib/audio/sfx';
+import { sfxCue } from '@/lib/audio/sfxCue';
 import type { RoutineItem } from '@/types/workout';
 import { RepairCrew } from './RepairCrew';
 import { SeriesList } from './SeriesList';
@@ -191,6 +194,9 @@ export function RocketWidget({
   const puffsEl = useRef<HTMLDivElement>(null);
   const podEl = useRef<HTMLDivElement>(null);
   const sparkleEl = useRef<HTMLDivElement>(null);
+  // the engine's rumble before a takeoff (its loop is handed to the flight, which stops it at the launch)
+  const rumbleRef = useRef<SfxLoopStop | null>(null);
+  const [sounds] = useState(() => new FlightSoundPlayer());
   const flight = useRocketFlight({
     els: { flightEl, liftEl, squashEl, flameEl, puffsEl, podEl, sparkleEl },
     spotOf: () => cloudSpot(root.current, L, cloudTop),
@@ -199,7 +205,15 @@ export function RocketWidget({
     queue,
     currentIndex,
     reduced,
+    sounds,
+    rumbleRef,
   });
+  useEffect(() => sounds.setPaused(isPaused), [sounds, isPaused]);
+  useEffect(() => {
+    // (React's dev double mount: what is still to come is put back on the timeline)
+    sounds.remount();
+    return () => sounds.clear();
+  }, [sounds]);
   useInertWhileAway(root, flight, cloudKey, ending, queue, currentIndex, reduced);
 
   // ---- the list's 5 s: restarted by any touch, wheel or scroll inside the widget
@@ -229,6 +243,22 @@ export function RocketWidget({
   const warned = launching && timeLeft <= FLIGHT.warningS && ignition === 0;
   const engine = launching ? engineShake(timeLeft) : { amp: 0, period: SHAKE.period[0] };
   const shaking = engine.amp > 0 && !isPaused;
+  // ...and its sound, from the same 10 s, louder each second, silent while paused
+  const rumbling = launching && timeLeft <= FLIGHT.warningS && !isPaused;
+  useEffect(() => {
+    if (!rumbling) return;
+    const loop = startSfxLoop('engineRumble');
+    rumbleRef.current = loop;
+    return () => {
+      // (unless the flight has taken it over to stop it as the rocket shoots off)
+      if (rumbleRef.current !== loop) return;
+      rumbleRef.current = null;
+      loop();
+    };
+  }, [rumbling]);
+  useEffect(() => {
+    if (rumbling) rumbleRef.current?.setIntensity(rumbleIntensity(timeLeft));
+  }, [rumbling, timeLeft]);
   const shake = (amp: number) => ({ '--rw-amp': amp, '--rw-shake-s': `${engine.period}s` }) as CSSProperties;
   const toggleList = () => onListOpenChange(!listOpen);
   const showRestTime = shown?.kind === 'rest' && !restCountdown && !clockTab && live;
@@ -500,6 +530,7 @@ function usePrelaunch(on: boolean, at: number, paused: boolean, flightEl: RefObj
     // the banner folds in first, and only then does the rocket move (its crouch)
     const crouchMs = PRELAUNCH.leadS * 1000;
     banner.animate(podRetractKeyframes(), { id: FOLD_ID, duration: POD.outMs, fill: 'forwards' });
+    playSfx('banner');
     node.animate(PRELAUNCH_KEYFRAMES, { id: CROUCH_ID, duration: crouchMs, delay: (PRELAUNCH.foldLeadS - PRELAUNCH.leadS) * 1000, fill: 'forwards' });
   }, [on, at, flightEl, podEl]);
   useLayoutEffect(() => {
@@ -519,6 +550,8 @@ function useRocketFlight({
   queue,
   currentIndex,
   reduced,
+  sounds,
+  rumbleRef,
 }: {
   els: FlightEls;
   /** its place in the clouds, measured now */
@@ -528,6 +561,10 @@ function useRocketFlight({
   queue: RoutineItem[];
   currentIndex: number;
   reduced: boolean;
+  /** the flight's sounds, put on the timeline with it */
+  sounds: FlightSoundPlayer;
+  /** the engine's rumble, if it is on: the flight stops it as the rocket shoots off */
+  rumbleRef: RefObject<SfxLoopStop | null>;
 }): RefObject<Flight> {
   const flight = useRef<Flight>(PARKED);
   const seen = useRef<{ cloudKey: number; ending: boolean; queue: RoutineItem[]; item: RoutineItem | undefined } | null>(null);
@@ -565,6 +602,7 @@ function useRocketFlight({
       if (phaseAt(flight.current, now) !== 'parked') return;
       if (prev.item?.kind === 'rest' && isExercise(item)) {
         // the end of a rest: "¡pam!", it drops off its stands into its place, and it is ready
+        playSfx('pam');
         if (reduced) {
           el.pod.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 200 });
         } else {
@@ -617,7 +655,17 @@ function useRocketFlight({
     // (a banner already folded in by the last second stays folded)
     const start: LaunchStart = crouched ? 'crouched' : Number(getComputedStyle(el.pod).opacity) < 0.5 ? 'folded' : 'open';
     playFlight(next, now, reduced, start, { flight: el.flight, lift: el.lift, squash: el.squash, flame: el.flame, pod: el.pod }, () => spot.current());
-  }, [cloudKey, ending, queue, currentIndex, reduced]);
+    // its sounds, on the same timeline (with reduced motion nothing flies: no sound)
+    const engine = rumbleRef.current;
+    rumbleRef.current = null;
+    if (reduced) {
+      engine?.();
+      sounds.clear();
+    } else {
+      sounds.play(flightSounds(next, start), engine);
+    }
+    // (`sounds` and `rumbleRef` never change)
+  }, [cloudKey, ending, queue, currentIndex, reduced, sounds, rumbleRef]);
 
   return flight;
 }
@@ -653,6 +701,91 @@ function useInertWhileAway(root: RefObject<HTMLDivElement | null>, flight: RefOb
     };
     // (the moment's parts aren't read here: they are what can start a flight, so it re-syncs after each)
   }, [root, flight, cloudKey, ending, queue, currentIndex, reduced]);
+}
+
+/**
+ * The sounds of the flight in course (rocketSounds.ts), as cues on the animation timeline: each
+ * one at the moment its animation does the thing. A new flight replaces them. Paused with the
+ * routine: no hits, and the slow-motion loop stops (and goes on if the slow rise still lasts).
+ */
+class FlightSoundPlayer {
+  private paused = false;
+  private plan: FlightSounds | null = null;
+  private live = false;
+  private cues: Animation[] = [];
+  private slow: SfxLoopStop | null = null;
+  private engine: SfxLoopStop | null = null;
+
+  /** A new flight. `engine`: the rumble before it, stopped as the rocket shoots off. */
+  play(plan: FlightSounds, engine: SfxLoopStop | null) {
+    this.clear();
+    this.plan = plan;
+    if (engine) {
+      if (plan.launchAt !== null && plan.launchAt > performance.now() && this.cue(plan.launchAt, () => this.stopEngine())) this.engine = engine;
+      else engine();
+    }
+    this.schedule();
+  }
+
+  /** Back after React's dev double mount: what is still to come goes on the timeline again. */
+  remount() {
+    if (!this.live && this.plan) this.schedule();
+  }
+
+  setPaused(paused: boolean) {
+    this.paused = paused;
+    this.syncSlow();
+  }
+
+  /** Nothing more of this flight sounds. */
+  clear() {
+    this.cues.forEach((c) => c.cancel());
+    this.cues = [];
+    this.live = false;
+    this.slow?.();
+    this.slow = null;
+    this.stopEngine();
+  }
+
+  private schedule() {
+    const plan = this.plan;
+    if (!plan) return;
+    this.live = true;
+    for (const { at, sfx } of plan.hits) {
+      this.cue(at, () => {
+        if (!this.paused) playSfx(sfx);
+      });
+    }
+    if (plan.slowMo) {
+      this.cue(plan.slowMo[0], () => this.syncSlow());
+      this.cue(plan.slowMo[1], () => this.syncSlow());
+      this.syncSlow();
+    }
+  }
+
+  private cue(at: number, fn: () => void): boolean {
+    const c = sfxCue(at, fn);
+    if (c) this.cues.push(c);
+    return c !== null;
+  }
+
+  private stopEngine() {
+    this.engine?.();
+    this.engine = null;
+  }
+
+  /** The slow-motion loop is on exactly while the slow rise lasts (and the routine isn't paused). */
+  private syncSlow() {
+    const span = this.plan?.slowMo;
+    const now = performance.now();
+    // (a cue fires a frame after its moment at most: the margin keeps the start and the end apart)
+    const on = this.live && !this.paused && !!span && now >= span[0] - 50 && now < span[1] - 50;
+    if (on && !this.slow) this.slow = startSfxLoop('slowMo');
+    else if (!on && this.slow) {
+      this.slow();
+      this.slow = null;
+    }
+  }
 }
 
 /** Puts the whole of a flight on the timeline, from now: leaving (if it does), and coming back (if it does). */
@@ -939,6 +1072,7 @@ function FallingPiece({ g, piece, x, hilo, onDone }: { g: ShipGeometry; piece: P
       { duration: FLIGHT.dropFallMs, fill: 'forwards' },
     );
     fall.onfinish = onDone;
+    playSfx('separate');
     Array.from(puffs.current?.children ?? []).forEach((puff, i) =>
       (puff as HTMLElement).animate(sputterPuffKeyframes(i ? -14 : 6, i ? 16 : -18), { duration: 900, delay: i * 120, easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)', fill: 'both' }),
     );

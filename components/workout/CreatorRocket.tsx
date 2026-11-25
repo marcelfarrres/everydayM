@@ -6,6 +6,8 @@ import { HOP, LAUNCH_OFFSCREEN_AT, POD, launchKeyframes, podPopKeyframes, podRet
 import { BANNER, SHIP, shipGeometry, widgetLayout } from '@/components/workout/rocketShape';
 import type { StepState } from '@/components/workout/player/model';
 import { useRocketWidth } from '@/components/workout/player/hooks';
+import { playSfx } from '@/lib/audio/sfx';
+import { sfxCue } from '@/lib/audio/sfxCue';
 
 /*
  * The rocket of the routine creator (phone only): the same drawing as the player's (RocketShip),
@@ -43,6 +45,8 @@ export function launchRocket(el: HTMLElement | null, { ms, tilt = 0, text }: { m
   if (window.matchMedia(DESKTOP).matches || window.matchMedia(REDUCED).matches) return 0;
   const rect = el.getBoundingClientRect();
   if (rect.width === 0) return 0;
+  // (inside the tap: it may wake the sound up)
+  playSfx('ignite', { gesture: true });
   const clone = flyingCopy(el, rect, text);
   document.body.appendChild(clone);
   const pod = clone.querySelector<HTMLElement>('[data-pod]');
@@ -344,7 +348,12 @@ export function LaunchRocket({
       );
     });
     banner.current.animate(podPopKeyframes(), { duration: POD.inMs, delay: done, fill: 'backwards' });
-    // (once, when it appears; not cancelled, so React's dev double mount doesn't lose it)
+    // each piece clacks into place as the whole rocket takes its knock
+    const now = performance.now();
+    const clacks = pieces.map((_, i) => sfxCue(now + i * ASSEMBLY.stepMs + ASSEMBLY.pieceMs * 0.6, () => playSfx('clack')));
+    // (the animations play once, when it appears; not cancelled, so React's dev double mount doesn't
+    // lose them; the sounds go if it does, and come again with the second mount)
+    return () => clacks.forEach((cue) => cue?.cancel());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

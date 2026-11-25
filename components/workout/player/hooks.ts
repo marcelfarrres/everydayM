@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { playCountdownBeep } from '@/lib/audio';
+import { playSfx } from '@/lib/audio/sfx';
 
 /** `value`, but `ms` later (at once when `ms` is 0): lets a change happen behind the clouds instead of before them. */
 export function useLagged<T>(value: T, ms: number): T {
@@ -59,7 +59,7 @@ export function useCountdownBeep(timeLeft: number, enabled: boolean) {
     if (timeLeft > 0 && timeLeft <= 3) {
       if (last.current !== timeLeft) {
         last.current = timeLeft;
-        playCountdownBeep(timeLeft);
+        playSfx(timeLeft === 1 ? 'beepFinal' : 'beep');
         Haptics.impact({ style: timeLeft === 1 ? ImpactStyle.Heavy : ImpactStyle.Light }).catch(() => {});
       }
     } else {
