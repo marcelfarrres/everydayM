@@ -162,7 +162,7 @@ export function RocketWidget({
   listOpen: boolean;
   onListOpenChange: (open: boolean) => void;
   restCountdown: boolean;
-  /** the rest's clock is a tab on the banner (a rest with talks): the banner doesn't repeat it */
+  /** a long rest (its talks, or the rest video): the rest's clock (RestClock) stands in the first panel, which doesn't repeat it */
   clockTab: boolean;
   /** where its nose stands in the clouds, % of the screen's height (railTop) */
   cloudTop: number;

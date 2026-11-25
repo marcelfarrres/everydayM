@@ -60,7 +60,7 @@ export function getTalkRestSeconds(talkSeconds: number, leadMs: number = TALK_LE
   return talkSeconds > 0 ? Math.ceil(talkSeconds + leadMs / 1000) : 0;
 }
 
-/** The rest between one block and the next lasts at least this long (s): clouds, talks, a preview of the block. */
+/** The rest between one block and the next lasts at least this long (s): clouds, talks, the rest video. */
 export const BETWEEN_BLOCKS_MIN_SECONDS = 60;
 
 /** The talk time a rest between blocks can hold within its minimum (s): what is left once the clouds open. */

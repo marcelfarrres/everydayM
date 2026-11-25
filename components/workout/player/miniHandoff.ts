@@ -1,7 +1,7 @@
 import { panelLayout, type WidgetLayout } from '@/components/workout/rocketShape';
 
 /*
- * Phone, a long rest with talks: the next exercise plays in a small window over the rocket's first
+ * Phone, a long rest (its talks, or the rest video): the next exercise plays in a small window over the rocket's first
  * panel; it slides up out of the rocket just after the panels (from behind the first one). In the talk's
  * last seconds the window swells a little, calmly, and waits. When the talk ends it fades to black
  * (the picture only), and then that same video simply grows to the whole screen and the exercise

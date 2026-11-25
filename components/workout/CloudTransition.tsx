@@ -299,7 +299,7 @@ export function CloudTransition({
           </div>
           {/* the words, beside the nose. Their top is by the nose, unless they would run off the
               bottom of a short screen: then the space above them gives way (the spacer shrinks). */}
-          {/* (phone: the column ends above the widget's banner, whatever the banner is doing) */}
+          {/* (phone: the column ends above the widget's box, whatever its panels are doing) */}
           <div
             className="absolute left-10 top-0 flex w-[calc(66vw-3.5rem)] flex-col sm:left-14 sm:w-[min(50vw,24rem)]"
             style={{ bottom: phone ? MINI.BOTTOM + widgetLayout(width).box : 0 }}

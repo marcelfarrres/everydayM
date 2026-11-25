@@ -14,10 +14,10 @@ import { layoutSpot } from './ui';
  *            rocket stands on the left), in ink: the rest is already counting
  *   center   as the clouds open it slides from there to its place in the middle, giant, white on
  *            the dark veil over the next exercise, with "Empiezas en" above it
- *   hidden   a long rest's talks are playing and the rocket's panels are not out yet: it fades
- *            out as the clouds open...
+ *   hidden   a long rest (its talks, or the rest video) and the rocket's panels are not out yet:
+ *            it fades out as the clouds open...
  *   side     ...and comes back with the panels, as part of them: in the first one, where its time
- *            would be, in ink (the panel then leaves that place to it); to the middle when the talks end
+ *            would be, in ink (the panel then leaves that place to it), until the rest ends
  *
  * The slide is a transform from where it stands in the middle (measured once per change, without
  * transforms) to the column of the clouds or the side; the colour changes as a cross-fade of two copies, so
@@ -96,7 +96,7 @@ export function RestClock({
 
   const inClouds = phase === 'clouds';
   const side = phase === 'side';
-  // (in ink in the clouds and on its tab, white on the veil)
+  // (in ink in the clouds and in the panel, white on the veil)
   const ink = inClouds || side;
   const fade = reduced ? 'none' : 'opacity 0.6s ease';
   // "Empiezas en" and the next exercise come in only once the number has slid (1 s) to the middle:

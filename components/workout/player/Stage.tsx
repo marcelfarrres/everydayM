@@ -76,7 +76,7 @@ export function Stage({
 }) {
   const item = queue[displayIndex];
   const live = displayIndex === currentIndex;
-  // (the rocket the window's mast comes out of: what is left of it, as the widget draws it)
+  // (the rocket the window slides out of: what is left of it, as the widget draws it)
   const stack = useMemo(() => rocketStack(queue, displayIndex), [queue, displayIndex]);
 
   const fadeIn = reduced
@@ -281,7 +281,7 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
 
 /**
  * One exercise's picture: the whole screen, or (`small`) the window of the next exercise above
- * the banner. From small to whole it grows: the same element and video, nothing reloads.
+ * the rocket's first panel. From small to whole it grows: the same element and video, nothing reloads.
  */
 function ClipLayer({
   small,

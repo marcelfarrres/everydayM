@@ -41,7 +41,7 @@ Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`.
 | `separate` | ambiente | Cada vez que se suelta un tramo o los propulsores. |
 | `boost` | ambiente | Al acelerar y salir por arriba de las nubes. |
 | `land` | ambiente | Al volver y empezar a frenar (el derrape va primero; el golpe cae a los 0,24 s). |
-| `banner` | ambiente | Al sacar la pancarta y otra vez al recogerla. |
+| `banner` | ambiente | Al sacar los paneles de la barra del cohete (móvil) y otra vez al recogerlos. |
 | `pam` | ambiente | En el fotograma en que el cohete toca el suelo al caer de los caballetes. |
 | `clack` | ambiente | Cada vez que una pieza encaja al montar el cohete. |
 | `ignite` | ambiente | En el toque de un cohete-botón, con `{ gesture: true }`. |

@@ -60,7 +60,7 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
  * What a rest shows full screen:
  *   talks      a long rest's vídeos hablados, until they have played (`talksDone` is the rest whose talks finished)
  *   resting    phone, a long rest with no talk speaking: the rest video (Marcel resting), looped,
- *              with the next exercise in the small window and the clock in the banner's tab
+ *              with the next exercise in the small window and the clock in the rocket's first panel
  *   countdown  the next exercise looping behind a dark veil with the giant countdown (short rests;
  *              on a computer also a long rest once its talks are done)
  * Null if not a rest.
