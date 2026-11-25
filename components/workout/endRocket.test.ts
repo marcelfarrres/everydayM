@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { END_ROCKET, endFrame, endShip } from './endRocket';
+import { END_ROCKET, boosterSlide, endFrame, endShip } from './endRocket';
+import { stackGeometry } from './rocketShape';
 
 describe('endFrame', () => {
   it('fits the finished rocket across the screen, its stages never shorter or longer than allowed', () => {
@@ -25,14 +26,24 @@ describe('endShip', () => {
     expect(shift).toBeLessThan(0);
   });
 
-  it('carries the boosters on that same stage, wherever the tail is', () => {
-    const one = endShip(frame, 4, 1, true).g;
-    const all = endShip(frame, 4, 4, true).g;
-    expect(one.boosters).not.toBeNull();
-    expect(all.boosters).toEqual(one.boosters);
-    const front = all.segments.at(-1)!;
-    expect(all.boosters!.x0).toBeGreaterThanOrEqual(front.start);
-    expect(all.boosters!.x1).toBeLessThanOrEqual(front.end);
+  it('puts the boosters on the tail end, and the finished rocket is the routine’s rocket at its start', () => {
+    for (let on = 1; on <= 4; on++) {
+      const g = endShip(frame, 4, on, true).g;
+      expect(g.boosters!.x0).toBeCloseTo(g.x0 + 4, 5);
+      expect(g.boosters!.x1).toBeLessThanOrEqual(g.xs);
+    }
+    // complete: exactly where the routine's rocket had them (along the tail half of the whole rocket)
+    expect(endShip(frame, 4, 4, true).g.boosters).toEqual(stackGeometry({ width: frame, blocks: 4, boosters: true }).boosters);
+  });
+
+  it('slides the boosters back to the new tail as each stage joins', () => {
+    expect(boosterSlide(frame, 4, 1)).toBeNull();
+    for (let on = 2; on <= 4; on++) {
+      const slide = boosterSlide(frame, 4, on)!;
+      const dx = Number(/translateX\((-?[\d.]+)px\)/.exec(slide.from)![1]);
+      // (they were further forward: a stage's length)
+      expect(dx).toBeCloseTo(seg, 0);
+    }
   });
 
   it('adds each stage at the tail, the others staying where they were, and is centred once complete', () => {
@@ -43,10 +54,9 @@ describe('endShip', () => {
     expect(endShip(frame, 4, 4, false).shift).toBeCloseTo(0);
   });
 
-  it('keeps the boosters of a short stage on it too', () => {
+  it('keeps the boosters of a short one-stage rocket short of its nose', () => {
     const small = endFrame(320, 6);
-    const g = endShip(small.frame, 6, 6, true).g;
-    const front = g.segments.at(-1)!;
-    expect(g.boosters!.x1).toBeLessThanOrEqual(front.end);
+    const g = endShip(small.frame, 6, 1, true).g;
+    expect(g.boosters!.x1).toBeLessThanOrEqual(g.xs);
   });
 });

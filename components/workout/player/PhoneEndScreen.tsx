@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import { FlameDrawing, RocketShip, flameBox } from '@/components/workout/RocketShip';
-import { endFrame, endShip } from '@/components/workout/endRocket';
+import { boosterSlide, endFrame, endShip } from '@/components/workout/endRocket';
+import { hyphenateEs } from '@/lib/hyphenate';
 import { getMusicEngine } from '@/lib/audio/music';
 import { playSfx, startSfxLoop, stopAllSfx, type SfxLoopStop } from '@/lib/audio/sfx';
 import type { Exercise, RoutineItem, RoutineMeta } from '@/types/workout';
@@ -247,6 +248,19 @@ export function PhoneEndScreen({
       node.style.transformOrigin = node instanceof SVGElement && seg ? `${(seg.start + seg.end) / 2}px ${g.cy}px` : '50% 50%';
       plays.push(playAt(node, joinKeyframes(piece), t0, joinAt, { duration: END.joinMs, fill: 'backwards' }));
     });
+    // (a new stage at the tail takes the boosters back with it: they slide to the new tail end as it comes in)
+    const slide = piece === 'stage' && now.boosters ? boosterSlide(frame, total, now.stages) : null;
+    if (slide) {
+      el.querySelectorAll<HTMLElement | SVGElement>('[data-piece="boosters"]').forEach((node) => {
+        node.style.transformOrigin = slide.origin;
+        plays.push(
+          playAt(node, [{ transform: slide.from, easing: 'cubic-bezier(0.3, 0, 0.4, 1)' }, { transform: 'none' }], t0, joinAt, {
+            duration: END.impactMs,
+            fill: 'backwards',
+          }),
+        );
+      });
+    }
     plays.push(
       playAt(
         el,
@@ -457,19 +471,19 @@ function Tile({ exercise, fit, crossed, reduced }: { exercise: Exercise; fit: Li
         )}
         {names === 'over' && (
           <span
-            className="absolute inset-x-0 bottom-0 line-clamp-2 px-1 pb-0.5 pt-3 text-[10px] font-medium leading-[12px]"
+            className="absolute inset-x-0 bottom-0 line-clamp-2 px-[2px] pb-0.5 pt-3 text-[10px] font-medium leading-[12px] tracking-[-0.01em] text-balance [hyphens:manual] [overflow-wrap:anywhere]"
             style={{ background: 'linear-gradient(to top, rgb(0 0 0 / 0.85), transparent)', color: crossed ? 'rgb(255 255 255 / 0.7)' : '#fff' }}
           >
-            {exercise.title}
+            {hyphenateEs(exercise.title)}
           </span>
         )}
       </div>
       {names === 'below' && (
         <span
-          className="mt-[3px] block line-clamp-2 text-[11px] leading-[13px]"
+          className="mt-[3px] block line-clamp-2 text-[11px] leading-[13px] text-balance [hyphens:manual] [overflow-wrap:anywhere]"
           style={{ color: crossed ? 'rgb(255 255 255 / 0.5)' : 'rgb(255 255 255 / 0.85)', transition: reduced ? undefined : 'color 300ms' }}
         >
-          {exercise.title}
+          {hyphenateEs(exercise.title)}
         </span>
       )}
       <Strike width={tile} height={tileH} on={crossed} reduced={reduced} />
