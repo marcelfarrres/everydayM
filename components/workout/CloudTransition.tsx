@@ -8,7 +8,7 @@ import { CLOUD_CLOCK_PX } from '@/components/workout/player/RestClock';
 import { useRocketWidth } from '@/components/workout/player/hooks';
 import { MINI } from '@/components/workout/player/miniHandoff';
 import { widgetLayout } from '@/components/workout/rocketShape';
-import { CLOUDS, CLOUD_TIMING, badgeAt, luegoFade, railTop, sentenceAt, sentenceFade, wordsAt } from '@/components/workout/rocketFlight';
+import { CLOUDS, CLOUD_TIMING, badgeAt, cloudsOpenAt, luegoFade, railTop, sentenceAt, sentenceFade, wordsAt } from '@/components/workout/rocketFlight';
 
 /*
  * When a rest begins, real clouds close in from both sides and then part outwards (like
@@ -63,6 +63,8 @@ const DRIFT = { l: 'translateX(4%) scale(1)', r: 'translateX(-4%) scale(1)' } as
 const GONE = { l: 'translateX(-120%) scale(1.2)', r: 'translateX(120%) scale(1.2)' } as const;
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The calm version's fades (reduced motion): its background in and out, s. */
+const CALM_FADE_S = 0.4;
 // (The rail, railTop, runs from 66% (start) to 22% (done) of the screen height: even at the start
 // most of the rocket is on screen.)
 const INK = '#131313';
@@ -164,7 +166,32 @@ export function CloudTransition({
   useEffect(() => {
     if (lastKey.current === playKey) return;
     lastKey.current = playKey;
-    if (reduced) return;
+    if (reduced) {
+      // Reduced motion: no clouds, nothing flies. Only after a block on a phone, a calm version:
+      // the same sentences, one at a time, fading on a still background (the clouds' white),
+      // on the same clock and for as long as the clouds would have lasted.
+      if (!phone || !blockEnd) return;
+      const id = ++run.current;
+      const total = CLOUDS.clearMs + extraMs;
+      const openAt = cloudsOpenAt(extraMs);
+      const calm = async () => {
+        if (clockHost.current) startCloudClock(clockHost.current, playKey, total);
+        animate(scope.current, { visibility: 'visible' }, { duration: 0 });
+        animate('.cl-flight', { opacity: [1, 1] }, { duration: 0 });
+        animate('.cl-rail', { opacity: [0, 1] }, { duration: CALM_FADE_S });
+        animate('.cl-fog', { opacity: [0, 1] }, { duration: CALM_FADE_S });
+        await wait(Math.max(0, openAt));
+        if (id !== run.current) return;
+        const out = Math.max(0.1, Math.min(CALM_FADE_S, (total - openAt) / 1000));
+        animate('.cl-fog', { opacity: [1, 0] }, { duration: out });
+        animate('.cl-flight', { opacity: [1, 0] }, { duration: out });
+        await wait(Math.max(0, total - openAt));
+        if (id !== run.current) return;
+        animate(scope.current, { visibility: 'hidden' }, { duration: 0 });
+      };
+      void calm();
+      return;
+    }
     const id = ++run.current;
     // the rocket's box is as tall as the screen, so a percentage moves it by screen heights:
     // start with the nose just under the bottom edge

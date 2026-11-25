@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronUp, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 import { FlameDrawing, RocketShip, boxStyle, flameBox, type Piece } from '@/components/workout/RocketShip';
@@ -9,7 +9,9 @@ import {
   PANEL,
   SHIP,
   lookTransform,
+  nameLineHeight,
   panelLayout,
+  panelRise,
   stackGeometry,
   widgetLayout,
   type LookPair,
@@ -76,6 +78,8 @@ import { RepairCrew } from './RepairCrew';
 import { Separation, type SeparationScene } from './Separation';
 import { SeriesList } from './SeriesList';
 import { useLagged, useRocketWidth, useTapGuard } from './hooks';
+import { setPanelRise } from './panelRise';
+import { hyphenateEs } from '@/lib/hyphenate';
 import { blocksOf, clock, isExercise, serieState, warmupState, type StepState } from './model';
 import { own } from './ui';
 
@@ -180,8 +184,17 @@ export function RocketWidget({
   // before that clock runs for it); any other part comes off a moment into the clouds.
   const cloudRest = queue[cloudKey];
   const separating = !reduced && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
+  // (reduced motion: no mechanics; the part is simply gone once the calm version of the clouds,
+  // their sentences on a still background, is over: CloudTransition)
+  const calm = reduced && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
   const holding = useCloudMoment((m) =>
-    separating ? (m.key === cloudKey ? m.t !== null && m.t < SEPARATION.releaseMs : currentIndex === cloudKey) : false,
+    separating
+      ? m.key === cloudKey
+        ? m.t !== null && m.t < SEPARATION.releaseMs
+        : currentIndex === cloudKey
+      : calm
+        ? currentIndex === cloudKey && (m.key !== cloudKey || m.t !== null)
+        : false,
   );
   const [heldIndex, setHeldIndex] = useState(currentIndex);
   if (!holding && heldIndex !== currentIndex) setHeldIndex(currentIndex);
@@ -199,7 +212,24 @@ export function RocketWidget({
   const [dock, setDock] = useState<Dock>(AWAY);
   const g = dock.stretched ? gFull : gReal;
   const shift = dock.stretched ? 0 : L.ship.shift;
-  const P = panelLayout(L, drawn.boosters);
+  // The first panel's line (the name; in a rest "Descanso · Luego: …"): one line, or two (a little
+  // smaller if need be), and the panels grow taller for two (upwards: the time stays in its place).
+  const shown = queue[displayIndex];
+  const name = shown?.kind === 'warmup' ? 'Calentamiento' : shown?.kind === 'workout' ? shown.exercise.title : '';
+  const lineText = isExercise(shown) ? name : shown?.kind === 'rest' ? `Descanso · Luego: ${shown.nextExercise.title}` : '';
+  const lineEl = useRef<HTMLElement | null>(null);
+  const setLineEl = useCallback((node: HTMLElement | null) => {
+    lineEl.current = node;
+  }, []);
+  const hull = panelLayout(L);
+  const panelsW = Math.round(hull.right - hull.left);
+  // (a rest's line stands there with its clock beside it, not with the giant countdown on the video)
+  const restLine = shown?.kind === 'rest' && !restCountdown && (clockTab || displayIndex === currentIndex);
+  const fit = useNameFit(lineEl, isExercise(shown) ? 'name' : restLine ? 'rest' : null, `${lineText}|${panelsW}|${clockTab}`);
+  const rise = panelRise(fit.size, fit.lines);
+  useLayoutEffect(() => setPanelRise(rise), [rise]);
+  useEffect(() => () => setPanelRise(0), []);
+  const P = panelLayout(L, drawn.boosters, rise);
 
   // a part that has just come off falls away, turning slowly (in the clouds)
   const [shownStack, setShownStack] = useState<Stack>(drawn);
@@ -217,13 +247,17 @@ export function RocketWidget({
     }
     setShownStack(drawn);
   }
-  // the separation's scene, set once as its clouds begin (null: nothing comes off in them)
-  const [scene, setScene] = useState<{ key: number; data: SeparationScene | null } | null>(null);
-  if (holding && scene?.key !== cloudKey && typeof window !== 'undefined') {
-    setScene({ key: cloudKey, data: separationScene(drawn, rocketStack(queue, currentIndex), L, cloudTop, cloudExtraMs(cloudRest)) });
+  // the separation's scene, set once as its clouds begin (null: nothing comes off in them). Once per
+  // time the clouds play, not per rest: coming back to the same rest (it was reached with "Anterior"
+  // from the next block, where nothing comes off, and is then reached again from its last serie)
+  // plays them anew, and its scene must be the new one (a stale empty one left the part on).
+  const [cloudRun, setCloudRun] = useState({ key: cloudKey, n: 0 });
+  if (cloudRun.key !== cloudKey) setCloudRun({ key: cloudKey, n: cloudRun.n + 1 });
+  const [scene, setScene] = useState<{ key: number; run: number; data: SeparationScene | null } | null>(null);
+  if (holding && separating && (scene?.key !== cloudKey || scene.run !== cloudRun.n) && cloudRun.key === cloudKey && typeof window !== 'undefined') {
+    setScene({ key: cloudKey, run: cloudRun.n, data: separationScene(drawn, rocketStack(queue, currentIndex), L, cloudTop, cloudExtraMs(cloudRest)) });
   }
 
-  const shown = queue[displayIndex];
   const live = displayIndex === currentIndex;
   const shownRest = shown?.kind === 'rest';
 
@@ -325,7 +359,6 @@ export function RocketWidget({
     return { startAt: parked, parkedMs: end - parked };
   };
   const bannerW = L.banner.right - L.banner.left;
-  const name = shown?.kind === 'warmup' ? 'Calentamiento' : shown?.kind === 'workout' ? shown.exercise.title : '';
   // (a short hull, a narrow first panel: the time a little smaller, on the same line)
   const timeClass = P.right - P.left < 230 ? 'text-[22px]' : 'text-[28px]';
 
@@ -374,21 +407,21 @@ export function RocketWidget({
               className="absolute flex overflow-hidden"
               style={{ left: P.left, width: P.right - P.left, top: P.top - PANEL_ROOM, height: P.clip - P.top + PANEL_ROOM, paddingTop: PANEL_ROOM, gap: PANEL.SEAM }}
             >
-              <Panel rw="panel-1" grow below={P.clip - P.top - PANEL.H}>
+              <Panel rw="panel-1" grow below={P.clip - P.top - PANEL.H - rise} rise={rise}>
                 {isExercise(shown) && (
                   // the name (a tap anywhere here opens the list) and the time left
-                  <div data-bar="" onClick={toggleList} className="pointer-events-auto flex h-full min-w-0 flex-1 cursor-pointer flex-col justify-center pl-3 pr-1">
-                    <div className={`flex min-w-0 flex-col ${shaking && ignition > 0 ? 'rw-jitter' : ''}`} style={shake(SHAKE.text[ignition])}>
+                  <div data-bar="" onClick={toggleList} className="pointer-events-auto flex h-full min-w-0 flex-1 cursor-pointer flex-col justify-center pl-3 pr-0.5">
+                    <div data-rw-namebox="" className={`flex min-w-0 flex-col ${shaking && ignition > 0 ? 'rw-jitter' : ''}`} style={shake(SHAKE.text[ignition])}>
                       <button
                         type="button"
                         onClick={own(toggleList)}
                         aria-expanded={open}
                         aria-controls={listId}
                         aria-label={`${name}. ${open ? 'Cerrar la rutina' : 'Ver la rutina'}`}
-                        className="flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                        className="flex min-w-0 max-w-full cursor-pointer items-center gap-0.5 self-start rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
                       >
-                        <span data-rw="name" className="min-w-0 truncate text-[15px] font-semibold leading-[18px]">
-                          {name}
+                        <span ref={setLineEl} data-rw="name" className={`min-w-0 font-semibold ${fitClass(fit)}`} style={fitStyle(fit)}>
+                          {hyphenateEs(name)}
                         </span>
                         <ChevronUp
                           aria-hidden="true"
@@ -405,11 +438,11 @@ export function RocketWidget({
                   <div className="flex h-full min-w-0 flex-1 flex-col justify-center pl-3 pr-2">
                     {clockTab && !restCountdown ? (
                       <>
-                        <p data-rw="rest" className="truncate text-[15px] font-semibold leading-[18px]">
+                        <p ref={setLineEl} data-rw="rest" className={`font-semibold ${fitClass(fit)}`} style={fitStyle(fit)}>
                           Descanso
                           <span data-rw="later" className="font-medium text-ink/60">
                             {' '}
-                            · Luego: {shown.nextExercise.title}
+                            · Luego: {hyphenateEs(shown.nextExercise.title)}
                           </span>
                         </p>
                         {/* (the rest's countdown comes to stand here: RestClock) */}
@@ -417,11 +450,11 @@ export function RocketWidget({
                       </>
                     ) : showRestTime ? (
                       <>
-                        <p data-rw="rest" className="truncate text-[15px] font-semibold leading-[18px]">
+                        <p ref={setLineEl} data-rw="rest" className={`font-semibold ${fitClass(fit)}`} style={fitStyle(fit)}>
                           Descanso
                           <span data-rw="later" className="font-medium text-ink/60">
                             {' '}
-                            · Luego: {shown.nextExercise.title}
+                            · Luego: {hyphenateEs(shown.nextExercise.title)}
                           </span>
                         </p>
                         <span
@@ -442,9 +475,11 @@ export function RocketWidget({
                   </div>
                 )}
               </Panel>
-              <Panel rw="panel-2" below={P.clip - P.top - PANEL.H}>
+              <Panel rw="panel-2" below={P.clip - P.top - PANEL.H - rise} rise={rise}>
                 {isExercise(shown) && (
-                  <div className="flex h-full items-center">
+                  // (the three 44 px targets edge to edge, over the panel's own lines: all the
+                  // rest of the hull goes to the first panel)
+                  <div className="-mx-[1.5px] flex h-full items-center">
                     <BannerButton rw="prev" label="Anterior" onClick={guarded(onPrev)} disabled={!canPrev}>
                       <SkipBack className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
                     </BannerButton>
@@ -485,7 +520,7 @@ export function RocketWidget({
               <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                 <div className="absolute inset-0">
                   {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
-                  {scene?.data && scene.key === cloudKey && <Separation restKey={scene.key} scene={scene.data} hilo={hilo} reduced={reduced} />}
+                  {scene?.data && scene.key === cloudKey && <Separation key={scene.run} restKey={scene.key} scene={scene.data} hilo={hilo} reduced={reduced} />}
                   <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                     <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
                       <div ref={drawingEl} className="absolute inset-0">
@@ -698,7 +733,7 @@ function panelsIn(pod: HTMLElement): boolean {
  * A panel: white, the ink line, its top corners rounded, standing on the hull (it reaches down
  * into it, hidden behind it), with two rivets low at its ends.
  */
-function Panel({ rw, grow = false, below, children }: { rw: string; grow?: boolean; below: number; children?: React.ReactNode }) {
+function Panel({ rw, grow = false, below, rise, children }: { rw: string; grow?: boolean; below: number; rise: number; children?: React.ReactNode }) {
   return (
     <div
       data-panel=""
@@ -707,11 +742,118 @@ function Panel({ rw, grow = false, below, children }: { rw: string; grow?: boole
       style={{ paddingBottom: below }}
     >
       {children}
-      <span aria-hidden="true" className="pointer-events-none absolute left-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H - 8 }} />
-      <span aria-hidden="true" className="pointer-events-none absolute right-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H - 8 }} />
+      <span aria-hidden="true" className="pointer-events-none absolute left-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H + rise - 8 }} />
+      <span aria-hidden="true" className="pointer-events-none absolute right-[4px] h-[2px] w-[2px] rounded-full bg-ink/55" style={{ top: PANEL.H + rise - 8 }} />
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The first panel's line: as it fits
+
+/**
+ * How the first panel's line is set: its size, on one line or two, and whether a word may be
+ * broken (at a syllable, with a hyphen: the soft hyphens of hyphenateEs). `last`: nothing fitted: two lines at the smallest size,
+ * broken anywhere if need be, and an ellipsis after the second.
+ */
+interface NameFit {
+  size: number;
+  lines: 1 | 2;
+  hyphens: boolean;
+  last?: boolean;
+}
+/** In order: one line as it is, two lines between words, one line smaller, two lines broken at a syllable. */
+const NAME_FITS: NameFit[] = [
+  { size: 15, lines: 1, hyphens: false },
+  { size: 14, lines: 1, hyphens: false },
+  { size: 13, lines: 1, hyphens: false },
+  { size: 14, lines: 2, hyphens: false },
+  { size: 13, lines: 2, hyphens: false },
+  { size: 12, lines: 2, hyphens: false },
+  { size: 12, lines: 1, hyphens: false },
+  { size: 11, lines: 1, hyphens: false },
+  { size: 13, lines: 2, hyphens: true },
+  { size: 12, lines: 2, hyphens: true },
+  { size: 11, lines: 2, hyphens: true },
+];
+const NAME_LAST: NameFit = { size: 11, lines: 2, hyphens: true, last: true };
+/** The chevron beside the name, and its gap. */
+const CHEVRON_ROOM = 16;
+
+const sameFit = (a: NameFit, b: NameFit) => a.size === b.size && a.lines === b.lines && a.hyphens === b.hyphens && a.last === b.last;
+
+/** The first fit of the line `el` in `avail` px (measured on the element itself, its styles put back). */
+function measureFit(el: HTMLElement, avail: number): NameFit {
+  const saved = el.style.cssText;
+  const s = el.style;
+  s.display = 'block';
+  s.width = `${Math.max(1, avail)}px`;
+  s.maxWidth = 'none';
+  s.overflow = 'hidden';
+  s.setProperty('-webkit-line-clamp', 'none');
+  s.overflowWrap = 'normal';
+  let found = NAME_LAST;
+  for (const f of NAME_FITS) {
+    const lh = nameLineHeight(f.size, f.lines);
+    s.fontSize = `${f.size}px`;
+    s.lineHeight = `${lh}px`;
+    s.whiteSpace = f.lines === 1 ? 'nowrap' : 'normal';
+    s.setProperty('hyphens', f.hyphens ? 'manual' : 'none');
+    s.setProperty('-webkit-hyphens', f.hyphens ? 'manual' : 'none');
+    if (el.scrollWidth > avail + 0.5 || el.scrollHeight >= (f.lines + 0.5) * lh) continue;
+    // (two lines' worth of room that one line fills: one line at that size)
+    found = f.lines === 2 && el.scrollHeight < 1.5 * lh ? { ...f, lines: 1 } : f;
+    break;
+  }
+  el.style.cssText = saved;
+  return found;
+}
+
+/**
+ * The fit of the first panel's line (`el`: the name, or a rest's line), anew whenever `key` (its
+ * text, the panel's width, which line it is) changes and once the fonts are in. `mode`: the name
+ * leaves room for its chevron.
+ */
+function useNameFit(el: RefObject<HTMLElement | null>, mode: 'name' | 'rest' | null, key: string): NameFit {
+  const [fit, setFit] = useState<NameFit>(NAME_FITS[0]);
+  const [fonts, setFonts] = useState(0);
+  useEffect(() => {
+    let live = true;
+    void document.fonts?.ready.then(() => {
+      if (live) setFonts((n) => n + 1);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  // (measured as a ResizeObserver reports: once as it starts observing, before the first paint,
+  // and again whenever the line or its room changes size)
+  useLayoutEffect(() => {
+    const node = el.current;
+    if (!mode || !node) return;
+    const box = mode === 'name' ? node.closest<HTMLElement>('[data-rw-namebox]') : null;
+    const ro = new ResizeObserver(() => {
+      if (!node.isConnected) return;
+      const avail = box ? box.clientWidth - CHEVRON_ROOM : node.clientWidth;
+      const next = avail > 0 ? measureFit(node, avail) : NAME_FITS[0];
+      setFit((f) => (sameFit(f, next) ? f : next));
+    });
+    ro.observe(node);
+    if (box) ro.observe(box);
+    return () => ro.disconnect();
+  }, [el, mode, key, fonts]);
+  // (no line in the panel: one line's height)
+  return mode ? fit : NAME_FITS[0];
+}
+
+const fitClass = (f: NameFit) => (f.lines === 1 ? 'truncate' : 'line-clamp-2 text-balance');
+const fitStyle = (f: NameFit): CSSProperties => ({
+  fontSize: f.size,
+  lineHeight: `${nameLineHeight(f.size, f.lines)}px`,
+  hyphens: f.hyphens ? 'manual' : 'none',
+  WebkitHyphens: f.hyphens ? 'manual' : 'none',
+  overflowWrap: f.last ? 'anywhere' : undefined,
+});
 
 /** The crouch of the last second and its panels going in, as the animations' ids. */
 const CROUCH_ID = 'rw-crouch';

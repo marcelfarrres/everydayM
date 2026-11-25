@@ -20,7 +20,7 @@ import {
   stretchFrom,
   PARKED,
 } from './rocketFlight';
-import { PANEL, PANEL_TIME, SHIP, lookTransform, panelLayout, segmentAt, stackGeometry, widgetLayout, type LookPair } from './rocketShape';
+import { PANEL, PANEL_TIME, SHIP, lookTransform, panelLayout, panelRise, segmentAt, stackGeometry, widgetFrame, widgetLayout, type LookPair } from './rocketShape';
 import { flightSounds } from './rocketSounds';
 
 /*
@@ -129,7 +129,8 @@ describe('the panels', () => {
       expect(P.clip).toBeLessThan(P.base + SHIP.T);
       expect(P.top).toBeGreaterThanOrEqual(0);
       // two panels side by side: the controls (three 44 px targets) and the name and time
-      expect(P.right - P.left - PANEL.SEAM - (3 * 44 + 2 * PANEL.LINE)).toBeGreaterThanOrEqual(vw >= 360 ? 95 : 60);
+      // (on a narrow phone the rocket takes more of the width, so the name still has room: 25-11-2026)
+      expect(P.right - P.left - PANEL.SEAM - 3 * 44).toBeGreaterThanOrEqual(95);
       // with the boosters on they stand on the boosters' top line
       const B = panelLayout(L, true);
       expect(B.base - B.top).toBe(PANEL.H + SHIP.F - SHIP.STROKE / 2);
@@ -141,6 +142,29 @@ describe('the panels', () => {
     expect(PANEL_TIME.left).toBe(PANEL.LINE + PANEL.PAD);
     expect(PANEL_TIME.top + 28).toBeLessThanOrEqual(PANEL.H);
     expect(PANEL_TIME.top).toBeGreaterThanOrEqual(PANEL.LINE + 18);
+  });
+
+  it('grow upwards for a name on two lines, by exactly its second line: the time stays where it was', () => {
+    const L = widgetLayout(378);
+    const P = panelLayout(L);
+    expect(panelRise(15, 1)).toBe(0);
+    for (const size of [14, 13, 12, 11]) {
+      const rise = panelRise(size, 2);
+      // two lines of size + 2 px in the room of one of 18 px
+      expect(rise).toBe(2 * (size + 2) - 18);
+      const T = panelLayout(L, false, rise);
+      expect(P.top - T.top).toBe(rise);
+      expect(T.base).toBe(P.base);
+      expect(T.clip).toBe(P.clip);
+      // the centred content (lines and the 28 px time) leaves the same room above and below
+      expect((PANEL.H + rise - PANEL.LINE - (2 * (size + 2) + 28)) / 2).toBeCloseTo((PANEL.H - PANEL.LINE - (18 + 28)) / 2, 5);
+    }
+  });
+
+  it('give the narrow phone a longer rocket, and leave 360 px and up as they were', () => {
+    expect(widgetFrame(308)).toBe(296);
+    expect(widgetFrame(348)).toBe(Math.round(348 * 0.86));
+    expect(widgetFrame(378)).toBe(Math.round(378 * 0.86));
   });
 });
 

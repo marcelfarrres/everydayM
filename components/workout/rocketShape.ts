@@ -281,7 +281,20 @@ export const WIDGET = {
   /** the rocket's length (flame room included) as a share of the widget's width, and at most */
   SHIP_SHARE: 0.86,
   SHIP_MAX: 460,
+  /**
+   * On a narrow phone (under ~345 px) the share would leave the first panel too narrow for a name:
+   * the rocket grows towards this length, keeping NARROW_SIDE px of the widget clear on each side
+   * of its frame (from 360 px wide on, the share alone decides).
+   */
+  NARROW_MIN: 298,
+  NARROW_SIDE: 6,
 } as const;
+
+/** The rocket's frame (its whole length, flame room included) in a widget `B` px wide. */
+export function widgetFrame(B: number): number {
+  const narrow = Math.min(B - 2 * WIDGET.NARROW_SIDE, WIDGET.NARROW_MIN);
+  return Math.round(Math.min(WIDGET.SHIP_MAX, Math.max(B * WIDGET.SHIP_SHARE, narrow)));
+}
 
 /** Which part of the routine's rocket is on: its segments (blocks), the first still on, the boosters. */
 export interface Stack {
@@ -317,7 +330,7 @@ export interface WidgetLayout {
 
 export function widgetLayout(width: number, stack: Stack = FULL_STACK): WidgetLayout {
   const B = Math.max(280, Math.round(width));
-  const frame = Math.round(Math.min(WIDGET.SHIP_MAX, B * WIDGET.SHIP_SHARE));
+  const frame = widgetFrame(B);
   const whole = stackGeometry({ width: frame, blocks: stack.blocks });
   const g = stackGeometry({ width: frame, ...stack });
   const span = whole.tip - whole.xe;
@@ -369,7 +382,9 @@ export const PANEL = {
 /**
  * The first panel holds two lines, centred in what shows of it: a line of 18 px (the name, or
  * "Descanso · Luego: …") over the time (28 px). Where that time stands in the panel (px from its
- * left edge and its top): the rest's countdown comes to stand there (RestClock).
+ * left edge and its top): the rest's countdown comes to stand there (RestClock). A name that needs
+ * two lines makes both panels taller by `panelRise` (upwards: the time stays where it was, so this
+ * place, measured from the panel's top, moves down by just as much).
  */
 export const PANEL_TIME = {
   left: PANEL.LINE + PANEL.PAD,
@@ -386,14 +401,25 @@ export interface PanelLayout {
   clip: number;
 }
 
-/** Where the panels stand in the widget, over the whole rocket (the bar's), `boosters` on or not. */
-export function panelLayout(L: Pick<WidgetLayout, 'frame' | 'ship'>, boosters = false): PanelLayout {
+/**
+ * The name's line in the first panel: one line of 18 px (at 15 px, or a little smaller), or two
+ * lines of `size + 2` px (never under 11 px). Two lines make the panels this much taller.
+ */
+export const NAME_LINE = { one: 18, min: 11 } as const;
+export const nameLineHeight = (size: number, lines: 1 | 2) => (lines === 1 ? NAME_LINE.one : Math.max(NAME_LINE.min, Math.round(size)) + 2);
+export const panelRise = (size: number, lines: 1 | 2) => (lines === 1 ? 0 : 2 * nameLineHeight(size, 2) - NAME_LINE.one);
+
+/**
+ * Where the panels stand in the widget, over the whole rocket (the bar's), `boosters` on or not,
+ * `rise` px taller than PANEL.H (a name on two lines: panelRise).
+ */
+export function panelLayout(L: Pick<WidgetLayout, 'frame' | 'ship'>, boosters = false, rise = 0): PanelLayout {
   const whole = stackGeometry({ width: L.frame });
   const base = L.ship.top + F;
   return {
     left: r1(L.ship.left + whole.x0),
     right: r1(L.ship.left + whole.xs),
-    top: r1(base - (boosters ? F - STROKE / 2 : 0) - PANEL.H),
+    top: r1(base - (boosters ? F - STROKE / 2 : 0) - PANEL.H - Math.max(0, rise)),
     base,
     clip: base + PANEL.SINK,
   };

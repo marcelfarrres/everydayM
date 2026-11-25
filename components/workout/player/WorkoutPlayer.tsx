@@ -165,9 +165,13 @@ export function WorkoutPlayer({
   // Phone: the rest's countdown stands in the clouds until they start to open (RestClock). Read
   // from the clouds' own clock once it runs for this rest (the words have gone by then: wordsAt);
   // until then (the very first frames of the rest) from the moment the rest began.
-  const cloudsStarting = useBusyAfter(cloudKey, clouds.openingMs, !reduced);
+  // (with reduced motion there are no clouds, but for the calm version of a block's end on a phone:
+  // its sentences on a still background, as long as the clouds would have lasted, see CloudTransition)
+  const calmClouds = reduced && !desktop && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
+  const showsClouds = !reduced || calmClouds;
+  const cloudsStarting = useBusyAfter(cloudKey, clouds.openingMs, showsClouds);
   const cloudsClosed = useCloudMoment((m) => (m.key === cloudKey ? m.t !== null && m.t < cloudsOpenAt(extra) : null));
-  const inClouds = !reduced && (cloudsClosed ?? cloudsStarting);
+  const inClouds = showsClouds && (cloudsClosed ?? cloudsStarting);
   // With talks it stands in the rocket's first panel while they play (it fades out as the clouds
   // open and comes back as the panels slide out); then the middle.
   const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + DOCK.outAtMs, !reduced);

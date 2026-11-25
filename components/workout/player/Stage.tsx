@@ -15,6 +15,7 @@ import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
 import { MINI, growKeyframes, handoffTimes, miniClipY, miniOutKeyframes, miniPose, miniRect, swollenRect } from './miniHandoff';
+import { usePanelRise } from './panelRise';
 import { isExercise, type RestScreen } from './model';
 
 /*
@@ -318,9 +319,11 @@ function ClipLayer({
   const [held, setHeld] = useState<Stack>(stack);
   if (small && held !== stack) setHeld(stack);
   const L = useMemo(() => widgetLayout(width, held), [width, held]);
-  const rect = miniRect(vw, vh, L);
+  // (a name on two lines makes the rocket's panels taller: the window stands that much higher)
+  const rise = usePanelRise();
+  const rect = miniRect(vw, vh, L, rise);
   // nothing of the window shows below the top of the rocket's first panel (it comes out from behind it)
-  const clipY = miniClipY(vw, vh, L);
+  const clipY = miniClipY(vw, vh, L, rise);
   const pose = small ? miniPose(swell ? swollenRect(rect) : rect, vw, vh, 0) : null;
   const was = useRef<boolean | null>(null);
   // (whether it was swollen as it stopped being the window)
@@ -341,7 +344,7 @@ function ClipLayer({
     if (before === null) {
       if (!fadeIn) return;
       if (small && popInMs !== null && !reduced) {
-        pop.current.animate(miniOutKeyframes(vw, vh, L), { duration: PREVIEW.outMs, delay: popInMs, fill: 'backwards' });
+        pop.current.animate(miniOutKeyframes(vw, vh, L, rise), { duration: PREVIEW.outMs, delay: popInMs, fill: 'backwards' });
       } else if (!reduced) {
         o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
       }

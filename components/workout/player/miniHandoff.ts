@@ -46,15 +46,15 @@ export interface MiniRect {
 
 type Layout = Pick<WidgetLayout, 'B' | 'box' | 'frame' | 'ship'>;
 
-/** The rocket's first panel on a `vw` × `vh` screen (no boosters in a rest): its left end and its top. */
-function firstPanel(vw: number, vh: number, L: Layout) {
-  const P = panelLayout(L);
+/** The rocket's first panel on a `vw` × `vh` screen (no boosters in a rest; `rise`: taller, see panelRise): its left end and its top. */
+function firstPanel(vw: number, vh: number, L: Layout, rise = 0) {
+  const P = panelLayout(L, false, rise);
   return { left: (vw - L.B) / 2 + P.left, top: vh - MINI.BOTTOM - L.box + P.top };
 }
 
 /** Where the window stands on a `vw` × `vh` screen: over the left end of the rocket's first panel. */
-export function miniRect(vw: number, vh: number, L: Layout): MiniRect {
-  const p = firstPanel(vw, vh, L);
+export function miniRect(vw: number, vh: number, L: Layout, rise = 0): MiniRect {
+  const p = firstPanel(vw, vh, L, rise);
   return {
     left: Math.round(p.left + MINI.INSET),
     top: Math.round(p.top - MINI.GAP - MINI.H),
@@ -68,14 +68,14 @@ export function miniRect(vw: number, vh: number, L: Layout): MiniRect {
  * from behind the panel (the rocket is drawn over the stage), and nothing of it shows below this
  * line, so it never crosses the panel.
  */
-export function miniClipY(vw: number, vh: number, L: Layout): number {
-  return Math.round(firstPanel(vw, vh, L).top);
+export function miniClipY(vw: number, vh: number, L: Layout, rise = 0): number {
+  return Math.round(firstPanel(vw, vh, L, rise).top);
 }
 
 /** Its way out: from wholly under that line up to its place (transforms of its outer layer, px). */
-export function miniOutKeyframes(vw: number, vh: number, L: Layout): Keyframe[] {
-  const rect = miniRect(vw, vh, L);
-  const down = miniClipY(vw, vh, L) - rect.top;
+export function miniOutKeyframes(vw: number, vh: number, L: Layout, rise = 0): Keyframe[] {
+  const rect = miniRect(vw, vh, L, rise);
+  const down = miniClipY(vw, vh, L, rise) - rect.top;
   return [
     { offset: 0, transform: `translateY(${down}px)`, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
     { offset: 1, transform: 'translateY(0px)' },
