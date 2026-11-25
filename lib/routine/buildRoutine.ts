@@ -12,14 +12,13 @@ import type {
 import {
   OUTRO_DURATION_SECONDS,
   getDefaultSlotSeconds,
-  BETWEEN_BLOCKS_TALK_SECONDS,
   getLongRestSeconds,
   getRestDuration,
 } from './duration';
 import { assignRestClips } from './restClips';
 import { RECENT_PENALTY, pickWeighted, type ScoredExercise } from './select';
 import { solveForMinutes } from './solveForMinutes';
-import { expectedTalkSeconds, fillTalks, pickTalks, talksSeconds } from './talks';
+import { expectedTalkSeconds, pickTalks, talksSeconds } from './talks';
 import { buildTimeline } from './timeline';
 import { buildBlocks, resolveVariation } from './variation';
 
@@ -415,20 +414,17 @@ export function buildRoutine(
     };
 
   /**
-   * The long rest before block `round` (1-based): its talks come from that block's exercises.
-   * Rests are always the decided length (a clip lasts what it lasts, and nothing of a short clip's
-   * slot is added to the rest after it); only a long rest's talks can stretch it.
+   * The long rest before block `round` (1-based): one talk at random from that block's exercises
+   * (none once they are used up). Rests are always the decided length (a clip lasts what it lasts,
+   * and nothing of a short clip's slot is added to the rest after it); only the talk can stretch one.
    */
   const longRest = (round: number, isEndOfRound: boolean): RoutineItem => {
     const block = blocks[round - 1];
-    // between blocks: as many talks as fit in its minute, this block's first, then the later ones'
-    const talks = isEndOfRound
-      ? fillTalks(block, blocks.slice(round).flat(), usedTalkIds, BETWEEN_BLOCKS_TALK_SECONDS, rng)
-      : pickTalks(block, usedTalkIds, rng);
+    const talks = pickTalks(block, usedTalkIds, rng);
     return {
       kind: 'rest',
-      // Never shorter than a plain long rest, and long enough for every talk to finish after the
-      // clouds open (the talks start then: TALK_LEAD_MS into the rest, BLOCK_END_LEAD_MS after a block).
+      // Never shorter than a plain long rest, and long enough for the talk to finish after the
+      // clouds open (BLOCK_END_LEAD_MS into the rest) with the last seconds still to come.
       duration: getLongRestSeconds(restSec, talksSeconds(talks), isEndOfRound),
       prepSeconds: 0,
       nextExercise: block[0],

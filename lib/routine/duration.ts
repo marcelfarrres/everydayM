@@ -53,23 +53,33 @@ export function getBlockEndRestBase(restSeconds: number): number {
 }
 
 /**
- * Whole seconds a long rest needs so `talkSeconds` of talks finish: the lead time (when its clouds
- * open: BLOCK_END_LEAD_MS after a block) plus the talks.
+ * The last seconds of a long rest (phone): the next exercise fills the screen behind a veil, with
+ * "Prepárate" and the countdown. A talk never runs into them: the rest stretches instead.
+ */
+export const LONG_REST_READY_SECONDS = 5;
+
+/**
+ * Less rest video than this (s) between the end of the talk and those last seconds is not worth
+ * showing: the talk goes straight into them.
+ */
+export const LONG_REST_MIN_RESTING_SECONDS = 4;
+
+/**
+ * Whole seconds a long rest needs so a talk of `talkSeconds` plays whole: the lead time (when its
+ * clouds open: BLOCK_END_LEAD_MS after a block or the warm-up), the talk, and the last seconds
+ * (LONG_REST_READY_SECONDS) after it. 0 without a talk.
  */
 export function getTalkRestSeconds(talkSeconds: number, leadMs: number = TALK_LEAD_MS): number {
-  return talkSeconds > 0 ? Math.ceil(talkSeconds + leadMs / 1000) : 0;
+  return talkSeconds > 0 ? Math.ceil(talkSeconds + leadMs / 1000 + LONG_REST_READY_SECONDS) : 0;
 }
 
-/** The rest between one block and the next lasts at least this long (s): clouds, talks, the rest video. */
+/** The rest between one block and the next lasts at least this long (s): clouds, its talk, the rest video. */
 export const BETWEEN_BLOCKS_MIN_SECONDS = 60;
-
-/** The talk time a rest between blocks can hold within its minimum (s): what is left once the clouds open. */
-export const BETWEEN_BLOCKS_TALK_SECONDS = Math.floor(BETWEEN_BLOCKS_MIN_SECONDS - BLOCK_END_LEAD_MS / 1000);
 
 /**
  * A long rest, after the warm-up or between blocks (`betweenBlocks`). Both have the longer clouds
- * (they open BLOCK_END_LEAD_MS in, and the talks start then); between blocks it lasts at least a
- * minute. Talks that need more stretch it.
+ * (they open BLOCK_END_LEAD_MS in, and the talk starts then); between blocks it lasts at least a
+ * minute. A talk that needs more stretches it (getTalkRestSeconds).
  */
 export function getLongRestSeconds(restSeconds: number, talkSeconds: number, betweenBlocks: boolean): number {
   const usual = Math.max(getBlockEndRestBase(restSeconds), getTalkRestSeconds(talkSeconds, BLOCK_END_LEAD_MS));

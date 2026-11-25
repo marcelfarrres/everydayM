@@ -3,7 +3,8 @@ import { buildRoutine } from './buildRoutine';
 import { cheerFor } from './cheers';
 import {
   BETWEEN_BLOCKS_MIN_SECONDS,
-  BETWEEN_BLOCKS_TALK_SECONDS,
+  LONG_REST_MIN_RESTING_SECONDS,
+  LONG_REST_READY_SECONDS,
   BLOCK_END_EXTRA_MS,
   BLOCK_END_LEAD_MS,
   TALK_LEAD_MS,
@@ -117,7 +118,7 @@ describe('rests', () => {
 });
 
 describe('talks in long rests', () => {
-  it('never repeats a talk within a routine; the talks of the coming block first, then of later blocks', () => {
+  it('gives each long rest at most one talk, from the coming block’s own exercises, never repeated', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const { queue, meta } = buildRoutine(
         library({ talks: [14] }),
@@ -127,38 +128,29 @@ describe('talks in long rests', () => {
       const seen = new Set<string>();
       for (const rest of rests(queue)) {
         if (rest.restKind === 'short') continue;
-        if (!rest.isEndOfRound) expect(rest.talks.length).toBeLessThanOrEqual(2);
-        else expect(talksSeconds(rest.talks)).toBeLessThanOrEqual(Math.max(BETWEEN_BLOCKS_TALK_SECONDS, talksSeconds(rest.talks.slice(0, 1))));
+        expect(rest.talks.length).toBeLessThanOrEqual(1);
         const blockIds = new Set(ids(meta.blocks[rest.nextRound - 1]));
-        const laterIds = new Set(meta.blocks.slice(rest.nextRound - 1).flatMap((b) => ids(b)));
-        let ownFirst = true;
         for (const t of rest.talks) {
           expect(seen.has(t.id)).toBe(false);
           seen.add(t.id);
-          if (!rest.isEndOfRound) expect(blockIds.has(t.exercise_id)).toBe(true);
-          else {
-            expect(laterIds.has(t.exercise_id)).toBe(true);
-            // (the coming block's talks come before any later block's)
-            if (!blockIds.has(t.exercise_id)) ownFirst = false;
-            else expect(ownFirst).toBe(true);
-          }
+          expect(blockIds.has(t.exercise_id)).toBe(true);
         }
       }
     }
   });
 
-  it('gives 1 or 2 talks when there are some, and none once they run out', () => {
-    // One exercise with two talks, repeated in every block: the talks run out after the first long rests.
+  it('gives one talk while the coming block has an unused one, and none once they run out', () => {
+    // One exercise with two talks, repeated in every block: the talks run out after the first two long rests.
     const lib = [exercise('solo', ['gluteos'], { talks: [10, 12] }), exercise('w1', [], { type: 'warmup' })];
-    const counts = new Set<number>();
+    const firsts = new Set<string>();
     for (let seed = 1; seed <= 30; seed++) {
       const { queue } = buildRoutine(lib, gluteIntent({ rounds: 4, exercisesPerRound: 1 }), seeded(seed));
       const longRests = rests(queue).filter((r) => r.restKind === 'long');
-      expect(longRests[0].talks.length).toBeGreaterThanOrEqual(1);
-      expect(longRests.flatMap((r) => r.talks)).toHaveLength(2);
-      counts.add(longRests[0].talks.length);
+      expect(longRests.map((r) => r.talks.length)).toEqual([1, 1, 0, 0]);
+      firsts.add(longRests[0].talks[0].id);
     }
-    expect(counts).toEqual(new Set([1, 2]));
+    // (picked at random)
+    expect(firsts.size).toBe(2);
   });
 
   it('keeps every rest the decided length, whatever the clips last (a clip lasts what it lasts)', () => {
@@ -176,7 +168,7 @@ describe('talks in long rests', () => {
     });
   });
 
-  it('makes a long rest last at least its usual time and at least its talks after the clouds open', () => {
+  it('makes a long rest last at least its usual time, and its talk plus the last seconds after the clouds open', () => {
     const base = getLongRestBase(getRestDuration(5));
     let stretched = 0;
     for (let seed = 1; seed <= 20; seed++) {
@@ -189,10 +181,9 @@ describe('talks in long rests', () => {
         const talkSum = rest.talks.reduce((acc, t) => acc + t.duration_seconds, 0);
         // after a block its clouds last longer, and so does the rest
         const usual = rest.isEndOfRound ? getBlockEndRestBase(getRestDuration(5)) : base;
-        const lead = rest.isEndOfRound ? BLOCK_END_LEAD_MS : TALK_LEAD_MS;
         expect(rest.duration).toBeGreaterThanOrEqual(usual);
-        // the talks start when the clouds open
-        expect(rest.duration * 1000).toBeGreaterThanOrEqual(lead + talkSum * 1000);
+        // the talk starts when the (long) clouds open, and never runs into the last seconds
+        if (rest.talks.length > 0) expect(rest.duration * 1000).toBeGreaterThanOrEqual(BLOCK_END_LEAD_MS + talkSum * 1000 + LONG_REST_READY_SECONDS * 1000);
         expect(Number.isInteger(rest.duration)).toBe(true);
         if (rest.talks.length > 0 && rest.duration > usual) stretched++;
         // without talks to fit, exactly its usual time
@@ -207,24 +198,27 @@ describe('talks in long rests', () => {
     expect(BLOCK_END_LEAD_MS).toBe(TALK_LEAD_MS + BLOCK_END_EXTRA_MS);
     expect(BLOCK_END_LEAD_MS).toBe(7870);
     expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 5);
-    // what is left of a minute's rest for talks once the clouds have opened
-    expect(BETWEEN_BLOCKS_TALK_SECONDS).toBe(52);
-    expect(getTalkRestSeconds(25, BLOCK_END_LEAD_MS)).toBe(Math.ceil(25 + BLOCK_END_LEAD_MS / 1000));
+    // the talk, then the last 5 s
+    expect(LONG_REST_READY_SECONDS).toBe(5);
+    expect(getTalkRestSeconds(25, BLOCK_END_LEAD_MS)).toBe(Math.ceil(25 + BLOCK_END_LEAD_MS / 1000 + 5));
     // after the warm-up: the longer clouds too, no minimum
     expect(getLongRestSeconds(15, 0, false)).toBe(getBlockEndRestBase(15));
     expect(getLongRestSeconds(15, 40, false)).toBe(getTalkRestSeconds(40, BLOCK_END_LEAD_MS));
     // between blocks: at least a minute, longer only if its talks need it
     expect(BETWEEN_BLOCKS_MIN_SECONDS).toBe(60);
     expect(getLongRestSeconds(15, 0, true)).toBe(60);
-    expect(getLongRestSeconds(15, BETWEEN_BLOCKS_TALK_SECONDS, true)).toBe(60);
+    expect(getLongRestSeconds(15, 47, true)).toBe(60); // 7.87 + 47 + 5 = 59.87
+    expect(getLongRestSeconds(15, 48, true)).toBe(61); // the talk plays whole, then the last 5 s
     expect(getLongRestSeconds(15, 70, true)).toBe(getTalkRestSeconds(70, BLOCK_END_LEAD_MS));
-    expect(BETWEEN_BLOCKS_TALK_SECONDS * 1000 + BLOCK_END_LEAD_MS).toBeLessThanOrEqual(60_000);
+    // a talk longer than the minute: whole, plus the last seconds
+    expect(getLongRestSeconds(15, 70, true) * 1000).toBeGreaterThanOrEqual(BLOCK_END_LEAD_MS + 70_000 + LONG_REST_READY_SECONDS * 1000);
+    expect(LONG_REST_MIN_RESTING_SECONDS).toBe(4);
   });
 
-  it('adds the lead time only when there are talks', () => {
+  it('adds the lead time and the last seconds only when there is a talk', () => {
     expect(getTalkRestSeconds(0)).toBe(0);
-    expect(getTalkRestSeconds(25)).toBe(Math.ceil(25 + TALK_LEAD_MS / 1000));
-    expect(getTalkRestSeconds(30) * 1000).toBeGreaterThanOrEqual(30_000 + TALK_LEAD_MS);
+    expect(getTalkRestSeconds(25)).toBe(Math.ceil(25 + TALK_LEAD_MS / 1000 + LONG_REST_READY_SECONDS));
+    expect(getTalkRestSeconds(30) * 1000).toBeGreaterThanOrEqual(30_000 + TALK_LEAD_MS + LONG_REST_READY_SECONDS * 1000);
   });
 
   it('leaves long rests without talks when the library has none', () => {
@@ -389,17 +383,16 @@ describe('not the same routine every time', () => {
 });
 
 describe('the rest between blocks', () => {
-  it('lasts at least a minute, filled with as many talks of the coming block as fit', () => {
+  it('lasts at least a minute, with one talk of the coming block at most', () => {
     for (let seed = 1; seed <= 10; seed++) {
       const { queue, meta } = buildRoutine(library({ talks: [12, 15, 9] }), gluteIntent({ rounds: 3, exercisesPerRound: 4 }), seeded(seed));
       const between = rests(queue).filter((r) => r.restKind === 'long' && r.isEndOfRound);
       expect(between.length).toBe(2);
       for (const rest of between) {
         expect(rest.duration).toBeGreaterThanOrEqual(BETWEEN_BLOCKS_MIN_SECONDS);
+        expect(rest.talks.length).toBeLessThanOrEqual(1);
         expect(rest.duration * 1000).toBeGreaterThanOrEqual(BLOCK_END_LEAD_MS + talksSeconds(rest.talks) * 1000);
       }
-      // more than the old 1 or 2 when there are short ones to fit
-      expect(Math.max(...between.map((r) => r.talks.length))).toBeGreaterThanOrEqual(2);
       // and the minutes announced still add up
       const total = queue.reduce((acc, item) => acc + getItemDuration(item, meta.slotSeconds), 0);
       expect(meta.totalSeconds).toBe(total);
