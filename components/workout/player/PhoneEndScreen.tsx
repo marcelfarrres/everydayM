@@ -69,19 +69,32 @@ export function PhoneEndScreen({
   const root = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLDivElement>(null);
   const listBox = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ vw: number; vh: number; parkY: number; listW: number; listH: number } | null>(null);
+  const titleZone = useRef<HTMLDivElement>(null);
+  const buttons = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ vw: number; vh: number; parkY: number; listW: number; listH: number; bandTop: number; bandBottom: number } | null>(null);
   useLayoutEffect(() => {
     const r = root.current;
     const s = slot.current;
     const l = listBox.current;
-    if (!r || !s || !l) return;
+    const tz = titleZone.current;
+    const bt = buttons.current;
+    if (!r || !s || !l || !tz || !bt) return;
     const measure = () => {
-      const next = { vw: r.clientWidth, vh: r.clientHeight, parkY: s.offsetTop + s.offsetHeight / 2, listW: l.clientWidth, listH: l.clientHeight };
+      const next = {
+        vw: r.clientWidth,
+        vh: r.clientHeight,
+        parkY: s.offsetTop + s.offsetHeight / 2,
+        listW: l.clientWidth,
+        listH: l.clientHeight,
+        // the flight round the screen stays between the praise line and the buttons
+        bandTop: tz.offsetTop + tz.offsetHeight + 6,
+        bandBottom: bt.offsetTop - 6,
+      };
       setSize((prev) => (prev && Object.entries(next).every(([k, v]) => prev[k as keyof typeof prev] === v) ? prev : next));
     };
     // (a ResizeObserver reports once at once, before the first paint, and again on any change)
     const ro = new ResizeObserver(measure);
-    for (const el of [r, s, l]) ro.observe(el);
+    for (const el of [r, s, l, tz, bt]) ro.observe(el);
     return () => ro.disconnect();
   }, []);
   const compact = size ? isCompact(size.vh) : false;
@@ -100,7 +113,9 @@ export function PhoneEndScreen({
     const blocks = groups.filter((gr) => gr.piece !== 'boosters');
     return Array.from({ length: total }, (_, s): StepState[] => Array(blocks[total - s - 1]?.exercises.length ?? 0).fill('done'));
   }, [groups, total]);
-  const box: FlightBox | null = size ? { vw: size.vw, vh: size.vh, park: { x: size.vw / 2, y: size.parkY }, len: frame } : null;
+  const box: FlightBox | null = size
+    ? { vw: size.vw, vh: size.vh, park: { x: size.vw / 2, y: size.parkY }, len: frame, H: g.H, band: { top: size.bandTop, bottom: size.bandBottom } }
+    : null;
   const boxRef = useRef<FlightBox | null>(null);
   useLayoutEffect(() => {
     boxRef.current = box;
@@ -181,17 +196,17 @@ export function PhoneEndScreen({
   const ready = box !== null && fit !== null;
   useLayoutEffect(() => {
     if (reduced || !ready || !box) return;
-    const t = performance.now() - (start.current ?? performance.now());
+    const t0 = start.current ?? performance.now();
+    const t = performance.now() - t0;
     const plays: Animation[] = [];
     if (t < END.flyInMs && arrive.current) {
-      plays.push(arrive.current.animate(flyInKeyframes(box), { duration: END.flyInMs, delay: -t, fill: 'backwards' }));
+      plays.push(playAt(arrive.current, flyInKeyframes(box), t0, 0, { duration: END.flyInMs, fill: 'backwards' }));
       // (its engine at full on the way in, idling once it has parked)
       const flame = arrive.current.querySelector<HTMLElement>('[data-rocket-flame]');
       if (flame) {
         plays.push(
-          flame.animate([{ transform: 'scale(1, 1)' }, { transform: 'scale(1, 1)', offset: 0.6 }, { transform: 'scale(0.35, 0.68)' }], {
+          playAt(flame, [{ transform: 'scale(1, 1)' }, { transform: 'scale(1, 1)', offset: 0.6 }, { transform: 'scale(0.35, 0.68)' }], t0, 0, {
             duration: END.flyInMs,
-            delay: -t,
             fill: 'backwards',
           }),
         );
@@ -199,9 +214,8 @@ export function PhoneEndScreen({
     }
     if (t < END.listInAt + END.listInMs && list.current) {
       plays.push(
-        list.current.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {
+        playAt(list.current, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], t0, END.listInAt, {
           duration: END.listInMs,
-          delay: END.listInAt - t,
           fill: 'backwards',
           easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
         }),
@@ -218,25 +232,28 @@ export function PhoneEndScreen({
     const i = shown.joined - 1;
     const el = ship.current;
     if (reduced || i < 0 || !el) return;
-    const t = performance.now() - (start.current ?? performance.now());
-    const since = t - tl.groups[i].joinAt;
-    if (since > END.impactMs) return; // (a join long past: the page was hidden; it is simply there)
+    const t0 = start.current ?? performance.now();
+    const joinAt = tl.groups[i].joinAt;
+    // (a join already over: the page was hidden or the frames came late; the piece is simply there)
+    if (performance.now() - t0 - joinAt > END.joinMs) return;
     const piece = groups[i].piece;
     // the boosters sit on the front stage; a new stage is the tail (g.first); the pulse is the front stage
     const block = piece === 'stage' ? g.first : total;
     const seg = g.segments.find((s) => s.block === block);
     const selector = piece === 'boosters' ? '[data-piece="boosters"]' : `[data-piece="seg-${block}"]`;
     const plays: Animation[] = [];
-    const timing = { duration: END.joinMs, delay: -since, fill: 'backwards' as const };
     el.querySelectorAll<HTMLElement | SVGElement>(selector).forEach((node) => {
       // (the drawing's layers are frame-sized: they turn about the stage's middle; its lines' box, about its own)
       node.style.transformOrigin = node instanceof SVGElement && seg ? `${(seg.start + seg.end) / 2}px ${g.cy}px` : '50% 50%';
-      plays.push(node.animate(joinKeyframes(piece), timing));
+      plays.push(playAt(node, joinKeyframes(piece), t0, joinAt, { duration: END.joinMs, fill: 'backwards' }));
     });
     plays.push(
-      el.animate(
+      playAt(
+        el,
         [{ transform: 'none' }, { transform: 'translate(1.5px, 1px) scale(1.01, 0.95)', offset: 0.35 }, { transform: 'translate(-1px, 0px)', offset: 0.65 }, { transform: 'none' }],
-        { duration: 240, delay: END.impactMs - since },
+        t0,
+        joinAt + END.impactMs,
+        { duration: 240 },
       ),
     );
     return () => plays.forEach((a) => a.cancel());
@@ -262,7 +279,7 @@ export function PhoneEndScreen({
       {/* the rocket's parking place (the rocket itself flies above everything, below) */}
       <div ref={slot} aria-hidden="true" className="shrink-0" style={{ height: CHROME.ROCKET }} />
 
-      <div className="flex shrink-0 flex-col justify-end" style={{ height: CHROME.TITLE[compact ? 'compact' : 'normal'] }}>
+      <div ref={titleZone} className="flex shrink-0 flex-col justify-end" style={{ height: CHROME.TITLE[compact ? 'compact' : 'normal'] }}>
         <h2
           className={`${titleTone} font-bold leading-none tracking-[-0.04em]`}
           style={{ opacity: shown.title ? 1 : 0, transform: shown.title ? 'none' : 'scale(0.86)', transformOrigin: '0 100%', transition: smooth(420) }}
@@ -291,7 +308,7 @@ export function PhoneEndScreen({
         </div>
       </div>
 
-      <div className="grid shrink-0 grid-cols-2 gap-2" style={{ height: CHROME.BUTTONS[compact ? 'compact' : 'normal'] }}>
+      <div ref={buttons} className="grid shrink-0 grid-cols-2 gap-2" style={{ height: CHROME.BUTTONS[compact ? 'compact' : 'normal'] }}>
         {onRepeat && (
           <button
             type="button"
@@ -349,6 +366,18 @@ export function PhoneEndScreen({
       )}
     </div>
   );
+}
+
+/**
+ * Plays `keyframes` on `el` from `at` ms on the screen's clock (`t0`, a performance.now() time,
+ * which the document timeline shares). Anchored by its start time, not by a delay counted from
+ * its first frame: a page whose frames come late (a throttled pane, a busy phone) can't push it
+ * off the clock the rest of the screen follows.
+ */
+function playAt(el: Element, keyframes: Keyframe[], t0: number, at: number, options: KeyframeEffectOptions): Animation {
+  const animation = el.animate(keyframes, { ...options, delay: 0 });
+  animation.startTime = t0 + at;
+  return animation;
 }
 
 /** How hard the drum rolls at `t`: from a third to full, as the hit comes. */

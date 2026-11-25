@@ -21,9 +21,9 @@ export const LIST = {
   GAP: 4,
   GROUP_GAP: 12,
   LINE_GAP: 8,
-  /** a group's label (11 px, its tick beside it) */
+  /** a group's label (11 px capitals, spaced, its tick beside it: «CALENTAMIENTO ✓» takes about 122 px) */
   LABEL_H: 17,
-  LABEL_CHAR_PX: 6.3,
+  LABEL_CHAR_PX: 8,
   LABEL_PAD: 18,
   /** the name under a photo: two lines of 11/13 px and its margin */
   NAME_BELOW: 29,
@@ -51,7 +51,7 @@ export interface ListFit {
   fits: boolean;
 }
 
-/** A label's width: its characters at 11 px semibold, and the tick beside it. */
+/** A label's width: its characters at 11 px semibold capitals, and the tick beside it. */
 export const labelWidth = (label: string) => Math.ceil(label.length * LIST.LABEL_CHAR_PX + LIST.LABEL_PAD);
 
 /** The list laid out with photos `tile` px wide, names `names`, in `width` px. */

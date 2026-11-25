@@ -190,6 +190,7 @@ Qué hacer: quitar el blur animado; como mucho 4 capas de nubes; texturas reesca
 ### 8.3 Reproductor
 - Partir `WorkoutPlayer.tsx` (754 líneas) en `components/workout/player/`: barra, hilo, lista, barra de descanso, marco, menú, escenario.
 - Vídeos: reproducir siempre `video_lite_url` (con `video_url` como reserva).
+- **Pantalla final del móvil (hecho, 25-11-2026)** — `PhoneEndScreen.tsx`; el ordenador conserva `EndScreen.tsx`. La música se va en 1 s (`setEnded`) y suena un redoble real (U.S. Air Force Band, dominio público); el cohete entra como acabó (morro y una etapa) y aparca arriba, en horizontal. Debajo, todos los ejercicios en foto y con nombre, por partes, medidos para caber en una pantalla (`endLayout.ts`; en 320×568 caben hasta 4 líneas de grupos, más allá se desplaza al acabar). Parte a parte se tachan y pasan a blanco y negro, y su pieza encaja con un «pam»: los propulsores (calentamiento) en la etapa que traía, esa etapa (bloque 1) con un pulso y una etapa nueva en la cola por cada otro bloque; la última con el platillo, «¡Hecho!» y «Muy bien. Cohete completo.». Luego el cohete da vueltas por la pantalla entre la frase y los botones. 6–10,6 s, un solo reloj (`endSequence.ts`). Falta oírlo y verlo en un iPhone de verdad: el panel de vista previa va estrangulado y no sirvió para juzgar el movimiento.
 
 ### 8.4 Clips
 - Una sola fuente de verdad para los tipos de clip (hoy la lista está repetida en 5 archivos).

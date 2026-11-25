@@ -5,10 +5,13 @@
  * mirrored (flying left, nose left, still upright), its size, and its bank (a squash across it as
  * it turns, as if it rolled into the turn).
  *
- * The loop: first it takes off from where it is parked, speeding up off the right edge and growing
- * smaller; then, one after another and again from the first, three passes across the screen, each
- * from beyond one edge to beyond the other, always below the title (from 36 % of the screen's
- * height down to 84 %, clear of the buttons), with a moment out of sight between them:
+ * The loop: first it takes off from where it is parked, speeding up straight off the right edge
+ * at its own height (above the title) and growing smaller; then, one after another and again from
+ * the first, three passes across the screen, each from beyond one edge to beyond the other, with a
+ * moment out of sight between them. The passes keep the whole rocket, turned and with its flame,
+ * inside `band` (the room between the praise line and the buttons, measured on the screen): its
+ * middle sweeps that band, and where a climb near the band's edge would make it poke out, it is
+ * drawn a little flatter.
  *   A  from the left, low, climbing to the right
  *   B  from the right, swooping down and up again to the left (mirrored)
  *   C  from the left, dipping low and out to the right
@@ -19,8 +22,11 @@ export interface FlightBox {
   vh: number;
   /** where the rocket's middle stands parked */
   park: { x: number; y: number };
-  /** the rocket's length (its frame, px at scale 1) */
+  /** the rocket's length and height (its frame, px at scale 1) */
   len: number;
+  H: number;
+  /** the passes keep the whole rocket between these (px from the top of the screen) */
+  band: { top: number; bottom: number };
 }
 
 export interface Pose {
@@ -38,24 +44,23 @@ export const REST_FLIGHT = {
   gapMs: 900,
   /** its size while it flies round */
   scale: 0.6,
-  /** the highest and lowest its middle goes on a pass (share of the screen's height) */
-  top: 0.36,
-  bottom: 0.84,
   /** how much it squashes across at its sharpest turn */
   bankMax: 0.35,
+  /** how far its flame reaches out of its frame, behind it (px at scale 1) */
+  flameOut: 56,
 } as const;
 
 type P = readonly [number, number];
 interface Pass {
-  /** control points: x as a share of the width (the ends are pushed out of sight), y of the height */
+  /** control points: x as a share of the width (the ends are pushed out of sight), y as a share of the band */
   pts: readonly [P, P, P, P];
   flip: 1 | -1;
 }
 
 const PASSES: readonly Pass[] = [
-  { pts: [[0, 0.74], [0.3, 0.84], [0.62, 0.4], [1, 0.46]], flip: 1 },
-  { pts: [[1, 0.42], [0.66, 0.82], [0.34, 0.8], [0, 0.5]], flip: -1 },
-  { pts: [[0, 0.44], [0.36, 0.38], [0.6, 0.84], [1, 0.62]], flip: 1 },
+  { pts: [[0, 0.79], [0.3, 1], [0.62, 0.08], [1, 0.21]], flip: 1 },
+  { pts: [[1, 0.13], [0.66, 0.96], [0.34, 0.92], [0, 0.29]], flip: -1 },
+  { pts: [[0, 0.17], [0.36, 0.04], [0.6, 1], [1, 0.54]], flip: 1 },
 ];
 
 export const restPeriodMs = () => PASSES.length * (REST_FLIGHT.passMs + REST_FLIGHT.gapMs);
@@ -69,13 +74,33 @@ const dbez = (a: number, b: number, c: number, d: number, u: number) => {
   return 3 * m * m * (b - a) + 6 * m * u * (c - b) + 3 * u * u * (d - c);
 };
 
-/** How far beyond an edge a pass starts and ends, so the whole rocket and its flame (trailing ~30 px) are out of sight. */
-export const offEdge = (box: FlightBox) => (box.len * REST_FLIGHT.scale) / 2 + 48;
+/** Half the rocket's length with its flame (px at `scale`): how far it reaches from its middle. */
+const reach = (box: Pick<FlightBox, 'len'>, scale: number) => (box.len / 2 + REST_FLIGHT.flameOut) * scale;
+
+/** How far beyond an edge a pass starts and ends, so the whole rocket and its flame are out of sight. */
+export const offEdge = (box: FlightBox) => reach(box, REST_FLIGHT.scale) + 12;
+
+/** Half the height the rocket takes on screen, turned `angle` degrees (its flame included), at `scale` and `bank`. */
+export function halfHeight(box: Pick<FlightBox, 'len' | 'H'>, angle: number, scale: number, bank = 1): number {
+  const a = (Math.abs(angle) * Math.PI) / 180;
+  return reach(box, scale) * Math.sin(a) + (box.H / 2) * scale * bank * Math.cos(a);
+}
+
+/** Where the rocket's middle may go on a pass: the band less half the rocket lying level. */
+function centreBand(box: FlightBox): { top: number; bottom: number } {
+  const half = halfHeight(box, 0, REST_FLIGHT.scale) + 2;
+  const top = box.band.top + half;
+  const bottom = box.band.bottom - half;
+  if (bottom >= top) return { top, bottom };
+  const mid = (box.band.top + box.band.bottom) / 2;
+  return { top: mid, bottom: mid };
+}
 
 function passPoints(pass: Pass, box: FlightBox): [P, P, P, P] {
   const m = offEdge(box);
+  const c = centreBand(box);
   const X = (u: number) => (u <= 0 ? -m : u >= 1 ? box.vw + m : u * box.vw);
-  return pass.pts.map(([u, v]) => [X(u), v * box.vh] as const) as unknown as [P, P, P, P];
+  return pass.pts.map(([u, v]) => [X(u), c.top + v * (c.bottom - c.top)] as const) as unknown as [P, P, P, P];
 }
 
 /** heading (radians) of a path at u, and how sharply it turns there (radians per unit of u) */
@@ -93,13 +118,18 @@ function headingAt(pts: readonly [P, P, P, P], u: number) {
 
 const deg = (rad: number) => (rad * 180) / Math.PI;
 
-function poseOn(pts: readonly [P, P, P, P], u: number, flip: 1 | -1, scale: number): Pose {
+function poseOn(pts: readonly [P, P, P, P], u: number, flip: 1 | -1, scale: number, box?: FlightBox): Pose {
   const x = bez(pts[0][0], pts[1][0], pts[2][0], pts[3][0], u);
   const y = bez(pts[0][1], pts[1][1], pts[2][1], pts[3][1], u);
   const { heading, turn } = headingAt(pts, u);
   // mirrored, the nose points left: its angle is measured from the left
-  const angle = flip === 1 ? deg(heading) : deg(Math.atan2(-Math.sin(heading), -Math.cos(heading)));
+  let angle = flip === 1 ? deg(heading) : deg(Math.atan2(-Math.sin(heading), -Math.cos(heading)));
   const bank = 1 - Math.min(REST_FLIGHT.bankMax, turn * 0.12);
+  if (box) {
+    // never out of its band: a little flatter where a climb would poke out of it
+    const room = Math.min(y - box.band.top, box.band.bottom - y);
+    while (Math.abs(angle) > 0.05 && halfHeight(box, angle, scale, bank) > room) angle *= 0.9;
+  }
   return { x, y, angle, flip, scale, bank };
 }
 
@@ -111,17 +141,15 @@ export function restPose(t: number, box: FlightBox): Pose {
   const { park } = box;
   if (!(t > 0)) return { x: park.x, y: park.y, angle: 0, flip: 1, scale: 1, bank: 1 };
   if (t < REST_FLIGHT.takeoffMs) {
-    // from its place, off the right edge, a little down into the screen: speeding up, growing smaller
+    // from its place straight off the right edge, at its own height (above the title): speeding up, growing smaller
     const p = t / REST_FLIGHT.takeoffMs;
-    const m = offEdge(box);
     const pts: [P, P, P, P] = [
       [park.x, park.y],
-      [park.x + box.vw * 0.22, park.y - box.vh * 0.02],
-      [box.vw * 0.95, box.vh * 0.24],
-      [box.vw + m, box.vh * 0.36],
+      [park.x + box.vw * 0.25, park.y],
+      [box.vw * 0.9, park.y],
+      [box.vw + offEdge(box), park.y],
     ];
-    const pose = poseOn(pts, easeIn(p), 1, 1 + (REST_FLIGHT.scale - 1) * easeInOut(p));
-    return pose;
+    return poseOn(pts, easeIn(p), 1, 1 + (REST_FLIGHT.scale - 1) * easeInOut(p));
   }
   const cycle = REST_FLIGHT.passMs + REST_FLIGHT.gapMs;
   const since = (t - REST_FLIGHT.takeoffMs) % (cycle * PASSES.length);
@@ -129,10 +157,10 @@ export function restPose(t: number, box: FlightBox): Pose {
   const pts = passPoints(pass, box);
   // a moment out of sight first, then across (a steady pace, a touch slower in the middle)
   const inPass = since % cycle - REST_FLIGHT.gapMs;
-  if (inPass < 0) return poseOn(pts, 0, pass.flip, REST_FLIGHT.scale);
+  if (inPass < 0) return poseOn(pts, 0, pass.flip, REST_FLIGHT.scale, box);
   const p = inPass / REST_FLIGHT.passMs;
   const u = 0.85 * p + 0.15 * easeInOut(p);
-  return poseOn(pts, u, pass.flip, REST_FLIGHT.scale);
+  return poseOn(pts, u, pass.flip, REST_FLIGHT.scale, box);
 }
 
 /** The pose as a CSS transform, about the rocket's middle, from where it is parked. */
