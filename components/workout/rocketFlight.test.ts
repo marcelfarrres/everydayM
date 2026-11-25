@@ -873,7 +873,7 @@ describe('the minute between blocks (phone)', () => {
   it('talks first; then the rest video until the end (the computer keeps its countdown)', () => {
     const r = rest(true, 1);
     expect(restScreenOf(r, null, true)).toBe('talks');
-    expect(restScreenOf(r, r, true)).toBe('resting');
+    expect(restScreenOf(r, { rest: r, left: 30 }, true, 30)).toBe('resting');
     expect(restScreenOf(rest(true), null, true)).toBe('resting');
     expect(restScreenOf(rest(false), null, true)).toBe('resting');
     expect(restScreenOf(rest(true), null, false)).toBe('countdown');

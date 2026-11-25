@@ -20,7 +20,7 @@ import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
 import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
-import { longRestWords, clock, cloudLabel, finalCount, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { longRestWords, clock, cloudLabel, finalCount, isExercise, journeyOf, nextExerciseAfter, restScreenOf, type TalksDone } from './model';
 import { FinalCount, RestingLabel } from './RestCues';
 import { layoutSpot } from './ui';
 
@@ -146,10 +146,17 @@ export function WorkoutPlayer({
 
   // The rest whose talks have finished: from then on it shows the countdown, like a short rest.
   // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
-  const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
-  // (phone, a long rest: the rest video once its talks are done, or with none)
-  const shownRest = restScreenOf(displayItem, talksDone, !desktop);
-  const currentRest = restScreenOf(currentItem, talksDone, !desktop);
+  // (with the seconds it had left then: a talk that leaves too little rest video goes straight into
+  // the last seconds, longRestPhase)
+  const [talksDone, setTalksDone] = useState<TalksDone | null>(null);
+  const leftNow = useRef(timeLeft);
+  useEffect(() => {
+    leftNow.current = timeLeft;
+  }, [timeLeft]);
+  const onTalksDone = useCallback((rest: RoutineItem) => setTalksDone({ rest, left: leftNow.current }), []);
+  // (phone, a long rest: its talk, the rest video, then the last seconds: restScreenOf)
+  const shownRest = restScreenOf(displayItem, talksDone, !desktop, timeLeft);
+  const currentRest = restScreenOf(currentItem, talksDone, !desktop, timeLeft);
 
   // The clouds play each time a rest begins.
   let cloudKey = currentIndex;
@@ -250,7 +257,7 @@ export function WorkoutPlayer({
                 isPaused={isPaused}
                 reduced={reduced}
                 restScreen={shownRest}
-                onTalksDone={setTalksDone}
+                onTalksDone={onTalksDone}
                 timeLeft={timeLeft}
                 // (on a phone the countdown is RestClock, from the clouds on: the stage keeps only its veil)
                 countdownShown={desktop && !clouding}

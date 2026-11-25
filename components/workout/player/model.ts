@@ -1,5 +1,6 @@
 import type { Exercise, RoutineItem, TimelineSegment } from '@/types/workout';
 import type { Journey } from '@/components/workout/CloudTransition';
+import { LONG_REST_MIN_RESTING_SECONDS, LONG_REST_READY_SECONDS } from '@/lib/routine/duration';
 
 /*
  * Pure helpers for the player: where the routine is, in the shapes the UI draws.
@@ -58,25 +59,79 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
 
 /**
  * What a rest shows full screen:
- *   talks      a long rest's vídeos hablados, until they have played (`talksDone` is the rest whose talks finished)
- *   resting    phone, a long rest with no talk speaking: the rest video (Marcel resting), looped,
- *              with the next exercise in the small window and the clock in the rocket's first panel
+ *   talks      a long rest's vídeo hablado, until it has played (`talksDone`: the rest whose talk finished)
+ *   resting    phone, a long rest once its talk is done (or with none): the rest video (Marcel
+ *              resting), looped, with the next exercise in the small window, "Descansando…" and the
+ *              countdown big in the middle
+ *   ready      phone, a long rest's last seconds: the next exercise fills the screen behind a veil,
+ *              "Prepárate" and the countdown going on in the middle (longRestPhase)
  *   countdown  the next exercise looping behind a dark veil with the giant countdown (short rests;
- *              on a computer also a long rest once its talks are done)
+ *              on a computer also a long rest once its talk is done)
  * Null if not a rest.
  */
-export type RestScreen = 'talks' | 'resting' | 'countdown';
+export type RestScreen = 'talks' | 'resting' | 'ready' | 'countdown';
 
-export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null, phone = false): RestScreen | null {
+/** The rest whose talk has finished, and the seconds it had left then (the clock's whole seconds). */
+export interface TalksDone {
+  rest: RoutineItem;
+  left: number;
+}
+
+export function restScreenOf(
+  item: RoutineItem | undefined,
+  talksDone: TalksDone | null,
+  phone = false,
+  timeLeft = Number.POSITIVE_INFINITY,
+): RestScreen | null {
   if (item?.kind !== 'rest') return null;
-  if (item.restKind === 'long' && item.talks.length > 0 && talksDone !== item) return 'talks';
-  if (phone && item.restKind === 'long') return 'resting';
-  return 'countdown';
+  if (item.restKind !== 'long') return 'countdown';
+  const hasTalk = item.talks.length > 0;
+  const done = talksDone !== null && talksDone.rest === item;
+  if (!phone) return hasTalk && !done ? 'talks' : 'countdown';
+  const phase = longRestPhase(timeLeft, { speaking: hasTalk && !done, endedWithLeft: hasTalk && done ? talksDone.left : null });
+  return phase === 'talk' ? 'talks' : phase;
+}
+
+/**
+ * Phone, a long rest once its clouds have opened (26-11-2026):
+ *   talk      its one vídeo hablado, with voice
+ *   resting   then (or with no talk) the rest video, "Descansando…" and the countdown in the middle
+ *   ready     the last LONG_REST_READY_SECONDS: the next exercise fills the screen, "Prepárate"
+ * A talk that would leave less than LONG_REST_MIN_RESTING_SECONDS of rest video before the last
+ * seconds goes straight into them (`endedWithLeft`: the seconds left when it ended). A talk still
+ * speaking at the last seconds (longer than the catalogue said) gives way to them.
+ */
+export type LongRestPhase = 'talk' | 'resting' | 'ready';
+
+export function longRestPhase(
+  timeLeft: number,
+  talk: { speaking: boolean; endedWithLeft: number | null },
+): LongRestPhase {
+  if (timeLeft <= LONG_REST_READY_SECONDS) return 'ready';
+  if (talk.speaking) return 'talk';
+  if (talk.endedWithLeft !== null && talk.endedWithLeft - LONG_REST_READY_SECONDS < LONG_REST_MIN_RESTING_SECONDS) return 'ready';
+  return 'resting';
+}
+
+/**
+ * The same, as planned: at second `t` of a long rest of `duration` s whose clouds open at `openS`
+ * and whose talk lasts `talkS` (0: none). Before the clouds open, 'clouds'.
+ */
+export function plannedLongRestPhase(
+  t: number,
+  { duration, openS, talkS }: { duration: number; openS: number; talkS: number },
+): LongRestPhase | 'clouds' {
+  if (t < openS) return 'clouds';
+  const talkEnd = openS + talkS;
+  return longRestPhase(duration - t, {
+    speaking: talkS > 0 && t < talkEnd,
+    endedWithLeft: talkS > 0 ? duration - talkEnd : null,
+  });
 }
 
 /** The big 3, 2, 1 over the stage at the end of a long rest (phone): the second shown, or null. */
 export function finalCount(screen: RestScreen | null, timeLeft: number): 1 | 2 | 3 | null {
-  if (screen !== 'talks' && screen !== 'resting') return null;
+  if (screen !== 'talks' && screen !== 'resting' && screen !== 'ready') return null;
   const s = Math.round(timeLeft);
   return s === 1 || s === 2 || s === 3 ? s : null;
 }
