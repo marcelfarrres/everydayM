@@ -25,6 +25,8 @@ export const MINI = {
   GROW_MS: 520,
   /** keyframes sampled along the way (so the video is never stretched in between) */
   STEPS: 12,
+  /** seconds before the rest ends when the window stops on its first frame (so growing doesn't jump) */
+  HOLD_S: 1,
 } as const;
 
 export interface MiniRect {

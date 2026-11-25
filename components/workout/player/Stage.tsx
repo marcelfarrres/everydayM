@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import { motion } from 'motion/react';
 import { widgetLayout } from '@/components/workout/rocketShape';
 import { CLOUDS } from '@/components/workout/CloudTransition';
+import { POD, PREVIEW_OUT_AFTER_REST_MS, podPopKeyframes } from '@/components/workout/rocketFlight';
 import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import type { Exercise, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
@@ -94,7 +95,16 @@ export function Stage({
 
   /** One exercise's clip: the whole screen (it drives the clock when live) or the window (`small`). */
   const clip = (index: number, exercise: Exercise, small: boolean, isLive: boolean) => (
-    <ClipLayer key={`clip-${index}`} small={small} reduced={reduced} fadeIn={phone}>
+    <ClipLayer
+      key={`clip-${index}`}
+      small={small}
+      reduced={reduced}
+      fadeIn={phone}
+      // the window springs out of the rocket just after its banner (it mounts as the clouds cover the screen)
+      popInMs={small ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS - CLOUDS.coveredMs) : null}
+      // in its last moment it waits on its first frame, so growing into the exercise doesn't jump
+      hold={small && live && timeLeft <= MINI.HOLD_S}
+    >
       <video
         ref={(el) => {
           if (!el || !isLive) return;
@@ -163,11 +173,6 @@ export function Stage({
     </div>
   );
 
-  const width = useRocketWidth();
-  const vh = useWindowHeight();
-  const frame = miniRect(width + 12, vh, widgetLayout(width));
-  const windowFrame = { left: frame.left, top: frame.top, width: frame.width, height: frame.height };
-
   let content: React.ReactNode = null;
   if (isExercise(item)) {
     const faded = fading !== null ? queue[fading] : undefined;
@@ -195,14 +200,6 @@ export function Stage({
       className="relative h-full w-full overflow-hidden bg-black text-white @container lg:rounded-[28px]"
     >
       {content}
-      {/* the window's frame (drawn apart, so the window's own scaling doesn't thin it) */}
-      {windowed && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute z-[2] rounded-[12px] ring-2 ring-white"
-          style={windowFrame}
-        />
-      )}
     </div>
   );
 }
@@ -229,7 +226,24 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
  * One exercise's picture: the whole screen, or (`small`) the window of the next exercise above
  * the banner. From small to whole it grows: the same element and video, nothing reloads.
  */
-function ClipLayer({ small, reduced, fadeIn, children }: { small: boolean; reduced: boolean; fadeIn: boolean; children: React.ReactNode }) {
+function ClipLayer({
+  small,
+  reduced,
+  fadeIn,
+  popInMs,
+  hold,
+  children,
+}: {
+  small: boolean;
+  reduced: boolean;
+  fadeIn: boolean;
+  /** the window: ms until it springs out (from behind the banner, like the banner from the rocket) */
+  popInMs: number | null;
+  /** the window: wait on the first frame */
+  hold: boolean;
+  children: React.ReactNode;
+}) {
+  const pop = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const width = useRocketWidth();
@@ -244,12 +258,17 @@ function ClipLayer({ small, reduced, fadeIn, children }: { small: boolean; reduc
     was.current = small;
     const o = outer.current;
     const i = inner.current;
-    if (!o || !i) return;
-    // a new clip on the whole screen fades in (as the stage always did)
+    if (!o || !i || !pop.current) return;
+    // A new clip on the whole screen fades in (as the stage always did); the window springs out
+    // after the banner. (Not cancelled on cleanup: React's dev double mount would lose them.)
     if (before === null) {
-      if (!fadeIn || reduced) return;
-      const appear = o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: small ? 300 : 250, easing: 'ease-out' });
-      return () => appear.cancel();
+      if (!fadeIn) return;
+      if (small && popInMs !== null && !reduced) {
+        pop.current.animate(podPopKeyframes(), { duration: POD.inMs, delay: popInMs, fill: 'backwards' });
+      } else if (!reduced) {
+        o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
+      }
+      return;
     }
     if (!(before && !small)) return;
     // the window becomes the exercise: it starts now, from its first frame, and runs once
@@ -280,15 +299,32 @@ function ClipLayer({ small, reduced, fadeIn, children }: { small: boolean; reduc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [small]);
 
+  useEffect(() => {
+    const video = outer.current?.querySelector('video');
+    if (!small || !hold || !video) return;
+    video.pause();
+    video.currentTime = 0;
+  }, [small, hold]);
+
   return (
-    <div
-      ref={outer}
-      className={`absolute inset-0 overflow-hidden ${small ? 'z-[1]' : ''}`}
-      style={{ transformOrigin: '0 0', transform: pose?.outer ?? 'none', borderRadius: pose?.radius ?? 0 }}
-    >
-      <div ref={inner} className="absolute inset-0" style={{ transform: pose?.inner ?? 'none' }}>
-        {children}
+    <div ref={pop} className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} style={{ transformOrigin: `${rect.left + rect.width / 2}px ${rect.top + rect.height}px` }}>
+      <div
+        ref={outer}
+        className="absolute inset-0 overflow-hidden"
+        style={{ transformOrigin: '0 0', transform: pose?.outer ?? 'none', borderRadius: pose?.radius ?? 0 }}
+      >
+        <div ref={inner} className="absolute inset-0" style={{ transform: pose?.inner ?? 'none' }}>
+          {children}
+        </div>
       </div>
+      {/* the window's frame (apart, so the window's own scaling doesn't thin it) */}
+      {small && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute rounded-[12px] ring-2 ring-white"
+          style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+        />
+      )}
     </div>
   );
 }

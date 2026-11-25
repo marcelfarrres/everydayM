@@ -11,6 +11,8 @@ import {
   HOP,
   LAUNCH_OFFSCREEN_AT,
   launchKeyframes,
+  PREVIEW,
+  PREVIEW_OUT_AFTER_REST_MS,
   RUN_PAST,
   SHAKE,
   engineShake,
@@ -390,6 +392,17 @@ describe('ignition', () => {
 
 // (the routine creator's tilt, as CreatorRocket's CREATOR.tilt: a client module, not imported here)
 const CREATOR_TILT = -12;
+
+describe('the window of the next exercise (a long rest with talks)', () => {
+  it('springs out of the rocket just after its banner, once the rocket has parked', () => {
+    expect(PREVIEW.lagMs).toBeGreaterThanOrEqual(150);
+    expect(PREVIEW.lagMs).toBeLessThanOrEqual(250);
+    expect(PREVIEW_OUT_AFTER_REST_MS).toBe(PARKED_AFTER_CLOUDS_MS + POD.inDelayMs + PREVIEW.lagMs);
+    // the clouds are gone by then, and the banner has started to come out
+    expect(PREVIEW_OUT_AFTER_REST_MS).toBeGreaterThan(CLOUDS.clearMs);
+    expect(PREVIEW_OUT_AFTER_REST_MS).toBeGreaterThan(PARKED_AFTER_CLOUDS_MS + POD.inDelayMs);
+  });
+});
 
 describe('the warning before the ignition', () => {
   it('lights a small blue flame at 10 s and grows it steadily until the ignition takes over', () => {

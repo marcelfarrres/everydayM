@@ -152,7 +152,8 @@ export function WorkoutPlayer({
   const clouding = useBusyAfter(cloudKey, CLOUDS.clearMs, !reduced);
   // Phone: the rest's countdown stands in the clouds until they start to open (RestClock).
   const inClouds = useBusyAfter(cloudKey, CLOUDS.openingMs, !reduced);
-  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : 'hidden';
+  // (with talks it waits at the side, over the banner, while they play; then the middle)
+  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : 'side';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;
   const setListOpen = useCallback(

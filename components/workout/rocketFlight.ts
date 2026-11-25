@@ -220,6 +220,14 @@ export const POD = {
   outMs: FLIGHT.foldMs,
 } as const;
 
+/**
+ * A long rest with talks: the window of the next exercise (Stage) springs out just after the
+ * banner, with the same bounce, so it reads as coming out of the rocket too.
+ */
+export const PREVIEW = { lagMs: 200 } as const;
+/** ms after the rest begins (the clouds start) when the window starts to spring out. */
+export const PREVIEW_OUT_AFTER_REST_MS = PARKED_AFTER_CLOUDS_MS + POD.inDelayMs + PREVIEW.lagMs;
+
 /** When the banner is fully out again (-Infinity: it already is; Infinity: it stays in). */
 export function podOutFrom(f: Flight): number {
   const parked = parkedFrom(f);
