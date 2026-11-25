@@ -90,6 +90,9 @@ export const FLIGHT = {
   placedMs: 1000,
   /** ...settles there, and waits... */
   settledMs: 1200,
+  /** ...(a block's segment, or the boosters after the warm-up, comes off now and falls away)... */
+  dropMs: 1500,
+  dropFallMs: 1500,
   /** ...until it takes off, once, as the clouds are about to open... */
   cloudLiftMs: CLOUD_TIMING.liftMs,
   /** ...climbing straight out of the top. */

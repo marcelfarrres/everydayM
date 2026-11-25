@@ -20,7 +20,7 @@ import { MinutesSlider } from '@/components/workout/MinutesSlider';
 import { MarcelFigure } from '@/components/workout/MarcelFigure';
 import { Hilo } from '@/components/workout/player/Hilo';
 import { useRocketWidth } from '@/components/workout/player/hooks';
-import { CREATOR, ChoiceRocket, RandomRocket, RiseIn, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
+import { CREATOR, ChoiceRocket, LaunchRocket, RandomRocket, RiseIn, WaitingRocket, launchRocket, useCreatorShip } from '@/components/workout/CreatorRocket';
 import { RocketFigure } from '@/components/workout/RocketShip';
 import { HOP, riseKeyframes } from '@/components/workout/rocketFlight';
 import { launchedUntil } from '@/components/workout/rocketHandoff';
@@ -554,17 +554,18 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const scanned = view === 'result' && stage >= 1 && clipDone;
   const scanning = scanned && stage === 1;
 
-  // Phone: where the field, the microphone and "send" sit on the rocket (its hilo's room, and the
-  // base of its nose for "send"), as CSS variables the bar's `max-lg:` classes read.
+  // Phone: where the field, the microphone and "send" sit in the rocket's body, as CSS variables the bar's `max-lg:` classes read.
   const textLeft = barShip.content.left * barK - hang;
-  const micLeft = barShip.content.right * barK - hang - (speechSupported ? 44 : 0);
+  // "send" at the front of the body (the nose is short), the microphone before it
+  const sendLeft = barShip.content.right * barK - hang - 40;
+  const micLeft = sendLeft - (speechSupported ? 42 : 0);
   const barVars = {
     '--bar-h': `${barShip.H * barK}px`,
     '--fig-l': `${-hang}px`,
     '--txt-l': `${textLeft}px`,
     '--txt-w': `${micLeft - textLeft}px`,
     '--mic-l': `${micLeft}px`,
-    '--send-l': `${(barShip.xs + 16) * barK - hang - 22}px`,
+    '--send-l': `${sendLeft}px`,
     '--ctl-t': `${barShip.cy * barK - 22}px`,
     // the field: as many lines as the bar holds, centred in its body
     '--txt-h': `${lines * BAR_TEXT.LINE + 2 * BAR_TEXT.PAD}px`,
@@ -909,7 +910,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                   {blocksAndSeries(built.meta.rounds, built.meta.exercisesPerRound)}
                 </p>
                 {/* the same hilo the player's bar draws, every serie still to do */}
-                <Hilo surface="light" blocks={built.meta.blocks.map((block) => block.map(() => 'todo' as const))} />
+                {/* (on a phone the routine's rocket below carries these lines, a segment per block) */}
+                <Hilo surface="light" className="max-lg:hidden" blocks={built.meta.blocks.map((block) => block.map(() => 'todo' as const))} />
               </motion.div>
             )}
           </div>
@@ -1045,22 +1047,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         </div>
       )}
 
-      {/* phone: "Empezar" is the rocket, back from its last flight, held at the bottom of the screen
-          so it is always whole (the content scrolls under it). Outside the steps' moving layers:
-          a transformed parent would hold a fixed element in place of the screen. */}
+      {/* phone: "Empezar" is the routine's own rocket, put together piece by piece (a segment per
+          block with its series, the nose, the boosters of the warm-up), held at the bottom of the
+          screen so it is always whole (the content scrolls under it). Outside the steps' moving
+          layers: a transformed parent would hold a fixed element in place of the screen. */}
       {view === 'result' && ready && built && intent && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] z-20 flex justify-center lg:hidden">
-          <WaitingRocket
+        <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] z-20 flex justify-center lg:hidden [&>*]:pointer-events-auto">
+          <LaunchRocket
             ref={startRef}
-            riseDelay={0}
+            blocks={built.meta.blocks.map((block) => block.map(() => 'todo' as const))}
+            boosters={built.queue.some((item) => item.kind === 'warmup')}
             onClick={start}
-            className="pointer-events-auto"
-            label={
-              <>
-                <Play className="h-[18px] w-[18px] fill-current" aria-hidden="true" />
-                Empezar
-              </>
-            }
           />
         </div>
       )}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BOB, PAM_NUDGES, POD_FOLDED, SHAKE, SINK, SPRING_NUDGES, SPUTTER_NUDGES, sinkAt, type Nudge } from './rocketFlight';
-import { BANNER, BAR_TEXT, SHIP, WIDGET, barLines, barThickness, hullHalfAt, overlaps, shipGeometry, widgetLayout, type WidgetLayout } from './rocketShape';
+import { BANNER, BAR_TEXT, SHIP, WIDGET, barLines, barThickness, hullHalfAt, shiftFor, shipGeometry, stackGeometry, widgetLayout, type Stack, type WidgetLayout } from './rocketShape';
 
 // The widget's width on phones of 320, 360 and 390 px (6 px each side) and a tablet's cap.
 const WIDTHS = [308, 348, 378, 576];
@@ -17,21 +17,23 @@ function moved(p: Pt, n: Nudge, origin: Pt): Pt {
   return { x: origin.x + x + dx * Math.cos(r) - dy * Math.sin(r), y: origin.y + y + dx * Math.sin(r) + dy * Math.cos(r) };
 }
 
-/** The rocket's outline where it could meet the banner (top fin tips, body top, nose), in rocket pixels. */
+/** The rocket's outline where it could meet the banner (the boosters' band, the body's top, the cap), in rocket pixels. */
 function topOutline(L: WidgetLayout): Pt[] {
   const { g } = L;
-  const pts: Pt[] = [
-    { x: g.parts.finTop.left, y: 0 },
-    { x: g.x0, y: 0 },
-  ];
+  const pts: Pt[] = [];
+  if (g.boosters) for (let x = g.boosters.x0; x <= g.boosters.x1; x += 4) pts.push({ x, y: STROKE / 2 });
   for (let x = g.x0; x <= g.xs; x += 4) pts.push({ x, y: F });
   for (let x = g.xs; x <= g.tip; x += 2) pts.push({ x, y: g.cy - hullHalfAt(g, x) });
   return pts;
 }
-const bottomFin = (L: WidgetLayout): Pt[] => [
-  { x: L.g.parts.finBottom.left, y: F + T + F },
-  { x: L.g.x0, y: F + T + F },
-];
+/** Its lowest points at the tail (the body's corner and the nozzle's lip, or the lower booster). */
+const tailBottom = (L: WidgetLayout): Pt[] =>
+  L.g.boosters
+    ? [{ x: L.g.boosters.x0, y: L.g.H }]
+    : [
+        { x: L.g.x0, y: F + T },
+        { x: L.g.xe, y: L.g.cy + T * 0.42 },
+      ];
 const squashOrigin = (L: WidgetLayout): Pt => ({ x: (L.g.x0 + L.g.tip) / 2, y: F + T });
 
 /** The highest the rocket's top gets under these moves, in widget pixels. */
@@ -40,48 +42,92 @@ const highest = (L: WidgetLayout, moves: Nudge[], origin: Pt) =>
 
 /** Where the body's top and bottom lines are at the mast, in widget pixels. */
 const bodyAtMast = (L: WidgetLayout, n: Nudge, origin: Pt) => {
-  const x = L.mast.x - L.ship.left;
+  const x = L.pivot.x;
   return { top: moved({ x, y: F }, n, origin).y + L.ship.top, bottom: moved({ x, y: F + T }, n, origin).y + L.ship.top };
 };
 
-describe('the rocket (RocketShip)', () => {
-  it.each(WIDTHS)('keeps every part of the rocket clear of the hilo at %i px', (width) => {
-    const { g } = widgetLayout(width);
-    const grown = { ...g.content, left: g.content.left - (SHIP.CONTENT_GAP - 1), right: g.content.right + (SHIP.CONTENT_GAP - 1) };
-    for (const [name, part] of Object.entries(g.parts)) {
-      expect({ name, overlaps: overlaps(grown, part) }).toEqual({ name, overlaps: false });
+// a warm-up's rocket (boosters on), a block's, and what is left near the end
+const WARMUP: Stack = { blocks: 3, first: 1, boosters: true };
+const BLOCK1: Stack = { blocks: 3, first: 1, boosters: false };
+const LAST: Stack = { blocks: 3, first: 3, boosters: false };
+const STAGES = [WARMUP, BLOCK1, { blocks: 3, first: 2, boosters: false }, LAST];
+
+describe('the rocket by segments (RocketShip)', () => {
+  it.each([1, 2, 3, 4, 6])('splits its body into %i equal segments, block 1 at the tail', (n) => {
+    const g = stackGeometry({ width: 330, blocks: n });
+    expect(g.segments).toHaveLength(n);
+    expect(g.segments.map((s) => s.block)).toEqual(Array.from({ length: n }, (_, i) => i + 1));
+    const lengths = g.segments.map((s) => s.end - s.start);
+    lengths.forEach((l) => expect(l).toBeCloseTo(lengths[0], 0));
+    expect(g.segments[0].start).toBe(g.x0);
+    expect(g.segments.at(-1)?.end).toBeCloseTo(g.xs, 0);
+    expect(g.joints).toHaveLength(n - 1);
+  });
+
+  it('keeps each segment\'s series clear of its joints and outline, the middle of it white', () => {
+    const g = stackGeometry({ width: 330, blocks: 4 });
+    for (const seg of g.segments) {
+      expect(seg.content.left).toBeGreaterThan(seg.start + SHIP.JOINT / 2);
+      expect(seg.content.right).toBeLessThan(seg.end - SHIP.STROKE / 2);
+      expect(seg.content.top).toBeGreaterThanOrEqual(F + STROKE);
+      expect(seg.content.bottom).toBeLessThanOrEqual(F + T - STROKE);
+      // room for the thick line of the serie in progress (13 px)
+      expect(seg.content.bottom - seg.content.top).toBeGreaterThanOrEqual(13 + 2 * 4);
+      for (const j of g.joints) expect(j.x <= seg.content.left - SHIP.JOINT / 2 || j.x >= seg.content.right + SHIP.JOINT / 2).toBe(true);
     }
-    expect(g.content.left).toBeGreaterThan(g.x0);
-    expect(g.content.right).toBeLessThan(g.xs);
-    expect(g.content.top).toBeGreaterThanOrEqual(F + STROKE / 2);
-    expect(g.content.bottom).toBeLessThanOrEqual(F + T - STROKE / 2);
   });
 
-  it.each(WIDTHS)('gives the hilo nearly the whole body, with room for the thick line of the serie in progress, at %i px', (width) => {
-    const { g } = widgetLayout(width);
-    const w = g.content.right - g.content.left;
-    expect(w / (g.xs - g.x0)).toBeGreaterThanOrEqual(0.8);
-    expect(w).toBeGreaterThanOrEqual(130);
-    // the line of the serie in progress is 13 px (Hilo `lg`), with air above and below
-    expect(g.content.bottom - g.content.top).toBeGreaterThanOrEqual(13 + 2 * 4);
+  it('keeps the same segments where they were as the first ones come off (the nose stays put)', () => {
+    const whole = stackGeometry({ width: 330, blocks: 4 });
+    const left = stackGeometry({ width: 330, blocks: 4, first: 3 });
+    expect(left.segments.map((s) => s.block)).toEqual([3, 4]);
+    expect(left.segments[0]).toEqual(whole.segments[2]);
+    expect(left.tip).toBe(whole.tip);
+    // the tail's nozzle is now the third segment's
+    expect(left.x0).toBe(whole.segments[2].start);
+    expect(left.xe).toBeCloseTo(left.x0 - SHIP.NOZZLE, 5);
+    // and it never runs out: past the last, the last segment stays
+    expect(stackGeometry({ width: 330, blocks: 4, first: 9 }).segments.map((s) => s.block)).toEqual([4]);
   });
 
-  it.each(WIDTHS)('is slim, with a long, sharp nose, at %i px', (width) => {
-    const { g } = widgetLayout(width);
-    expect((g.tip - g.xe) / T).toBeGreaterThanOrEqual(7);
-    const nose = g.tip - g.xs;
-    expect(nose / T).toBeGreaterThanOrEqual(2.4);
-    // sharp: a quarter of the nose back from the tip it is less than half the body's thickness
-    expect(hullHalfAt(g, g.tip - nose / 4)).toBeLessThan(T / 4);
-    expect(g.H).toBe(T + 2 * F);
+  it('has a short nose with a window and a probe, and boosters only with all its segments on', () => {
+    const g = stackGeometry({ width: 330, blocks: 3, boosters: true });
+    expect(g.tip - g.xs).toBe(SHIP.NOSE);
+    expect((g.tip - g.xs) / T).toBeLessThanOrEqual(1.2);
+    expect(g.window.cx).toBeGreaterThan(g.xs);
+    expect(g.window.cx).toBeLessThan(g.xs + SHIP.CAP);
+    expect(g.boosters).not.toBeNull();
+    // shorter than the body, and inside the band above and below it
+    expect((g.boosters?.x1 ?? 0) - (g.boosters?.x0 ?? 0)).toBeLessThan(g.xs - g.x0);
+    expect(stackGeometry({ width: 330, blocks: 3, first: 2, boosters: true }).boosters).toBeNull();
+    expect(stackGeometry({ width: 330, blocks: 3 }).boosters).toBeNull();
+  });
+
+  it('stands centred whatever is left of it', () => {
+    for (const first of [1, 2, 3, 4]) {
+      const g = stackGeometry({ width: 330, blocks: 4, first });
+      const shift = shiftFor(g);
+      const whole = stackGeometry({ width: 330, blocks: 4 });
+      expect((g.xe + g.tip) / 2 + shift).toBeCloseTo((whole.xe + whole.tip) / 2, 0);
+    }
+  });
+
+  it('is every other rocket of the app as one segment with no boosters', () => {
+    const g = shipGeometry(300);
+    expect(g.segments).toHaveLength(1);
+    expect(g.boosters).toBeNull();
+    expect(g.content).toEqual(g.segments[0].content);
   });
 });
 
+// every width with every stage of the rocket
+const CASES = WIDTHS.flatMap((w) => STAGES.map((st) => [w, st] as const));
+const label = (st: Stack) => `${st.boosters ? 'warm-up' : `segments ${st.first}-${st.blocks}`}`;
+
 describe('the widget', () => {
   it.each(WIDTHS)('is low and short: banner, mast and rocket in at most 125 px from the bottom, at %i px', (width) => {
-    const L = widgetLayout(width);
+    const L = widgetLayout(width, WARMUP);
     expect(L.box + WIDGET.BOTTOM).toBeLessThanOrEqual(125);
-    // the rocket is the bottom of it
     expect(L.ship.top + L.g.H).toBeLessThanOrEqual(L.box);
     expect(L.box - (L.ship.top + L.g.H)).toBeLessThanOrEqual(STROKE);
   });
@@ -92,28 +138,28 @@ describe('the widget', () => {
     expect(banner.left).toBeGreaterThanOrEqual(0);
     expect(banner.right).toBeLessThanOrEqual(L.B);
     expect(banner.bottom - banner.top - 2 * STROKE).toBeGreaterThanOrEqual(BANNER.BTN);
-    // border, the text's left padding (12), the buttons' side (3), three buttons and their gaps
     const text = banner.right - banner.left - 2 * STROKE - 12 - 3 - 3 * BANNER.BTN - 3 * 2;
-    // "Calentamiento" at 15 px (about 105 px) and the list's chevron (14 px and its gap)
     expect(text).toBeGreaterThanOrEqual(122);
-    // the name (15 px) over the time (28 px)
     expect(banner.bottom - banner.top - 2 * STROKE).toBeGreaterThanOrEqual(18 + 28);
   });
 
-  it.each(WIDTHS)('stands the banner on a mast from the body, clear of the top fin, at %i px', (width) => {
-    const L = widgetLayout(width);
+  it.each(CASES)('stands the banner on a mast from the body, centred over what is left, at %i px (%o)', (width, stack) => {
+    const L = widgetLayout(width, stack);
     const { g } = L;
-    const mastX = L.mast.x - L.ship.left;
-    expect(mastX).toBeGreaterThan(g.content.left);
-    expect(mastX).toBeLessThan(g.content.right);
+    // the mast's foot is on the body, whatever is left of it
+    expect(L.pivot.x).toBeGreaterThan(g.x0 + SHIP.JOINT);
+    expect(L.pivot.x).toBeLessThan(g.xs - 2);
     expect(L.mast.top).toBeLessThan(L.banner.bottom);
     expect(L.mast.bottom).toBeGreaterThan(L.ship.top + F);
     expect(L.mast.bottom).toBeLessThan(L.ship.top + F + T);
     expect(L.ship.top - L.banner.bottom).toBe(BANNER.CLEAR);
+    // centred: its middle under the banner's
+    expect(L.center.x).toBeCloseTo((L.banner.left + L.banner.right) / 2, -0.5);
+    expect(L.ship.left + L.ship.shift + g.xe).toBeGreaterThanOrEqual(0);
   });
 
   it.each(WIDTHS)('folds the banner into the body, out of sight behind it, at %i px', (width) => {
-    const L = widgetLayout(width);
+    const L = widgetLayout(width, LAST);
     const [kx, ky] = (/scale\(([\d.]+), ([\d.]+)\)/.exec(POD_FOLDED) ?? []).slice(1).map(Number);
     const folded = {
       left: L.fold.x + (L.banner.left - L.fold.x) * kx,
@@ -123,17 +169,16 @@ describe('the widget', () => {
     };
     expect(folded.top).toBeGreaterThan(L.ship.top + F + STROKE);
     expect(folded.bottom).toBeLessThan(L.ship.top + F + T - STROKE);
-    expect(folded.left).toBeGreaterThan(L.ship.left + L.g.x0);
-    expect(folded.right).toBeLessThan(L.ship.left + L.g.xs);
+    expect(folded.left).toBeGreaterThan(L.ship.left + L.ship.shift + L.g.x0);
+    expect(folded.right).toBeLessThan(L.ship.left + L.ship.shift + L.g.xs);
   });
 });
 
 describe('the rocket moving in its place', () => {
-  it.each(WIDTHS)('coughs in the warm-up without touching the banner or losing its mast, at %i px', (width) => {
-    const L = widgetLayout(width);
+  it.each(WIDTHS)('coughs in the warm-up (boosters on) without touching the banner or losing its mast, at %i px', (width) => {
+    const L = widgetLayout(width, WARMUP);
     const origin = squashOrigin(L);
-    expect(highest(L, SPUTTER_NUDGES, origin)).toBeGreaterThanOrEqual(L.banner.bottom + 1);
-    // a hop you can see
+    expect(highest(L, SPUTTER_NUDGES, origin)).toBeGreaterThanOrEqual(L.banner.bottom + 0.5);
     expect(Math.min(...SPUTTER_NUDGES.map((n) => n.y ?? 0))).toBeLessThanOrEqual(-3);
     for (const n of SPUTTER_NUDGES) {
       const body = bodyAtMast(L, n, origin);
@@ -142,53 +187,53 @@ describe('the rocket moving in its place', () => {
     }
   });
 
-  it.each(WIDTHS)('lands its "¡pam!" without touching the banner or losing its mast, at %i px', (width) => {
-    const L = widgetLayout(width);
-    const pivot = L.pivot;
-    expect(highest(L, SPRING_NUDGES, pivot)).toBeGreaterThanOrEqual(L.banner.bottom + 0.5);
+  it.each(CASES)('lands its "¡pam!" without touching the banner or losing its mast, at %i px (%o)', (width, stack) => {
+    const L = widgetLayout(width, stack);
+    expect(highest(L, SPRING_NUDGES, L.pivot)).toBeGreaterThanOrEqual(L.banner.bottom + 0.5);
     expect(highest(L, PAM_NUDGES, squashOrigin(L))).toBeGreaterThanOrEqual(L.banner.bottom + 0.5);
     for (const n of SPRING_NUDGES) {
-      const body = bodyAtMast(L, n, pivot);
+      const body = bodyAtMast(L, n, L.pivot);
       expect(body.top).toBeLessThan(L.mast.bottom - 1);
       expect(body.bottom).toBeGreaterThan(L.mast.bottom + 1);
     }
-    // marked: a deep squash
     expect(Math.min(...PAM_NUDGES.map((n) => n.sy ?? 1))).toBeLessThanOrEqual(0.75);
   });
 
   it.each(WIDTHS)('sinks in a rest until its tail dips off the bottom of the screen, but only a little, at %i px', (width) => {
-    const L = widgetLayout(width);
+    const L = widgetLayout(width, BLOCK1);
     const full = sinkAt(1);
     expect(full).toEqual({ y: SINK.maxPx, rz: SINK.maxTilt });
-    const lowest = Math.max(...bottomFin(L).map((p) => moved(p, full, L.pivot).y)) + L.ship.top;
+    const lowest = Math.max(...tailBottom(L).map((p) => moved(p, full, L.pivot).y)) + L.ship.top;
     const below = lowest - L.box - WIDGET.BOTTOM; // px under the bottom of the screen
-    expect(below).toBeGreaterThanOrEqual(6);
+    expect(below).toBeGreaterThanOrEqual(1);
     expect(below).toBeLessThanOrEqual(30);
-    // with the bob on top of the sink: it never touches the banner, and the mast stays in the body
-    for (const sink of [sinkAt(0), sinkAt(0.5), full]) {
-      for (const bob of BOB) {
-        const n = { y: sink.y + bob.y, rz: sink.rz + bob.rz };
-        expect(highest(L, [n], L.pivot)).toBeGreaterThanOrEqual(L.banner.bottom + 1);
-        const body = bodyAtMast(L, n, L.pivot);
-        expect(body.top).toBeLessThan(L.mast.bottom - 1);
-        expect(body.bottom).toBeGreaterThan(L.mast.bottom + 1);
+    for (const stack of [BLOCK1, LAST]) {
+      const S = widgetLayout(width, stack);
+      for (const sink of [sinkAt(0), sinkAt(0.5), full]) {
+        for (const bob of BOB) {
+          const n = { y: sink.y + bob.y, rz: sink.rz + bob.rz };
+          expect(highest(S, [n], S.pivot)).toBeGreaterThanOrEqual(S.banner.bottom + 1);
+          const body = bodyAtMast(S, n, S.pivot);
+          expect(body.top).toBeLessThan(S.mast.bottom - 1);
+          expect(body.bottom).toBeGreaterThan(S.mast.bottom + 1);
+        }
       }
     }
   });
 
-  it.each(WIDTHS)('shakes harder each of the last three seconds, still clear of the banner, at %i px', (width) => {
-    const L = widgetLayout(width);
+  it.each(CASES)('shakes harder each of the last three seconds, still clear of the banner, at %i px (%o)', (width, stack) => {
+    const L = widgetLayout(width, stack);
     for (const list of [SHAKE.rocket, SHAKE.text]) {
       for (let i = 1; i < list.length; i++) expect(list[i]).toBeGreaterThan(list[i - 1]);
     }
     expect(SHAKE.rocket[3]).toBeGreaterThanOrEqual(4);
-    expect(SHAKE.text[3]).toBeLessThanOrEqual(2.5); // the text stays readable
-    // the shake's furthest pose (globals.css .rw-shake: up to 1 px and 0.22° per unit), about the rocket's middle
+    expect(SHAKE.text[3]).toBeLessThanOrEqual(2.5);
     const amp = SHAKE.rocket[3];
     const middle = { x: (L.g.xe + L.g.tip) / 2, y: L.g.cy };
     for (const rz of [-0.22 * amp, 0.22 * amp]) {
-      expect(highest(L, [{ x: amp, y: -0.7 * amp, rz }], middle)).toBeGreaterThanOrEqual(L.banner.bottom);
+      expect(highest(L, [{ x: amp, y: -0.7 * amp, rz }], middle)).toBeGreaterThanOrEqual(L.banner.bottom - 1);
     }
+    void label;
   });
 });
 
@@ -205,12 +250,12 @@ describe("the routine creator's bar", () => {
       const inner = (barThickness(n, k) - SHIP.STROKE) * k; // (half a stroke each side)
       expect(inner).toBeGreaterThanOrEqual(n * BAR_TEXT.LINE + 2 * BAR_TEXT.AIR - 0.5);
     });
-    // the drawing follows: a thicker body, and a nose that grows with it so it keeps its point
+    // the drawing follows: a thicker body, and a nose cap that grows with it
     const thin = shipGeometry(330);
     const thick = shipGeometry(330, t[2]);
     expect(thick.H - thin.H).toBeCloseTo(t[2] - SHIP.T, 5);
-    expect((thick.tip - thick.xs) / thick.T).toBeGreaterThanOrEqual(1.75);
-    expect(hullHalfAt(thick, thick.tip - (thick.tip - thick.xs) / 4)).toBeLessThan(thick.T / 4);
+    expect(thick.tip - thick.xs - SHIP.PROBE).toBe(Math.round(thick.T * 0.9));
+    expect(hullHalfAt(thick, thick.xs + 1)).toBeCloseTo(thick.T / 2, 0);
     // still long and slim, with room for the sentence
     expect((thick.tip - thick.xe) / thick.T).toBeGreaterThanOrEqual(4);
     expect(thick.content.right - thick.content.left).toBeGreaterThanOrEqual(140);

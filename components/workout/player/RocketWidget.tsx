@@ -3,8 +3,9 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronUp, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
-import { FlameDrawing, RocketShip, boxStyle, flameBox } from '@/components/workout/RocketShip';
-import { BANNER, SHIP, widgetLayout, type ShipGeometry, type WidgetLayout } from '@/components/workout/rocketShape';
+import { FlameDrawing, RocketShip, boxStyle, flameBox, type Piece } from '@/components/workout/RocketShip';
+import { dropBetween, rocketStack } from '@/components/workout/rocketStack';
+import { BANNER, SHIP, stackGeometry, widgetLayout, type ShipGeometry, type Stack, type WidgetLayout } from '@/components/workout/rocketShape';
 import {
   ANTICIPATION_AT,
   CLOUD_LEAVE_MS,
@@ -52,8 +53,8 @@ import {
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import type { RoutineItem } from '@/types/workout';
 import { SeriesList } from './SeriesList';
-import { useRocketWidth, useTapGuard } from './hooks';
-import { blocksOf, clock, isExercise, serieState, warmupState } from './model';
+import { useLagged, useRocketWidth, useTapGuard } from './hooks';
+import { blocksOf, clock, isExercise, serieState, warmupState, type StepState } from './model';
 import { own } from './ui';
 
 /*
@@ -135,8 +136,33 @@ export function RocketWidget({
 
   // ---- size: drawn in screen pixels, from the screen's width (the clouds' rocket uses the same)
   const width = useRocketWidth();
-  const L = useMemo(() => widgetLayout(width), [width]);
-  const { g } = L;
+  // The rocket's stage: a segment per block still to finish, and the boosters while the warm-up
+  // lasts. What is drawn changes in the clouds, when a part comes off (after the rocket has stood
+  // there a moment); where it stands, centred, changes only once it is away, before it comes back.
+  const entering = item?.kind === 'rest' && !reduced;
+  const drawnAt = useLagged(currentIndex, entering ? FLIGHT.dropMs : 0);
+  const centredAt = useLagged(currentIndex, entering ? FLIGHT.returnStartMs : 0);
+  const drawn = useMemo(() => rocketStack(queue, drawnAt), [queue, drawnAt]);
+  const centred = useMemo(() => rocketStack(queue, centredAt), [queue, centredAt]);
+  const L = useMemo(() => widgetLayout(width, centred), [width, centred]);
+  const g = useMemo(() => stackGeometry({ width: L.frame, ...drawn }), [L.frame, drawn]);
+
+  // a part that has just come off falls away, turning slowly (in the clouds)
+  const [shownStack, setShownStack] = useState<Stack>(drawn);
+  const [falling, setFalling] = useState<{ key: number; g: ShipGeometry; piece: Piece; x: number } | null>(null);
+  if (shownStack !== drawn) {
+    const off = dropBetween(shownStack, drawn);
+    if (off && entering) {
+      const before = stackGeometry({ width: L.frame, ...shownStack });
+      setFalling({
+        key: (falling?.key ?? 0) + 1,
+        g: before,
+        piece: off === 'segment' ? `seg-${shownStack.first}` : 'boosters',
+        x: off === 'segment' ? before.segments[0].end : (before.boosters?.x0 ?? before.x0),
+      });
+    }
+    setShownStack(drawn);
+  }
 
   const shown = queue[displayIndex];
   const live = displayIndex === currentIndex;
@@ -342,7 +368,8 @@ export function RocketWidget({
             </div>
           </div>
 
-          <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
+          {/* (what is left of the rocket stands centred: its drawing moves by the missing half) */}
+          <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H, transform: `translateX(${L.ship.shift}px)` }}>
             <div
               ref={sinkEl}
               data-rw="sink"
@@ -357,6 +384,7 @@ export function RocketWidget({
                 className={`absolute inset-0 ${shownRest && !reduced ? 'rw-bob' : ''}`}
                 style={{ transformOrigin: pivot, animationPlayState: isPaused ? 'paused' : 'running' }}
               >
+                {falling && <FallingPiece key={falling.key} g={falling.g} piece={falling.piece} x={falling.x} hilo={hilo} onDone={() => setFalling(null)} />}
                 <div ref={squashEl} className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                   <div className={`absolute inset-0 ${shaking ? 'rw-shake' : ''}`} style={shake(engine.amp)}>
                     <RocketShip
@@ -381,7 +409,12 @@ export function RocketWidget({
                     />
                     {/* a tap on the body opens the list too */}
                     {isExercise(shown) && (
-                      <div data-bar="" onClick={toggleList} className="pointer-events-auto absolute cursor-pointer" style={{ ...boxStyle(L.body), borderRadius: 6 }} />
+                      <div
+                        data-bar=""
+                        onClick={toggleList}
+                        className="pointer-events-auto absolute cursor-pointer"
+                        style={{ ...boxStyle({ left: g.x0, right: g.tip, top: SHIP.F, bottom: SHIP.F + SHIP.T }), borderRadius: 6 }}
+                      />
                     )}
                   </div>
                 </div>
@@ -860,4 +893,49 @@ function cloudSpot(root: HTMLElement | null, L: WidgetLayout, top: number): Clou
     dy: Math.round((top / 100) * vh + half - parked.y),
     k: Math.round(k * 1000) / 1000,
   };
+}
+
+/**
+ * A part that has just come off (a block's segment, or the boosters after the warm-up): a puff of
+ * smoke at the joint, and it falls away from the rocket, turning slowly, out of the screen. (In
+ * the clouds the rocket stands on its tail, so falling is towards its tail.)
+ */
+function FallingPiece({ g, piece, x, hilo, onDone }: { g: ShipGeometry; piece: Piece; x: number; hilo: StepState[][]; onDone: () => void }) {
+  const el = useRef<HTMLDivElement>(null);
+  const puffs = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = el.current;
+    if (!node) return;
+    const fall = node.animate(
+      [
+        { transform: 'translate(0px, 0px) rotate(0deg)', opacity: 1, easing: 'cubic-bezier(0.3, 0, 0.6, 0.4)' },
+        { transform: 'translate(-8px, 2px) rotate(-1.5deg)', opacity: 1, offset: 0.14, easing: 'cubic-bezier(0.45, 0, 0.9, 0.6)' },
+        { transform: 'translate(-760px, 40px) rotate(-24deg)', opacity: 1, offset: 0.96 },
+        { transform: 'translate(-800px, 42px) rotate(-25deg)', opacity: 0 },
+      ],
+      { duration: FLIGHT.dropFallMs, fill: 'forwards' },
+    );
+    fall.onfinish = onDone;
+    Array.from(puffs.current?.children ?? []).forEach((puff, i) =>
+      (puff as HTMLElement).animate(sputterPuffKeyframes(i ? -14 : 6, i ? 16 : -18), { duration: 900, delay: i * 120, easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)', fill: 'both' }),
+    );
+    return () => fall.cancel();
+    // (once, as it comes off)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const box = piece === 'boosters' ? { a: g.boosters?.x0 ?? g.x0, b: g.boosters?.x1 ?? g.x0 } : { a: g.segments[0].start, b: g.segments[0].end };
+  return (
+    <>
+      <div ref={el} className="pointer-events-none absolute inset-0" style={{ transformOrigin: `${(box.a + box.b) / 2}px ${g.cy}px` }}>
+        <RocketShip g={g} only={[piece]} hilo={hilo} className="absolute left-0 top-0" />
+      </div>
+      <div ref={puffs} aria-hidden="true" className="pointer-events-none absolute inset-0">
+        {[0, 1].map((i) => (
+          <div key={i} className="absolute" style={{ left: x - 10, top: g.cy - 7 + (i ? 6 : -6), width: 20, height: 14, opacity: 0 }}>
+            <PuffDrawing />
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }

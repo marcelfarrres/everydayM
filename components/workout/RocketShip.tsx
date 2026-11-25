@@ -5,12 +5,15 @@ import { SHIP, flamePaths, type Box, type ShipGeometry } from '@/components/work
 
 /*
  * The rocket of the phone, as a drawing that can be reused: white with the ink line, the flame in
- * red (the only colour), and in its body, optionally, the hilo. It lies on its side with the nose
+ * red (the only colour), and in its segments, optionally, the lines of their series (the hilo). It lies on its side with the nose
  * to the right; RocketFigure stands it on its tail and scales it (the big rocket of the clouds is
  * this same drawing, bigger). The geometry, in pixels at scale 1, is rocketShape's.
  *
- * Layers, back to front: `behind` (flames, puffs), fins + nozzle + hull, `inside` (water, clipped
- * by the caller to `g.inside`), the bands and the edge-on fin, the hilo.
+ * It is drawn as pieces (each segment with its motor, the nose, the boosters), each in two layers
+ * so the water of a rest can go between them: back to front, `behind` (flames, puffs), every
+ * piece's outline (white), `inside` (water, clipped by the caller to `g.inside`), every piece's
+ * details (joints, rivets, the window) and each segment's lines of its series. Every layer carries
+ * `data-piece`, so a piece can be moved on its own (put together, or coming off).
  */
 
 const INK = '#131313';
@@ -39,61 +42,131 @@ export const flameBox = (g: ShipGeometry): CSSProperties => ({
   transformOrigin: '100% 50%',
 });
 
+/** A piece of the rocket: a segment (`seg-<block>`), the nose, or the boosters. */
+export type Piece = `seg-${number}` | 'nose' | 'boosters';
+
+/** The pieces of a geometry, tail first, then the nose, then the boosters (the order they are put together). */
+export const piecesOf = (g: ShipGeometry): Piece[] => [...g.segments.map((s) => `seg-${s.block}` as Piece), 'nose', ...(g.boosters ? (['boosters'] as Piece[]) : [])];
+
 export function RocketShip({
   g,
   hilo,
   behind,
   inside,
+  only,
   className = '',
   style,
 }: {
   g: ShipGeometry;
-  /** the hilo in the body: one list of serie states per block */
+  /** the series of each block, in its segment: one list of serie states per block (block 1 first) */
   hilo?: StepState[][];
   behind?: ReactNode;
   inside?: ReactNode;
+  /** draw only these pieces (a segment coming off, say) */
+  only?: Piece[];
   /** its position classes (relative by default) */
   className?: string;
   style?: CSSProperties;
 }) {
-  const { F, T } = g;
+  const { F, T, cy } = g;
   const { STROKE } = SHIP;
-  const svg = {
-    'aria-hidden': true,
-    width: g.W,
-    height: g.H,
-    viewBox: `0 0 ${g.W} ${g.H}`,
-    className: 'pointer-events-none absolute left-0 top-0 overflow-visible',
-    fill: '#fff',
-    stroke: INK,
-    strokeLinejoin: 'round',
-    strokeLinecap: 'round',
-  } as const;
+  const shows = (p: Piece) => !only || only.includes(p);
+  const svg = (piece: Piece, layer: 'back' | 'front', children: ReactNode, strokeWidth: number = STROKE) => (
+    <svg
+      key={`${piece}-${layer}`}
+      data-piece={piece}
+      aria-hidden="true"
+      width={g.W}
+      height={g.H}
+      viewBox={`0 0 ${g.W} ${g.H}`}
+      className="pointer-events-none absolute left-0 top-0 overflow-visible"
+      fill="#fff"
+      stroke={INK}
+      strokeWidth={strokeWidth}
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    >
+      {children}
+    </svg>
+  );
+  const tail = g.segments[0];
+  const back: ReactNode[] = [];
+  const front: ReactNode[] = [];
+
+  if (g.boosters && shows('boosters')) {
+    back.push(
+      svg('boosters', 'back', [
+        <path key="n" d={g.boosters.nozzles} />,
+        <path key="t" d={g.boosters.top} />,
+        <path key="b" d={g.boosters.bottom} />,
+      ]),
+    );
+    front.push(svg('boosters', 'front', <path d={g.boosters.seams} strokeWidth={1} strokeOpacity={0.55} />));
+  }
+  for (const seg of g.segments) {
+    const piece: Piece = `seg-${seg.block}`;
+    if (!shows(piece)) continue;
+    back.push(
+      svg(piece, 'back', [
+        // its motor: only the tail's can be seen
+        seg === tail && <path key="nz" d={g.nozzle} />,
+        <path key="body" d={`M${seg.start} ${F} L${seg.end} ${F} L${seg.end} ${F + T} L${seg.start} ${F + T} Z`} />,
+      ]),
+    );
+    const joint = g.joints.find((j) => j.back === seg.block);
+    const details: ReactNode[] = [
+      // a scratch of wear near its top edge, and a rivet at each end, top and bottom
+      <path key="scratch" d={`M${r1(seg.end - 16)} ${F + 2.6} L${r1(seg.end - 11)} ${F + 4}`} strokeWidth={0.8} strokeOpacity={0.4} />,
+      ...[seg.start + 5, seg.end - 5].flatMap((x) => [
+        <circle key={`r${x}t`} cx={r1(x)} cy={F + 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
+        <circle key={`r${x}b`} cx={r1(x)} cy={F + T - 2.8} r={0.75} fill={INK} stroke="none" opacity={0.55} />,
+      ]),
+    ];
+    if (joint) {
+      const x = joint.x;
+      const half = SHIP.JOINT / 2;
+      const squares = Math.floor((T - STROKE) / 4);
+      details.push(
+        <path key="jl" d={`M${r1(x - half + 1)} ${F} L${r1(x - half + 1)} ${F + T} M${r1(x + half - 1)} ${F} L${r1(x + half - 1)} ${F + T}`} strokeWidth={1} />,
+        ...Array.from({ length: squares }, (_, i) =>
+          i % 2 === 0 ? <rect key={`c${i}`} x={r1(x - 2)} y={r1(F + STROKE / 2 + i * 4)} width={2} height={4} fill={INK} stroke="none" /> : (
+            <rect key={`c${i}`} x={r1(x)} y={r1(F + STROKE / 2 + i * 4)} width={2} height={4} fill={INK} stroke="none" />
+          ),
+        ),
+      );
+    }
+    front.push(svg(piece, 'front', details));
+    const lines = hilo?.[seg.block - 1];
+    if (lines) {
+      front.push(
+        <div key={`${piece}-hilo`} data-piece={piece} data-rocket="hilo" className="pointer-events-none absolute flex items-center" style={boxStyle(seg.content)}>
+          <Hilo surface="light" size="lg" className="flex-1" blocks={[lines]} />
+        </div>,
+      );
+    }
+  }
+  if (shows('nose')) {
+    back.push(
+      svg('nose', 'back', [
+        <path key="probe" d={g.probe} strokeWidth={1.4} />,
+        <circle key="ball" cx={r1(g.tip - 1.2)} cy={cy} r={1.2} fill={INK} stroke="none" />,
+        <path key="cap" d={g.cap} />,
+      ]),
+    );
+    front.push(svg('nose', 'front', <circle cx={g.window.cx} cy={g.window.cy} r={g.window.r} strokeWidth={1.3} />));
+  }
+
   return (
     <div data-rocket="" className={className || 'relative'} style={{ width: g.W, height: g.H, ...style }}>
       {behind}
-      <svg {...svg} strokeWidth={STROKE}>
-        <path d={g.finTop} />
-        <path d={g.finBottom} />
-        <path d={g.nozzle} />
-        <path d={g.nozzleLine} strokeWidth={1.1} />
-        <path d={g.hull} />
-      </svg>
+      {back}
       {inside}
-      <svg {...svg}>
-        {g.bands.map((x, i) => (
-          <path key={x} d={`M${x} ${F} L${x} ${F + T}`} strokeWidth={i === 2 ? STROKE : 1.25} />
-        ))}
-        <path d={g.edgeFin} strokeWidth={1.5} />
-      </svg>
-      {hilo && (
-        <div data-rocket="hilo" className="pointer-events-none absolute flex items-center" style={boxStyle(g.content)}>
-          <Hilo surface="light" size="lg" className="flex-1" blocks={hilo} />
-        </div>
-      )}
+      {front}
     </div>
   );
 }
+
+const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /**
  * The rocket as a figure in the page: `scale` times its size, lying (nose right) or `upright`

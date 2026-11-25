@@ -1,9 +1,10 @@
 'use client';
 
 import { useLayoutEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode, type Ref } from 'react';
-import { RocketFigure, scaledBox } from '@/components/workout/RocketShip';
-import { HOP, LAUNCH_OFFSCREEN_AT, launchKeyframes, riseKeyframes } from '@/components/workout/rocketFlight';
-import { SHIP, shipGeometry } from '@/components/workout/rocketShape';
+import { FlameDrawing, RocketFigure, RocketShip, flameBox, piecesOf, scaledBox } from '@/components/workout/RocketShip';
+import { HOP, LAUNCH_OFFSCREEN_AT, POD, launchKeyframes, podPopKeyframes, riseKeyframes } from '@/components/workout/rocketFlight';
+import { BANNER, SHIP, shipGeometry, widgetLayout } from '@/components/workout/rocketShape';
+import type { StepState } from '@/components/workout/player/model';
 import { useRocketWidth } from '@/components/workout/player/hooks';
 
 /*
@@ -176,7 +177,7 @@ export function WaitingRocket({
 
 // px per character of the label (15 px semibold), and the rocket around it (rocket units at scale 1)
 const CHAR_PX = 8.2;
-const AROUND = { tail: 46, nose: SHIP.NOSE + 8, flameRoom: 14 } as const;
+const AROUND = { tail: 38, nose: SHIP.NOSE + 8, flameRoom: 14 } as const;
 
 /** How long a choice rocket is for a label of `chars` characters (px, at most the room there is). */
 const choicePx = (chars: number, room: number) => Math.min(room + AROUND.flameRoom, Math.round(chars * CHAR_PX + 12 + AROUND.tail + AROUND.nose));
@@ -258,5 +259,121 @@ export function RiseIn({ delay, className = '', children }: { delay: number; cla
     <div ref={el} className={className}>
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Empezar": the routine's own rocket, put together piece by piece.
+
+/** The routine's rocket goes together a piece at a time: this long between one piece and the next. */
+export const ASSEMBLY = { stepMs: 200, pieceMs: 300 } as const;
+
+/**
+ * The routine's rocket (phone): a segment per block with the lines of its series, the nose, and
+ * the boosters if it has a warm-up, the same size and drawing as the player's. Once the routine is
+ * ready it goes together piece by piece (tail first, then the nose, then the boosters), each with
+ * a bump, and then "Empezar" springs out of it on a banner, as the player's does. The whole of it
+ * is the button: a tap launches it (and the player's rocket is this same one landing).
+ */
+export function LaunchRocket({
+  ref,
+  blocks,
+  boosters,
+  onClick,
+}: {
+  ref?: Ref<HTMLElement | null>;
+  /** each block's series (all to do) */
+  blocks: StepState[][];
+  boosters: boolean;
+  onClick: () => void;
+}) {
+  const width = useRocketWidth();
+  const L = useMemo(() => widgetLayout(width, { blocks: blocks.length, first: 1, boosters }), [width, blocks.length, boosters]);
+  const { g } = L;
+  const own = useRef<HTMLElement | null>(null);
+  const banner = useRef<HTMLDivElement>(null);
+  const ship = useRef<HTMLDivElement>(null);
+  const setRef = (node: HTMLButtonElement | null) => {
+    own.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  };
+
+  useLayoutEffect(() => {
+    const root = own.current;
+    if (!root || !banner.current || !ship.current || window.matchMedia('(min-width: 64rem)').matches) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const pieces = piecesOf(g);
+    const done = pieces.length * ASSEMBLY.stepMs + ASSEMBLY.pieceMs;
+    if (reduced) {
+      root.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250 });
+      return;
+    }
+    pieces.forEach((piece, i) => {
+      // each piece comes in from where it belongs (the tail's from behind, the nose from ahead, the
+      // boosters from above and below) and lands with a bump
+      const from = piece === 'nose' ? 'translate(34px, 0px)' : piece === 'boosters' ? 'scale(1, 1.6)' : 'translate(-34px, -6px)';
+      root.querySelectorAll<HTMLElement | SVGElement>(`[data-piece="${piece}"]`).forEach((node) => {
+        node.style.transformOrigin = `${g.x0}px ${g.cy}px`;
+        node.animate(
+          [
+            { transform: from, opacity: 0, easing: 'cubic-bezier(0.3, 0, 0.6, 1)' },
+            { transform: 'translate(1px, 1px) scale(1.02, 0.92)', opacity: 1, offset: 0.62, easing: 'cubic-bezier(0.3, 0, 0.4, 1)' },
+            { transform: 'translate(-1px, 0px) scale(1, 1.02)', opacity: 1, offset: 0.82 },
+            { transform: 'none', opacity: 1 },
+          ],
+          { duration: ASSEMBLY.pieceMs, delay: i * ASSEMBLY.stepMs, fill: 'backwards' },
+        );
+      });
+      // ...and the whole rocket takes the knock
+      ship.current?.animate(
+        [{ transform: 'none' }, { transform: 'translate(1.5px, 1px) scale(1.01, 0.96)', offset: 0.35 }, { transform: 'translate(-1px, 0px)', offset: 0.65 }, { transform: 'none' }],
+        { duration: 220, delay: i * ASSEMBLY.stepMs + ASSEMBLY.pieceMs * 0.6 },
+      );
+    });
+    banner.current.animate(podPopKeyframes(), { duration: POD.inMs, delay: done, fill: 'backwards' });
+    // (once, when it appears; not cancelled, so React's dev double mount doesn't lose it)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const bw = 176;
+  return (
+    <button
+      ref={setRef}
+      type="button"
+      onClick={onClick}
+      aria-label="Empezar"
+      className="rw-lift relative shrink-0 cursor-pointer rounded-[20px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden"
+      style={{ width: L.B, height: L.box }}
+    >
+      {/* "Empezar" on its banner, on a mast from the rocket (as the player's banner) */}
+      <div ref={banner} aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ transformOrigin: `${L.fold.x}px ${L.fold.y}px` }}>
+        <div
+          className="absolute border-x-2 border-ink bg-white"
+          style={{ left: L.mast.x - BANNER.MAST_W / 2, top: L.mast.top, width: BANNER.MAST_W, height: L.mast.bottom - L.mast.top }}
+        />
+        <div
+          className="absolute flex items-center justify-center gap-2 rounded-[18px] border-2 border-ink bg-white text-[18px] font-semibold text-ink"
+          style={{ left: (L.B - bw) / 2, top: 0, width: bw, height: BANNER.H }}
+        >
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current" aria-hidden="true">
+            <path d="M7 4.5v15l12-7.5z" />
+          </svg>
+          Empezar
+        </div>
+      </div>
+      <div ref={ship} className="pointer-events-none absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
+        <RocketShip
+          g={g}
+          hilo={blocks}
+          className="absolute left-0 top-0"
+          behind={
+            <div data-rocket-flame="" data-unlit="" className="absolute" style={{ ...flameBox(g), transform: 'scale(0.3, 0.65)' }}>
+              <FlameDrawing />
+            </div>
+          }
+        />
+      </div>
+    </button>
   );
 }
