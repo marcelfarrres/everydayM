@@ -77,6 +77,7 @@ export class MusicEngine {
   private volumeTimer: ReturnType<typeof setInterval> | null = null;
   private snapshot: MusicSnapshot;
   private listeners = new Set<() => void>();
+  private duckListeners = new Set<(ducked: boolean) => void>(); // the sound effects follow it
 
   constructor() {
     let stored: string | null = null;
@@ -107,6 +108,21 @@ export class MusicEngine {
   private emit() {
     this.snapshot = { ...this.settings, available: this.urls.length > 0 };
     this.listeners.forEach((listener) => listener());
+  }
+
+  /** A vídeo hablado is speaking (the music is ducked for it). */
+  isDucked(): boolean {
+    return this.ducked;
+  }
+
+  /** Told whenever a talk starts or stops speaking (the sound effects quiet down under it). */
+  onDuckedChange(listener: (ducked: boolean) => void): () => void {
+    this.duckListeners.add(listener);
+    return () => this.duckListeners.delete(listener);
+  }
+
+  private emitDucked() {
+    this.duckListeners.forEach((listener) => listener(this.ducked));
   }
 
   // â”€â”€ What the app calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -179,7 +195,9 @@ export class MusicEngine {
   stop() {
     this.active = false;
     this.paused = false;
+    const wasDucked = this.ducked;
     this.ducked = false;
+    if (wasDucked) this.emitDucked();
     this.clearTimers();
     if (this.decks) {
       for (const deck of this.decks) this.unload(deck);
@@ -191,6 +209,7 @@ export class MusicEngine {
     if (ducked === this.ducked) return;
     this.ducked = ducked;
     this.applyGain(RAMP_SECONDS);
+    this.emitDucked();
   }
 
   setVolume(volume: number) {
