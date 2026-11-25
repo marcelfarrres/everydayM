@@ -12,12 +12,13 @@ import type {
 import {
   OUTRO_DURATION_SECONDS,
   getDefaultSlotSeconds,
+  BETWEEN_BLOCKS_TALK_SECONDS,
   getLongRestSeconds,
   getRestDuration,
 } from './duration';
 import { RECENT_PENALTY, pickWeighted, type ScoredExercise } from './select';
 import { solveForMinutes } from './solveForMinutes';
-import { expectedTalkSeconds, pickTalks, talksSeconds } from './talks';
+import { expectedTalkSeconds, fillTalks, pickTalks, talksSeconds } from './talks';
 import { buildTimeline } from './timeline';
 import { buildBlocks, resolveVariation } from './variation';
 
@@ -419,7 +420,10 @@ export function buildRoutine(
    */
   const longRest = (round: number, isEndOfRound: boolean): RoutineItem => {
     const block = blocks[round - 1];
-    const talks = pickTalks(block, usedTalkIds, rng);
+    // between blocks: as many talks as fit in its minute, this block's first, then the later ones'
+    const talks = isEndOfRound
+      ? fillTalks(block, blocks.slice(round).flat(), usedTalkIds, BETWEEN_BLOCKS_TALK_SECONDS, rng)
+      : pickTalks(block, usedTalkIds, rng);
     return {
       kind: 'rest',
       // Never shorter than a plain long rest, and long enough for every talk to finish after the

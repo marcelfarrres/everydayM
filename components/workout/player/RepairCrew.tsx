@@ -204,6 +204,33 @@ function choreography(plan: RepairPlan, p: Places) {
     );
     B.head.push([t - 0.1 * b, 'rotate(4deg)', 'ease-out'], [t + 0.3 * b, 'rotate(-5deg)', 'ease-in-out'], [t + 0.6 * b, 'rotate(0deg)']);
   });
+  // A long rest's breaks: the one with the hammer wipes his brow and then looks the rocket over;
+  // the other sits down on the toolbox; back to work as the break ends
+  const toolbox: Track = [[0, '0']];
+  plan.breaks.forEach(([a, b]) => {
+    const aAtTail = sideAt(a);
+    const ax = aAtTail ? p.tail : p.nose;
+    const bx = aAtTail ? p.nose : p.tail;
+    A.arm.push(
+      [a, 'rotate(-55deg)', 'cubic-bezier(0.3, 0, 0.3, 1)'],
+      [a + 450, 'rotate(-150deg)', 'ease-in-out'],
+      [a + 800, 'rotate(-138deg)', 'ease-in-out'],
+      [a + 1150, 'rotate(-155deg)', 'ease-in-out'],
+      [a + 1500, 'rotate(-140deg)', 'cubic-bezier(0.4, 0, 0.3, 1)'],
+      [a + 2000, 'rotate(-18deg)'],
+      [b - 400, 'rotate(-18deg)', 'cubic-bezier(0.4, 0, 0.3, 1)'],
+      [b, 'rotate(-55deg)'],
+    );
+    A.head.push([a + 300, 'rotate(0deg)', 'ease-out'], [a + 600, 'rotate(-8deg)', 'ease-in-out'], [a + 2200, 'rotate(-8deg)', 'ease-in-out'], [a + 2600, 'rotate(9deg)'], [b - 500, 'rotate(9deg)', 'ease-in-out'], [b, 'rotate(0deg)']);
+    A.x.push([a + 2100, `translate(${ax}px, 0px)`, 'ease-in-out'], [a + 2600, `translate(${ax + (aAtTail ? 6 : -6)}px, 0px)`], [b - 300, `translate(${ax + (aAtTail ? 6 : -6)}px, 0px)`, 'ease-in-out'], [b, `translate(${ax}px, 0px)`]);
+    B.arm.push([a + 100, 'rotate(-95deg)', 'ease-in-out'], [a + 500, 'rotate(-15deg)'], [b - 300, 'rotate(-15deg)', 'ease-in-out'], [b + 100, 'rotate(-95deg)']);
+    B.x.push([a + 200, `translate(${bx}px, 0px)`, 'cubic-bezier(0.4, 0, 0.3, 1)'], [a + 650, `translate(${bx}px, 6px)`], [b - 350, `translate(${bx}px, 6px)`, 'cubic-bezier(0.4, 0, 0.3, 1)'], [b, `translate(${bx}px, 0px)`]);
+    B.legL.push([a + 200, 'rotate(0deg)', 'ease-out'], [a + 650, 'rotate(-78deg)'], [b - 350, 'rotate(-78deg)', 'ease-in'], [b, 'rotate(0deg)']);
+    B.legR.push([a + 200, 'rotate(0deg)', 'ease-out'], [a + 650, 'rotate(-70deg)'], [b - 350, 'rotate(-70deg)', 'ease-in'], [b, 'rotate(0deg)']);
+    B.head.push([a + 900, 'rotate(0deg)', 'ease-in-out'], [a + 1300, 'rotate(10deg)', 'ease-in-out'], [b - 600, 'rotate(10deg)', 'ease-in-out'], [b - 200, 'rotate(0deg)']);
+    toolbox.push([a + 150, '0', 'ease-out'], [a + 400, '1'], [b - 200, '1', 'ease-in'], [b + 100, '0']);
+  });
+
   // smoke at either end, now one, now the other; one in three rises higher and comes apart
   const size = plan.calm ? 0.7 : 1.15;
   plan.puffs.forEach((t, i) => {
@@ -231,7 +258,7 @@ function choreography(plan: RepairPlan, p: Places) {
   };
   out(A, aEnd, 0);
   out(B, !aEnd, 90);
-  return { D, A, B, lift, stands, sparks, sparkAt, smoke };
+  return { D, A, B, lift, stands, sparks, sparkAt, smoke, toolbox };
 }
 
 /** One little mechanic: legs, body, head with its cap, two arms; the hammer or the wrench. */
@@ -368,6 +395,7 @@ export function RepairCrew({
       run(`${id}-back`, who.back);
       run(`${id}-head`, who.head);
     }
+    run('b-box', c.toolbox, 'opacity');
     run('stands', c.stands);
     run('spark', c.sparks, 'opacity');
     run('spark-at', c.sparkAt);
@@ -450,6 +478,14 @@ export function RepairCrew({
           className="absolute left-0"
           style={{ top, width: MW, height: MH, transform: `translate(${id === 'a' ? (reduced ? places.tail : offLeft) : reduced ? places.nose : offRight}px, 0px)` }}
         >
+          {id === 'b' && (
+            // the toolbox he sits on in a break (it stays on the ground as he sits)
+            <svg data-part="b-box" width={18} height={11} viewBox="0 0 18 11" className="absolute overflow-visible" style={{ left: 2, top: MH - 17, opacity: 0 }} fill="#fff" stroke={INK} strokeWidth={1.2} strokeLinejoin="round">
+              <rect x={0.6} y={3} width={16.8} height={7.4} rx={1.2} />
+              <path d="M6 3 V1 H12 V3" fill="none" />
+              <path d="M0.6 6 H17.4" strokeWidth={0.8} fill="none" />
+            </svg>
+          )}
           <div className={`absolute inset-0 ${id === 'a' ? 'rc-nod' : 'rc-nod-b'}`}>
             <Mechanic id={id} tool={id === 'a' ? 'hammer' : 'wrench'} />
           </div>

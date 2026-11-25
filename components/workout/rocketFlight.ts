@@ -125,8 +125,11 @@ export const CLOUD_LEAVE_MS = CLOUD_TIMING.liftMs + CLOUD_EXIT_MS;
 // NN % completado." (on a phone the % badge of the corner travels into it), and "Retirando el
 // primer bloque del cohete…", when the segment comes off; then the usual "Luego: …".
 
-/** Is this the rest after a block? (not the one after the warm-up, nor a short one) */
-export const blockEnds = (item: RoutineItem | undefined) => item?.kind === 'rest' && item.restKind === 'long' && item.isEndOfRound;
+/**
+ * Does this rest have the longer clouds with their sentences? Every long rest: after a block (its
+ * segment comes off) and after the warm-up (the boosters come off). Not a short one.
+ */
+export const blockEnds = (item: RoutineItem | undefined) => item?.kind === 'rest' && item.restKind === 'long';
 
 /** How much longer the clouds of this rest last (ms). */
 export const cloudExtraMs = (item: RoutineItem | undefined) => (blockEnds(item) ? BLOCK_END_EXTRA_MS : 0);
@@ -494,6 +497,11 @@ export const REPAIR = {
   /** shorter than this, no repair at all; shorter than this, a short one */
   minMs: 2000,
   shortBelowMs: 4000,
+  /** a long rest (the minute between blocks): this much work, then a break, by turns; hard work for the last stretch */
+  breaksFromMs: 20000,
+  workMs: 7000,
+  breakMs: 5000,
+  finalWorkMs: 8000,
   /** puffs of smoke at either end (fewer with a talk on) */
   puffEveryMs: 600,
   calmPuffEveryMs: 1300,
@@ -514,6 +522,8 @@ export interface RepairPlan {
   /** when they cross over */
   swaps: [number, number][];
   puffs: number[];
+  /** a long rest: stretches when they stop to rest (wipe their brow, look at it, sit on the toolbox) */
+  breaks: [number, number][];
   /** sparks and jolts of the rocket at each blow (not with a talk on) */
   sparks: boolean;
 }
@@ -526,7 +536,7 @@ export function repairPlan(parkedMs: number, calm = false): RepairPlan {
   const enterEnd = short ? 450 : REPAIR.enterMs + REPAIR.lagMs;
   const exitStart = Math.max(enterEnd, P - (short ? 700 : REPAIR.exitLeadMs));
   const exitEnd = Math.min(P - 250, exitStart + (short ? 450 : REPAIR.exitMs));
-  const plan: RepairPlan = { none, short, calm, enterEnd, exitStart, exitEnd, hits: [], turns: [], swaps: [], puffs: [], sparks: !calm };
+  const plan: RepairPlan = { none, short, calm, enterEnd, exitStart, exitEnd, hits: [], turns: [], swaps: [], puffs: [], breaks: [], sparks: !calm };
   if (none) return { ...plan, enterEnd: 0, exitStart: 0, exitEnd: 0 };
   const workFrom = enterEnd + (short ? 100 : 200);
   const workTo = exitStart - (short ? 100 : 150);
@@ -540,11 +550,19 @@ export function repairPlan(parkedMs: number, calm = false): RepairPlan {
     plan.turns = plan.turns.filter((t) => t <= workTo);
     return plan;
   }
-  // crossings: one every few seconds, never in the last stretch
+  // a long rest: work and breaks by turns, and hard work again at the end
+  if (P >= REPAIR.breaksFromMs) {
+    for (let t = workFrom + REPAIR.workMs; t + REPAIR.breakMs <= exitStart - REPAIR.finalWorkMs; t += REPAIR.workMs + REPAIR.breakMs) {
+      plan.breaks.push([Math.round(t), Math.round(t + REPAIR.breakMs)]);
+    }
+  }
+  const inBreak = (t: number, margin = 0) => plan.breaks.some(([a, b]) => t > a - margin && t < b + margin);
+  // crossings: one every few seconds, never in the last stretch nor in a break
   for (let t = workFrom + 2500; t + REPAIR.swapMs <= exitStart - REPAIR.fastFromEndMs + 600; t += REPAIR.swapEveryMs) {
+    if (inBreak(t, 400) || inBreak(t + REPAIR.swapMs, 400)) continue;
     plan.swaps.push([Math.round(t), Math.round(t + REPAIR.swapMs)]);
   }
-  const inSwap = (t: number) => plan.swaps.some(([a, b]) => t > a - 250 && t < b + 250);
+  const inSwap = (t: number) => plan.swaps.some(([a, b]) => t > a - 250 && t < b + 250) || inBreak(t, 300);
   const base = calm ? REPAIR.calmBeatMs : REPAIR.beatMs;
   for (let t = workFrom; t <= workTo; ) {
     const beat = t >= P - REPAIR.fastFromEndMs ? base / REPAIR.fastBy : base;
@@ -555,7 +573,7 @@ export function repairPlan(parkedMs: number, calm = false): RepairPlan {
     if (turn <= workTo && !inSwap(turn)) plan.turns.push(Math.round(turn));
     t += beat;
   }
-  for (let t = workFrom + 200; t <= workTo; t += calm ? REPAIR.calmPuffEveryMs : REPAIR.puffEveryMs) plan.puffs.push(Math.round(t));
+  for (let t = workFrom + 200; t <= workTo; t += calm ? REPAIR.calmPuffEveryMs : REPAIR.puffEveryMs) if (!inBreak(t)) plan.puffs.push(Math.round(t));
   return plan;
 }
 

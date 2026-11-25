@@ -58,11 +58,20 @@ export function getTalkRestSeconds(talkSeconds: number, leadMs: number = TALK_LE
   return talkSeconds > 0 ? Math.ceil(talkSeconds + leadMs / 1000) : 0;
 }
 
-/** A long rest: before block 1 (after the warm-up) or after a block (`afterBlock`: the longer clouds). */
-export function getLongRestSeconds(restSeconds: number, talkSeconds: number, afterBlock: boolean): number {
-  return afterBlock
-    ? Math.max(getBlockEndRestBase(restSeconds), getTalkRestSeconds(talkSeconds, BLOCK_END_LEAD_MS))
-    : Math.max(getLongRestBase(restSeconds), getTalkRestSeconds(talkSeconds));
+/** The rest between one block and the next lasts at least this long (s): clouds, talks, a preview of the block. */
+export const BETWEEN_BLOCKS_MIN_SECONDS = 60;
+
+/** The talk time a rest between blocks can hold within its minimum (s): what is left once the clouds open. */
+export const BETWEEN_BLOCKS_TALK_SECONDS = Math.floor(BETWEEN_BLOCKS_MIN_SECONDS - BLOCK_END_LEAD_MS / 1000);
+
+/**
+ * A long rest, after the warm-up or between blocks (`betweenBlocks`). Both have the longer clouds
+ * (they open BLOCK_END_LEAD_MS in, and the talks start then); between blocks it lasts at least a
+ * minute. Talks that need more stretch it.
+ */
+export function getLongRestSeconds(restSeconds: number, talkSeconds: number, betweenBlocks: boolean): number {
+  const usual = Math.max(getBlockEndRestBase(restSeconds), getTalkRestSeconds(talkSeconds, BLOCK_END_LEAD_MS));
+  return betweenBlocks ? Math.max(BETWEEN_BLOCKS_MIN_SECONDS, usual) : usual;
 }
 
 export function getDefaultSlotSeconds(difficulty: number): number {

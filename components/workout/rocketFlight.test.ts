@@ -8,7 +8,7 @@ import {
   cloudExtraMs,
   cloudsFor,
 } from './rocketFlight';
-import { blockEndWords, blockOrdinal } from './player/model';
+import { BLOCK_PREVIEW, blockEndWords, blockExercises, blockOrdinal, longRestWords, previewIndex, restScreenOf } from './player/model';
 import type { RoutineItem } from '@/types/workout';
 import {
   AWAY_POSE,
@@ -675,12 +675,12 @@ describe('the clouds after a block', () => {
   const longRest = (isEndOfRound: boolean): RoutineItem =>
     ({ kind: 'rest', duration: 30, prepSeconds: 0, nextExercise: exercise('b', ['gluteos']), nextRound: 2, totalRounds: 3, isEndOfRound, restKind: 'long', talks: [] }) as RoutineItem;
 
-  it('last 3.5 s longer only after a block (not after the warm-up, not between series)', () => {
+  it('last 3.5 s longer after a block and after the warm-up (not between series)', () => {
     expect(blockEnds(longRest(true))).toBe(true);
-    expect(blockEnds(longRest(false))).toBe(false);
+    expect(blockEnds(longRest(false))).toBe(true);
     expect(blockEnds({ ...longRest(true), restKind: 'short' } as RoutineItem)).toBe(false);
     expect(cloudExtraMs(longRest(true))).toBe(BLOCK_END_EXTRA_MS);
-    expect(cloudExtraMs(longRest(false))).toBe(0);
+    expect(cloudExtraMs(longRest(false))).toBe(BLOCK_END_EXTRA_MS);
     // they open when the engine says a long rest's talks start
     expect(cloudsFor(BLOCK_END_EXTRA_MS).openingMs).toBe(BLOCK_END_LEAD_MS);
     expect(cloudsFor(0).openingMs).toBe(TALK_LEAD_MS);
@@ -726,5 +726,64 @@ describe('the clouds after a block', () => {
     expect(words.first).toBe('Has acabado el segundo bloque.');
     expect(words.second).toEqual({ before: 'Llevas el', after: 'completado.' });
     expect(words.third).toBe('Retirando el segundo bloque del cohete…');
+  });
+});
+
+describe('the minute between blocks (phone)', () => {
+  const rest = (isEndOfRound: boolean, talks = 0): RoutineItem =>
+    ({
+      kind: 'rest',
+      duration: 60,
+      prepSeconds: 0,
+      nextExercise: exercise('a', ['gluteos']),
+      nextRound: 2,
+      totalRounds: 3,
+      isEndOfRound,
+      restKind: 'long',
+      talks: Array.from({ length: talks }, (_, i) => ({ id: `t${i}`, exercise_id: 'a', duration_seconds: 10 })),
+    }) as unknown as RoutineItem;
+
+  it('talks first; then a preview of the coming block until its last seconds, then the countdown', () => {
+    const r = rest(true, 1);
+    expect(restScreenOf(r, null, 40, true)).toBe('talks');
+    expect(restScreenOf(r, r, 40, true)).toBe('preview');
+    expect(restScreenOf(r, r, BLOCK_PREVIEW.tailS, true)).toBe('countdown');
+    expect(restScreenOf(rest(true), null, 50, true)).toBe('preview');
+    // not after the warm-up, and the computer stays as it was
+    expect(restScreenOf(rest(false), null, 50, true)).toBe('countdown');
+    expect(restScreenOf(rest(true), null, 50, false)).toBe('countdown');
+  });
+
+  it('the preview goes through the block, a few seconds each, and round again', () => {
+    expect(BLOCK_PREVIEW.eachS).toBeGreaterThanOrEqual(6);
+    expect(BLOCK_PREVIEW.eachS).toBeLessThanOrEqual(8);
+    expect(previewIndex(4, 50, 50)).toBe(0);
+    expect(previewIndex(4, 50, 50 - BLOCK_PREVIEW.eachS)).toBe(1);
+    expect(previewIndex(4, 50, 50 - 4 * BLOCK_PREVIEW.eachS)).toBe(0);
+    expect(previewIndex(0, 50, 10)).toBe(0);
+    const serie = (title: string, round: number): RoutineItem =>
+      ({ kind: 'workout', exercise: exercise(title, ['gluteos']), round, totalRounds: 3, exerciseIndexInRound: 1, totalExercisesPerRound: 2 }) as RoutineItem;
+    const queue = [serie('a', 1), serie('b', 2), serie('c', 2), serie('b', 2), serie('d', 3)];
+    expect(blockExercises(queue, 2).map((e) => e.title)).toEqual(['b', 'c']);
+  });
+
+  it('after the warm-up the clouds say so, and the boosters come off with the third sentence', () => {
+    const words = longRestWords(rest(false) as Extract<RoutineItem, { kind: 'rest' }>);
+    expect(words.first).toBe('Has acabado el calentamiento.');
+    expect(words.third).toBe('Soltando los propulsores…');
+    expect(longRestWords(rest(true) as Extract<RoutineItem, { kind: 'rest' }>).first).toBe('Has acabado el primer bloque.');
+  });
+
+  it('in a long rest the mechanics take breaks, and work hard again at the end', () => {
+    const plan = repairPlan(53000);
+    expect(plan.breaks.length).toBeGreaterThanOrEqual(2);
+    for (const [a, b] of plan.breaks) {
+      expect(b - a).toBe(REPAIR.breakMs);
+      for (const t of [...plan.hits, ...plan.turns]) expect(t > a && t < b).toBe(false);
+      for (const [s, e] of plan.swaps) expect(e < a - 300 || s > b + 300).toBe(true);
+    }
+    expect(Math.max(...plan.breaks.map(([, b]) => b))).toBeLessThanOrEqual(plan.exitStart - REPAIR.finalWorkMs);
+    expect(plan.hits.filter((t) => t > plan.exitStart - REPAIR.finalWorkMs).length).toBeGreaterThan(5);
+    expect(repairPlan(15000).breaks).toEqual([]);
   });
 });

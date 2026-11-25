@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildRoutine } from './buildRoutine';
 import { cheerFor } from './cheers';
 import {
+  BETWEEN_BLOCKS_MIN_SECONDS,
+  BETWEEN_BLOCKS_TALK_SECONDS,
   BLOCK_END_EXTRA_MS,
   BLOCK_END_LEAD_MS,
   TALK_LEAD_MS,
@@ -13,6 +15,7 @@ import {
   getTalkRestSeconds,
 } from './duration';
 import { solveForMinutes } from './solveForMinutes';
+import { talksSeconds } from './talks';
 import {
   exercise,
   gluteIntent,
@@ -113,7 +116,7 @@ describe('rests', () => {
 });
 
 describe('talks in long rests', () => {
-  it('never repeats a talk within a routine and only uses talks of the coming block', () => {
+  it('never repeats a talk within a routine; the talks of the coming block first, then of later blocks', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const { queue, meta } = buildRoutine(
         library({ talks: [14] }),
@@ -123,12 +126,21 @@ describe('talks in long rests', () => {
       const seen = new Set<string>();
       for (const rest of rests(queue)) {
         if (rest.restKind === 'short') continue;
-        expect(rest.talks.length).toBeLessThanOrEqual(2);
+        if (!rest.isEndOfRound) expect(rest.talks.length).toBeLessThanOrEqual(2);
+        else expect(talksSeconds(rest.talks)).toBeLessThanOrEqual(Math.max(BETWEEN_BLOCKS_TALK_SECONDS, talksSeconds(rest.talks.slice(0, 1))));
         const blockIds = new Set(ids(meta.blocks[rest.nextRound - 1]));
+        const laterIds = new Set(meta.blocks.slice(rest.nextRound - 1).flatMap((b) => ids(b)));
+        let ownFirst = true;
         for (const t of rest.talks) {
           expect(seen.has(t.id)).toBe(false);
           seen.add(t.id);
-          expect(blockIds.has(t.exercise_id)).toBe(true);
+          if (!rest.isEndOfRound) expect(blockIds.has(t.exercise_id)).toBe(true);
+          else {
+            expect(laterIds.has(t.exercise_id)).toBe(true);
+            // (the coming block's talks come before any later block's)
+            if (!blockIds.has(t.exercise_id)) ownFirst = false;
+            else expect(ownFirst).toBe(true);
+          }
         }
       }
     }
@@ -155,7 +167,7 @@ describe('talks in long rests', () => {
     for (const rest of rests(queue)) {
       expect(rest.prepSeconds).toBe(0);
       if (rest.restKind === 'short') expect(rest.duration).toBe(base);
-      else if (rest.talks.length === 0) expect(rest.duration).toBe(rest.isEndOfRound ? getBlockEndRestBase(base) : getLongRestBase(base));
+      else if (rest.talks.length === 0) expect(rest.duration).toBe(rest.isEndOfRound ? Math.max(BETWEEN_BLOCKS_MIN_SECONDS, getBlockEndRestBase(base)) : getBlockEndRestBase(base));
     }
     // each serie lasts its clip
     queue.forEach((item) => {
@@ -194,9 +206,15 @@ describe('talks in long rests', () => {
     expect(BLOCK_END_LEAD_MS).toBe(TALK_LEAD_MS + BLOCK_END_EXTRA_MS);
     expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 4);
     expect(getTalkRestSeconds(25, BLOCK_END_LEAD_MS)).toBe(Math.ceil(25 + BLOCK_END_LEAD_MS / 1000));
-    expect(getLongRestSeconds(15, 0, true)).toBe(getBlockEndRestBase(15));
-    expect(getLongRestSeconds(15, 0, false)).toBe(getLongRestBase(15));
-    expect(getLongRestSeconds(15, 40, true)).toBe(getTalkRestSeconds(40, BLOCK_END_LEAD_MS));
+    // after the warm-up: the longer clouds too, no minimum
+    expect(getLongRestSeconds(15, 0, false)).toBe(getBlockEndRestBase(15));
+    expect(getLongRestSeconds(15, 40, false)).toBe(getTalkRestSeconds(40, BLOCK_END_LEAD_MS));
+    // between blocks: at least a minute, longer only if its talks need it
+    expect(BETWEEN_BLOCKS_MIN_SECONDS).toBe(60);
+    expect(getLongRestSeconds(15, 0, true)).toBe(60);
+    expect(getLongRestSeconds(15, BETWEEN_BLOCKS_TALK_SECONDS, true)).toBe(60);
+    expect(getLongRestSeconds(15, 70, true)).toBe(getTalkRestSeconds(70, BLOCK_END_LEAD_MS));
+    expect(BETWEEN_BLOCKS_TALK_SECONDS * 1000 + BLOCK_END_LEAD_MS).toBeLessThanOrEqual(60_000);
   });
 
   it('adds the lead time only when there are talks', () => {
@@ -363,5 +381,30 @@ describe('not the same routine every time', () => {
       ids(meta.warmups).forEach((id) => seen.add(id));
     }
     expect(seen.size).toBe(4);
+  });
+});
+
+describe('the rest between blocks', () => {
+  it('lasts at least a minute, filled with as many talks of the coming block as fit', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const { queue, meta } = buildRoutine(library({ talks: [12, 15, 9] }), gluteIntent({ rounds: 3, exercisesPerRound: 4 }), seeded(seed));
+      const between = rests(queue).filter((r) => r.restKind === 'long' && r.isEndOfRound);
+      expect(between.length).toBe(2);
+      for (const rest of between) {
+        expect(rest.duration).toBeGreaterThanOrEqual(BETWEEN_BLOCKS_MIN_SECONDS);
+        expect(rest.duration * 1000).toBeGreaterThanOrEqual(BLOCK_END_LEAD_MS + talksSeconds(rest.talks) * 1000);
+      }
+      // more than the old 1 or 2 when there are short ones to fit
+      expect(Math.max(...between.map((r) => r.talks.length))).toBeGreaterThanOrEqual(2);
+      // and the minutes announced still add up
+      const total = queue.reduce((acc, item) => acc + getItemDuration(item, meta.slotSeconds), 0);
+      expect(meta.totalSeconds).toBe(total);
+    }
+  });
+
+  it('after the warm-up: the longer clouds (talks from BLOCK_END_LEAD_MS), no minimum', () => {
+    const { queue } = buildRoutine(library(), gluteIntent({ rounds: 2, exercisesPerRound: 3 }), seeded(2));
+    const first = rests(queue).find((r) => r.restKind === 'long' && !r.isEndOfRound);
+    if (first) expect(first.duration).toBe(getBlockEndRestBase(getRestDuration(5)));
   });
 });

@@ -61,10 +61,38 @@ export function warmupState(queue: RoutineItem[], currentIndex: number): StepSta
  * or the next exercise looping behind a dark veil with the giant countdown. Null if not a rest.
  * `talksDone` is the rest whose talks have finished.
  */
-export type RestScreen = 'talks' | 'countdown';
-export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null): RestScreen | null {
+export type RestScreen = 'talks' | 'preview' | 'countdown';
+
+/**
+ * Phone, between blocks: once its talks are done (or with none), a preview of the coming block
+ * (its exercises one after another, `eachS` each) until `tailS` seconds are left: then the countdown.
+ */
+export const BLOCK_PREVIEW = { tailS: 8, eachS: 7 } as const;
+
+export function restScreenOf(item: RoutineItem | undefined, talksDone: RoutineItem | null, timeLeft = 0, phone = false): RestScreen | null {
   if (item?.kind !== 'rest') return null;
-  return item.restKind === 'long' && item.talks.length > 0 && talksDone !== item ? 'talks' : 'countdown';
+  if (item.restKind === 'long' && item.talks.length > 0 && talksDone !== item) return 'talks';
+  if (phone && item.restKind === 'long' && item.isEndOfRound && timeLeft > BLOCK_PREVIEW.tailS) return 'preview';
+  return 'countdown';
+}
+
+/** Block `round`'s exercises, in order, each once. */
+export function blockExercises(queue: RoutineItem[], round: number): Exercise[] {
+  const seen = new Set<string>();
+  const out: Exercise[] = [];
+  for (const item of queue) {
+    if (item.kind === 'workout' && item.round === round && !seen.has(item.exercise.id)) {
+      seen.add(item.exercise.id);
+      out.push(item.exercise);
+    }
+  }
+  return out;
+}
+
+/** Which of `count` exercises the preview shows, begun with `startLeft` seconds left, now `timeLeft` (it loops). */
+export function previewIndex(count: number, startLeft: number, timeLeft: number): number {
+  if (count <= 0) return 0;
+  return Math.floor(Math.max(0, startLeft - timeLeft) / BLOCK_PREVIEW.eachS) % count;
 }
 
 /** The next clip to play after `index` (the one a rest leads to). */
@@ -78,6 +106,18 @@ const ORDINALS = ['primer', 'segundo', 'tercer', 'cuarto', 'quinto', 'sexto', 's
 /** "primer", "segundo", "tercer"… for block `n` (1-based; past the tenth, "bloque 11"-style "11.º"). */
 export function blockOrdinal(n: number): string {
   return ORDINALS[n - 1] ?? `${n}.º`;
+}
+
+/** The three sentences after the warm-up: the boosters come off with the third. */
+export const WARMUP_END_WORDS = {
+  first: 'Has acabado el calentamiento.',
+  second: { before: 'Llevas el', after: 'completado.' },
+  third: 'Soltando los propulsores…',
+};
+
+/** The sentences of a long rest's clouds: after the warm-up, or after the block before it. */
+export function longRestWords(rest: Extract<RoutineItem, { kind: 'rest' }>) {
+  return rest.isEndOfRound ? blockEndWords(rest.nextRound - 1) : WARMUP_END_WORDS;
 }
 
 /**

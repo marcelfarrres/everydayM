@@ -13,7 +13,7 @@ import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
 import { MINI, growKeyframes, handoffTimes, miniMast, miniPose, miniRect, swollenRect } from './miniHandoff';
-import { isExercise, type RestScreen } from './model';
+import { blockExercises, isExercise, previewIndex, type RestScreen } from './model';
 
 /*
  * The full-screen picture. It shows `displayIndex`, which follows the routine but changes behind
@@ -161,7 +161,9 @@ export function Stage({
       // (fading to black: the stage is black under it)
       style={leaving ? { opacity: 0, transition: `opacity ${fading?.fade ?? MINI.FADE_MS}ms ease-in-out` } : undefined}
     >
-      {restScreen === 'talks' || leaving ? (
+      {restScreen === 'preview' && !leaving ? (
+        <BlockPreview queue={queue} rest={rest} timeLeft={live ? timeLeft : 0} />
+      ) : restScreen === 'talks' || leaving ? (
         <TalkReel
           talks={rest.talks}
           // mounted once the clouds cover the screen; it speaks when they open
@@ -213,6 +215,32 @@ export function Stage({
     >
       {content}
     </div>
+  );
+}
+
+/**
+ * Phone, between blocks: the coming block's exercises full screen, one after another (and round
+ * again), with a quiet caption "Bloque 2 · 1 de 4 · Sentadilla". One video at a time. It follows
+ * the rest's clock (so it pauses with it).
+ */
+function BlockPreview({ queue, rest, timeLeft }: { queue: RoutineItem[]; rest: Extract<RoutineItem, { kind: 'rest' }>; timeLeft: number }) {
+  const list = useMemo(() => blockExercises(queue, rest.nextRound), [queue, rest.nextRound]);
+  const [startLeft] = useState(timeLeft);
+  if (list.length === 0) return <LoopingExercise exercise={rest.nextExercise} />;
+  const i = previewIndex(list.length, startLeft, timeLeft);
+  const exercise = list[i];
+  return (
+    <>
+      <motion.div key={`${exercise.id}-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }} className="absolute inset-0">
+        <LoopingExercise exercise={exercise} />
+      </motion.div>
+      <p
+        data-rw="preview-caption"
+        className="pointer-events-none absolute left-1/2 top-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))] max-w-[calc(100%-2rem)] -translate-x-1/2 truncate rounded-full bg-[rgb(14_14_14/0.55)] px-3.5 py-1.5 text-[14px] font-semibold text-white"
+      >
+        Bloque {rest.nextRound} · {i + 1} de {list.length} · {exercise.title}
+      </p>
+    </>
   );
 }
 

@@ -47,6 +47,46 @@ export function pickTalks(
   return picked;
 }
 
+/**
+ * Talks for the rest between blocks, before `block`: as many as fit in `budgetSeconds` (its minute),
+ * its own exercises' talks first (in a random order), then those of the blocks after it (`later`);
+ * never one already used (it updates `usedTalkIds`). If none fits, the shortest one (the rest then
+ * stretches to it).
+ */
+export function fillTalks(
+  block: readonly Exercise[],
+  later: readonly Exercise[],
+  usedTalkIds: Set<string>,
+  budgetSeconds: number,
+  rng: () => number,
+): ExerciseTalk[] {
+  const shuffle = (list: ExerciseTalk[]) => {
+    const out = [...list];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const own = talksOf(block).filter((talk) => !usedTalkIds.has(talk.id));
+  const ownIds = new Set(own.map((talk) => talk.id));
+  const after = talksOf(later).filter((talk) => !usedTalkIds.has(talk.id) && !ownIds.has(talk.id));
+  const pool = [...shuffle(own), ...shuffle(after)];
+  if (pool.length === 0) return [];
+  const picked: ExerciseTalk[] = [];
+  let total = 0;
+  for (const talk of pool) {
+    const seconds = talkDuration(talk);
+    if (total + seconds <= budgetSeconds) {
+      picked.push(talk);
+      total += seconds;
+    }
+  }
+  if (picked.length === 0) picked.push([...pool].sort((a, b) => talkDuration(a) - talkDuration(b))[0]);
+  picked.forEach((talk) => usedTalkIds.add(talk.id));
+  return picked;
+}
+
 /** What a long rest's talks are likely to add up to, for duration estimates before blocks exist. */
 export function expectedTalkSeconds(exercises: readonly Exercise[]): number {
   const talks = talksOf(exercises);

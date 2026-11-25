@@ -18,7 +18,7 @@ import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
 import { Stage } from './Stage';
 import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
-import { blockEndWords, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
+import { longRestWords, clock, cloudLabel, isExercise, journeyOf, nextExerciseAfter, restScreenOf } from './model';
 
 /*
  * The player. On a phone the video fills the screen and the UI is one small widget at the
@@ -140,8 +140,9 @@ export function WorkoutPlayer({
   // The rest whose talks have finished: from then on it shows the countdown, like a short rest.
   // Kept by item, not by index: a new routine ("Repetir") has the same indexes but new rests.
   const [talksDone, setTalksDone] = useState<RoutineItem | null>(null);
-  const shownRest = restScreenOf(displayItem, talksDone);
-  const currentRest = restScreenOf(currentItem, talksDone);
+  // (phone, between blocks: a preview of the coming block once its talks are done)
+  const shownRest = restScreenOf(displayItem, talksDone, timeLeft, !desktop);
+  const currentRest = restScreenOf(currentItem, talksDone, timeLeft, !desktop);
 
   // The clouds play each time a rest begins.
   let cloudKey = currentIndex;
@@ -198,7 +199,10 @@ export function WorkoutPlayer({
   // After a block: three sentences on the clouds, and on a phone the % badge travels into the second.
   const travels = blockEnds(cloudRest) && !desktop && !reduced;
   const blockEnd =
-    cloudRest?.kind === 'rest' && blockEnds(cloudRest) ? { ...blockEndWords(cloudRest.nextRound - 1), percent, slot: travels } : undefined;
+    // (the computer keeps its clouds as they were after the warm-up)
+    cloudRest?.kind === 'rest' && blockEnds(cloudRest) && (cloudRest.isEndOfRound || !desktop)
+      ? { ...longRestWords(cloudRest), percent, slot: travels }
+      : undefined;
   const percentEl = useRef<HTMLParagraphElement>(null);
   usePercentTravel(percentEl, cloudKey, travels, clouds.openingMs);
 
@@ -325,7 +329,7 @@ export function WorkoutPlayer({
           listOpen={listOpen}
           onListOpenChange={setListOpen}
           restCountdown={currentRest === 'countdown'}
-          clockTab={currentRest === 'talks'}
+          clockTab={currentRest === 'talks' || currentRest === 'preview'}
           cloudTop={cloudTop}
           reduced={reduced}
         />
