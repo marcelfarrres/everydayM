@@ -40,6 +40,10 @@ export const SFX_SAMPLES: Partial<Record<SfxName, SfxSample>> = {
   banner: { file: 'banner.mp3', gain: 0.3 },
   clack: { file: 'clack.mp3', gain: 0.28 },
   ignite: { file: 'ignite.mp3', gain: 0.4 },
+  // The end screen: a real snare roll (10.5 s, steady: its crescendo is the loop's intensity) and
+  // the crash that ends it. Nothing else sounds then (the music has faded out), so they sit high.
+  drumRoll: { file: 'drumRoll.mp3', gain: 0.6, loop: { start: 0.1, end: 10.35 } },
+  drumHit: { file: 'drumHit.mp3', gain: 0.8 },
   // beep and beepFinal (3-2-1) stay synthesised.
 };
 

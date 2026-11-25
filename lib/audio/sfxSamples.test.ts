@@ -10,7 +10,7 @@ const entries = Object.entries(SFX_SAMPLES) as [SfxName, NonNullable<(typeof SFX
 describe('recorded effects', () => {
   it('records every sound the user kept, and leaves the 3-2-1 synthesised', () => {
     expect(entries.map(([name]) => name).sort()).toEqual(
-      ['banner', 'boost', 'clack', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
+      ['banner', 'boost', 'clack', 'drumHit', 'drumRoll', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
     );
     for (const name of ['beep', 'beepFinal'] as const) expect(SFX_SAMPLES[name]).toBeUndefined();
     // every recording still has its recipe to fall back on
@@ -61,5 +61,21 @@ describe('recorded effects', () => {
     expect(sampleLoopGain('slowMo', slow!, 0)).toBeCloseTo(slow!.gain);
     expect(sampleLoopGain('slowMo', slow!, 1)).toBeCloseTo(slow!.gain);
     expect(sampleLoopGain('slowMo', slow!, Number.NaN)).toBeCloseTo(slow!.gain);
+  });
+
+  it('has the end screen drums: a roll that loops inside its file and grows, and a crash', () => {
+    const roll = SFX_SAMPLES.drumRoll;
+    const hit = SFX_SAMPLES.drumHit;
+    expect(roll?.loop).toBeDefined();
+    expect(hit?.loop).toBeUndefined();
+    // the file is a little over 10.5 s: the span stays inside it and covers the longest roll (~9 s) without looping
+    expect(roll!.loop!.start).toBeGreaterThanOrEqual(0);
+    expect(roll!.loop!.end).toBeLessThanOrEqual(10.5);
+    expect(roll!.loop!.end - roll!.loop!.start).toBeGreaterThan(9.5);
+    // it grows with its intensity, as the synthesised roll does
+    expect(sampleLoopGain('drumRoll', roll!, 0)).toBeLessThan(sampleLoopGain('drumRoll', roll!, 1));
+    expect(sampleLoopGain('drumRoll', roll!, 1)).toBeCloseTo(roll!.gain);
+    // both small enough for a phone (< 120 KB each)
+    for (const sample of [roll!, hit!]) expect(fs.statSync(path.join(PUBLIC_SFX, sample.file)).size).toBeLessThan(120 * 1024);
   });
 });
