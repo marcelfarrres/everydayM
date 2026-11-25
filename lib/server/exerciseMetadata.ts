@@ -230,3 +230,41 @@ export function validateMusicPatch(raw: unknown): ValidatedMusicPatch {
   }
   return patch;
 }
+
+export interface ValidatedRestMetadata {
+  title: string;
+}
+
+const REST_DEFAULT_TITLE = 'Descanso';
+
+/** A rest video only carries a title; without one it is called «Descanso». */
+export function validateRestMetadata(raw: unknown): ValidatedRestMetadata {
+  if (raw === undefined || raw === null) return { title: REST_DEFAULT_TITLE };
+  const obj = asObject(raw, 'el vídeo de descanso');
+  return { title: optionalText(obj, 'title', 'El título', 120) ?? REST_DEFAULT_TITLE };
+}
+
+export type ValidatedRestPatch = { title?: string; enabled?: boolean };
+
+/** Rename ({ title }) and/or enable/disable ({ enabled }); at least one is required. */
+export function validateRestPatch(raw: unknown): ValidatedRestPatch {
+  const obj = asObject(raw, 'el vídeo de descanso');
+  const patch: ValidatedRestPatch = {};
+
+  if ('title' in obj) {
+    const title = optionalText(obj, 'title', 'El título', 120);
+    if (!title) throw new Error('El título del vídeo de descanso es obligatorio.');
+    patch.title = title;
+  }
+  if ('enabled' in obj) {
+    if (typeof obj.enabled !== 'boolean') {
+      throw new Error('«enabled» debe ser verdadero o falso.');
+    }
+    patch.enabled = obj.enabled;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error('No hay ningún cambio que guardar.');
+  }
+  return patch;
+}

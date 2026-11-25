@@ -23,11 +23,13 @@ Todo el código fuente debe respetar estrictamente la separación de responsabil
 
 - `app/` — Rutas del App Router de Next.js:
   - `app/page.tsx`: Vista pública principal (configurador de entrenamiento y orquestación del reproductor).
-  - `app/admin/page.tsx`: Estudio (`/admin`, en el ordenador o por la wifi de casa, siempre con PIN): biblioteca de ejercicios, vídeos hablados y música.
+  - `app/admin/page.tsx`: Estudio (`/admin`, en el ordenador o por la wifi de casa, siempre con PIN): biblioteca de ejercicios, vídeos hablados, descansos y música.
   - `app/studio-login/`: Pantalla del PIN del Estudio (se pide siempre, también en el ordenador).
   - `app/dev-media/`: Solo desarrollo: sirve los archivos de `.media/` cuando no hay Bunny.
   - `app/api/`: Route Handlers. `admin/*` (ingesta y gestión del catálogo y la sesión del PIN, solo Estudio), `routine-intent` (frase → intención de rutina con Gemini), `studio/clips/*` (cola de clips para TikTok: crear, ver, aprobar, rechazar, regenerar y descargar, vía `lib/server/clips/`) y `studio/idea` (ideas y descripciones para TikTok). Toda ruta del Estudio llama primero a `guardStudioApi`.
+  - `app/api/admin/rests/`: Vídeos de descanso: listar y subir con progreso NDJSON (`route.ts`); renombrar, activar/desactivar y borrar con sus archivos (`[id]/route.ts`).
 - `components/studio/` — Piezas del Estudio: `LibraryView.tsx`, `TalksView.tsx`, `MusicView.tsx`, `ClipsView.tsx` y `ClipsQueue.tsx` (clips), `ClipForm.tsx`, `StudioDialog.tsx`, `StudioUi.tsx` y `studioClient.ts` (llamadas a `/api/admin/*`).
+  - `RestsView.tsx`: Sección «Descansos»: vídeos de Marcel descansando, sin voz (`rests` del catálogo, archivos en `rests/`), que la app pone en bucle y en silencio en los descansos largos.
 - `components/workout/` — Componentes de dominio de entrenamiento:
   - `MuscleSelector.tsx`: Mapa anatómico SVG interactivo (vista frontal y posterior) con estados tri-estado (`secondary`, `primary`, desactivado).
   - `RoutineComposer.tsx`: Pantalla de creación (frase → preguntas → rutina lista, con el hilo por bloques).
