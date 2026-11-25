@@ -41,6 +41,7 @@ interface Deck {
 const STORAGE_KEY = 'everydaym.music.v2';
 const OLD_STORAGE_KEYS = ['everydaym.music.v1'];
 const VOLUME_RAMP_SECONDS = 0.05; // the slider: quick, but without clicks
+const END_FADE_SECONDS = 1; // the routine's end: the music fades out and stops (setEnded)
 
 export interface MusicSnapshot extends MusicSettings {
   available: boolean; // the catalogue has at least one enabled track
@@ -74,6 +75,7 @@ export class MusicEngine {
   private paused = false; // the player is paused
   private ducked = false; // a talk is speaking
   private hidden = false; // tab hidden / screen locked
+  private ended = false; // the routine reached its end screen (phone): faded out, the drums play alone
   private failures = 0;
   private waitingForTap = false;
   private muteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -204,9 +206,31 @@ export class MusicEngine {
     this.sync(true);
   }
 
+  /**
+   * The routine is over (the phone's end screen): the music fades out over `seconds` and stops,
+   * so the end's drum roll plays alone; `false` (a new routine, "Repetir") brings it back. Volume
+   * and mute are untouched: the sound effects keep following them.
+   */
+  setEnded(ended: boolean, seconds = END_FADE_SECONDS) {
+    if (ended === this.ended) return;
+    this.ended = ended;
+    if (!ended) {
+      this.sync(true);
+      return;
+    }
+    if (!this.decks) return;
+    if (this.muteTimer) clearTimeout(this.muteTimer);
+    this.applyGain(seconds, 0);
+    this.muteTimer = setTimeout(() => {
+      this.muteTimer = null;
+      if (!this.shouldPlay()) this.pauseAll();
+    }, seconds * 1000 + 50);
+  }
+
   /** Leaving the player: silence now, nothing left loading. The next routine starts a new track. */
   stop() {
     this.active = false;
+    this.ended = false;
     this.paused = false;
     const wasDucked = this.ducked;
     this.ducked = false;
@@ -250,6 +274,7 @@ export class MusicEngine {
       active: this.active,
       paused: this.paused,
       ducked: this.ducked,
+      ended: this.ended,
       hidden: this.hidden,
       settings: this.settings,
       tracks: this.urls.length,
@@ -263,7 +288,7 @@ export class MusicEngine {
   // â”€â”€ Internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private shouldPlay(): boolean {
-    return this.active && !this.paused && !this.settings.muted && !this.hidden && this.urls.length > 0;
+    return this.active && !this.ended && !this.paused && !this.settings.muted && !this.hidden && this.urls.length > 0;
   }
 
   private persist() {
@@ -485,7 +510,8 @@ export class MusicEngine {
 
   /** Move the music level to where it should be, over `seconds`. `level` overrides the target. */
   private applyGain(seconds: number, level?: number) {
-    const target = level ?? musicGain({ ...this.settings, ducked: this.ducked });
+    // (once the routine has ended nothing brings the level back up: a volume change, say)
+    const target = level ?? (this.ended ? 0 : musicGain({ ...this.settings, ducked: this.ducked }));
     const ctx = getAudioContext();
     if (this.route === 'graph' && this.gain && ctx) {
       const param = this.gain.gain;

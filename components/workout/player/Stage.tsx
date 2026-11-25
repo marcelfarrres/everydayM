@@ -10,6 +10,7 @@ import { playbackUrl, retryWithOriginal } from '@/lib/media';
 import { restClipOf } from '@/lib/routine/restClips';
 import type { Exercise, RestClip, RoutineItem } from '@/types/workout';
 import { EndScreen } from './EndScreen';
+import { PhoneEndScreen } from './PhoneEndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
@@ -25,7 +26,7 @@ import { isExercise, type RestScreen } from './model';
  *   long rest         its talks with sound, one after another, from when the clouds open;
  *                     then (or with no talks) on a phone the rest video (Marcel resting, looped,
  *                     muted: RestLoop), on a computer like a short rest
- *   end               EndScreen
+ *   end               EndScreen (computer), PhoneEndScreen (phone)
  * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
  * Phone, a long rest (talks or the rest video): the next exercise plays in a small window over the rocket's
@@ -206,9 +207,14 @@ export function Stage({
   } else if (item?.kind === 'rest') {
     content = [restLayer(displayIndex, item, false), windowed && isExercise(next) && clip(displayIndex + 1, next.exercise, true, false)];
   } else if (item?.kind === 'outro') {
+    // (a phone celebrates: the drums, the list crossed off, the rocket put back together)
     content = (
       <div key="end" className="absolute inset-0">
-        <EndScreen meta={item.meta} queue={queue} reduced={reduced} onRepeat={onRepeat} onExit={onExit} />
+        {phone ? (
+          <PhoneEndScreen meta={item.meta} queue={queue} reduced={reduced} onRepeat={onRepeat} onExit={onExit} />
+        ) : (
+          <EndScreen meta={item.meta} queue={queue} reduced={reduced} onRepeat={onRepeat} onExit={onExit} />
+        )}
       </div>
     );
   }

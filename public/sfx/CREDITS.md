@@ -14,6 +14,8 @@ Recortados, en mono, normalizados a un nivel común y codificados en mp3 con FFm
 | `banner.mp3` | Cierre metálico (`metalLatch`). | [Kenney · RPG Audio](https://kenney.nl/assets/rpg-audio) | Kenney | CC0 |
 | `clack.mp3` | Golpe ligero sobre chapa (`impactPlate_light_000`), recortado a 0,2 s. | [Kenney · Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 |
 | `ignite.mp3` | Chispa de un mechero barato y, debajo, un soplo flojito del rugido del Atlas V. | [Cheap cigarette lighter.ogg](https://commons.wikimedia.org/wiki/File:Cheap_cigarette_lighter.ogg) + NASA (arriba) | stephan (PDSounds) · NASA | Dominio público |
+| `drumRoll.mp3` | Redoble de caja, constante: 10,5 s del centro (del segundo 20 al 30,5) de «Drum Roll», de la Concert Band de la United States Air Force Band (*Esprit de Corps*, 1997); sin graves por debajo de 60 Hz. El crescendo lo hace la app (la intensidad del bucle). | [Drum Roll - Concert Band - United States Air Force Band.mp3](https://commons.wikimedia.org/wiki/File:Drum_Roll_-_Concert_Band_-_United_States_Air_Force_Band.mp3) | United States Air Force Band | Dominio público (obra del Gobierno de EE. UU.; sin usar sus emblemas ni dar a entender que respalda la app) |
+| `drumHit.mp3` | Un golpe de platillo crash (el del segundo 29,3 de la muestra), sin el zumbido de la grabación por debajo de 200 Hz y apagado en 2,6 s; debajo, el golpe sordo de `pam.mp3`. | [CrashCymbalSample.ogg](https://commons.wikimedia.org/wiki/File:CrashCymbalSample.ogg) + Kenney (`pam`, arriba) | RyGuy · Kenney | Dominio público · CC0 |
 
 `beep` y `beepFinal` (3-2-1) no tienen archivo: siguen sintetizados (`lib/audio/sfxRecipes.ts`).
 

@@ -26,9 +26,10 @@ export type SfxOneShot =
   | 'banner'
   | 'pam'
   | 'clack'
-  | 'ignite';
+  | 'ignite'
+  | 'drumHit';
 
-export type SfxLoopName = 'slowMo';
+export type SfxLoopName = 'slowMo' | 'drumRoll';
 
 export type SfxName = SfxOneShot | SfxLoopName;
 
@@ -236,6 +237,23 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
       { kind: 'noise', filter: 'bandpass', freq: 400, freqEnd: 1400, q: 1, at: 0.05, gain: 0.8, env: { attack: 0.04, decay: 0.32 } },
     ],
   },
+
+  // The end screen: the hit that closes the drum roll as the rocket's last piece joins (a crash
+  // cymbal over a thud). Its own sound once: nothing else plays at that moment.
+  drumHit: {
+    category: 'ambient',
+    gain: 0.36,
+    maxVoices: 1,
+    minGap: 0.3,
+    layers: [
+      // the crash: bright noise with a long tail, and a shorter, darker body under it
+      { kind: 'noise', filter: 'highpass', freq: 5200, gain: 0.8, env: { attack: 0.002, hold: 0.02, decay: 1.05 } },
+      { kind: 'noise', filter: 'bandpass', freq: 2600, q: 0.8, gain: 0.55, env: { attack: 0.002, decay: 0.5 } },
+      // the drum under it
+      { kind: 'tone', wave: 'sine', freq: 110, freqEnd: 52, gain: 0.9, env: { attack: 0.002, decay: 0.24 } },
+      { kind: 'noise', filter: 'lowpass', freq: 500, gain: 0.5, env: { attack: 0.001, decay: 0.07 } },
+    ],
+  },
 };
 
 export const SFX_LOOPS: Record<SfxLoopName, LoopRecipe> = {
@@ -246,6 +264,16 @@ export const SFX_LOOPS: Record<SfxLoopName, LoopRecipe> = {
     high: { gain: 0.1, oscFreq: 34, cutoff: 220, noiseMix: 0.3, flutterRate: 2.5, flutterDepth: 0.4 },
     fadeIn: 0.8,
     fadeOut: 0.8,
+  },
+  // The end screen's drum roll, from the moment the music has gone to the final hit, growing
+  // (intensity 0 → 1). Synthesised: noise only (no saws), trembling 17 times a second like sticks
+  // on a snare. It stops almost at once: the hit takes its place.
+  drumRoll: {
+    category: 'ambient',
+    low: { gain: 0.09, oscFreq: 200, cutoff: 3800, noiseMix: 1, flutterRate: 16, flutterDepth: 0.85 },
+    high: { gain: 0.2, oscFreq: 200, cutoff: 5200, noiseMix: 1, flutterRate: 19, flutterDepth: 0.85 },
+    fadeIn: 0.25,
+    fadeOut: 0.06,
   },
 };
 

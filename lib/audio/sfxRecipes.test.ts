@@ -33,6 +33,8 @@ describe('sound table', () => {
         'beepFinal',
         'boost',
         'clack',
+        'drumHit',
+        'drumRoll',
         'ignite',
         'land',
         'launch',
@@ -71,6 +73,25 @@ describe('sound table', () => {
     const final = SFX_RECIPES.beepFinal.layers[0];
     expect(final.freq).toBeGreaterThan(beep.freq);
     expect(recipeDuration(SFX_RECIPES.beepFinal)).toBeGreaterThan(recipeDuration(SFX_RECIPES.beep));
+  });
+
+  it('synthesises the end drums when their files are missing: a roll that trembles and grows, a hit that rings', () => {
+    const roll = SFX_LOOPS.drumRoll;
+    expect(isLoop('drumRoll')).toBe(true);
+    expect(isLoop('drumHit')).toBe(false);
+    // only noise, trembling like sticks on a snare (10–25 strokes a second)
+    for (const p of [roll.low, roll.high]) {
+      expect(p.noiseMix).toBe(1);
+      expect(p.flutterRate).toBeGreaterThanOrEqual(10);
+      expect(p.flutterRate).toBeLessThanOrEqual(25);
+      expect(p.flutterDepth).toBeGreaterThan(0.5);
+    }
+    // a crescendo, and it gives way to the hit almost at once
+    expect(roll.high.gain).toBeGreaterThan(roll.low.gain);
+    expect(roll.fadeOut).toBeLessThanOrEqual(0.1);
+    // the hit outlasts the other one-shots (a cymbal rings) but stays under the limit
+    expect(recipeDuration(SFX_RECIPES.drumHit)).toBeGreaterThan(recipeDuration(SFX_RECIPES.pam));
+    expect(SFX_RECIPES.drumHit.maxVoices).toBe(1);
   });
 
   it('has no repair sounds: the crew works in silence (their hits were confused with the 3-2-1)', () => {
@@ -199,6 +220,10 @@ describe('without Web Audio (server)', () => {
     expect(() => stop()).not.toThrow();
     const slow = startSfxLoop('slowMo');
     expect(() => slow()).not.toThrow();
+    const roll = startSfxLoop('drumRoll', { intensity: 0 });
+    expect(() => roll.setIntensity(1)).not.toThrow();
+    expect(() => roll()).not.toThrow();
+    expect(() => playSfx('drumHit')).not.toThrow();
     expect(() => preloadSfx()).not.toThrow();
     expect(() => stopAllSfx()).not.toThrow();
   });

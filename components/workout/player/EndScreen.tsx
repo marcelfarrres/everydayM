@@ -8,8 +8,9 @@ import { plural } from './model';
 import { FOCUS, PRESSABLE } from './ui';
 
 /*
- * The end: "Hecho", the totals and the two ways on. No videos: when the day's exercises have a
- * still (poster_url), a quiet row of them; otherwise nothing.
+ * The end (computer): "Hecho", the totals and the two ways on. No videos: when the day's exercises
+ * have a still (poster_url), a quiet row of them; otherwise nothing. A phone has its own end
+ * (PhoneEndScreen: the drums, the list crossed off, the rocket put back together).
  */
 export function EndScreen({
   meta,
