@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { playSfx, startSfxLoop, stopAllSfx } from './sfx';
+import { playSfx, preloadSfx, startSfxLoop, stopAllSfx } from './sfx';
 import {
   SFX_LOOPS,
   SFX_MASTER,
@@ -193,6 +193,9 @@ describe('without Web Audio (server)', () => {
     const stop = startSfxLoop('engineRumble', { intensity: 0.3 });
     expect(() => stop.setIntensity(1)).not.toThrow();
     expect(() => stop()).not.toThrow();
+    const slow = startSfxLoop('slowMo');
+    expect(() => slow()).not.toThrow();
+    expect(() => preloadSfx()).not.toThrow();
     expect(() => stopAllSfx()).not.toThrow();
   });
 });

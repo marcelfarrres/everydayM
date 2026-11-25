@@ -36,7 +36,10 @@ interface Deck {
   track: number | null; // index into `urls`
 }
 
-const STORAGE_KEY = 'everydaym.music.v1';
+// v2: the default volume went down to 0.4, so everyone starts there once; what they choose
+// afterwards is remembered under this key. (v1 is read once for its mute, then removed.)
+const STORAGE_KEY = 'everydaym.music.v2';
+const OLD_STORAGE_KEYS = ['everydaym.music.v1'];
 const VOLUME_RAMP_SECONDS = 0.05; // the slider: quick, but without clicks
 
 export interface MusicSnapshot extends MusicSettings {
@@ -81,12 +84,22 @@ export class MusicEngine {
 
   constructor() {
     let stored: string | null = null;
+    let legacy: string | null = null;
     try {
       stored = window.localStorage.getItem(STORAGE_KEY);
+      for (const key of OLD_STORAGE_KEYS) {
+        legacy ??= window.localStorage.getItem(key);
+        window.localStorage.removeItem(key);
+      }
     } catch {
       // private mode or storage blocked: defaults
     }
     this.settings = parseMusicSettings(stored);
+    // Coming from v1: the new default volume, but keep the mute they had chosen.
+    if (stored === null && legacy !== null) {
+      this.settings.muted = parseMusicSettings(legacy).muted;
+      this.persist();
+    }
     this.snapshot = { ...this.settings, available: false };
     this.hidden = document.visibilityState === 'hidden';
     document.addEventListener('visibilitychange', this.onVisibility);

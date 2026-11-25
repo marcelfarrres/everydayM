@@ -2,11 +2,13 @@
  * The sound effects as data, plus the pure rules around them (levels, envelopes, variation,
  * voice limits), kept apart from Web Audio so they can be tested. `sfx.ts` plays them.
  *
- * Everything is synthesised: short dry transients, filtered-noise hisses and low tones, so the
- * effects sit on top of the music without hiding it. They never duck the music.
+ * Most sounds are real recordings now (`sfxSamples.ts`, files in public/sfx/): for those, the
+ * recipe's layers and `gain` are the fallback while a file is missing or can't be decoded, and its
+ * category, `vary`, `maxVoices` and `minGap` still apply to the recording. `beep`, `beepFinal`
+ * and `engineRumble` are only synthesised. They never duck the music.
  *
- * Nobody has tuned these by ear yet: levels are deliberately low. To adjust a sound, change its
- * `gain` (the whole sound) or a layer's `gain` (one part of it) here; nothing else needs to move.
+ * To adjust a synthesised sound, change its `gain` (the whole sound) or a layer's `gain` (one
+ * part of it) here; a recording's level is its `gain` in `sfxSamples.ts`.
  */
 
 // ── Names and categories ─────────────────────────────────────────────────────────────────

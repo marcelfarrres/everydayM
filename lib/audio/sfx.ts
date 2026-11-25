@@ -22,17 +22,22 @@ import {
   voicesToSteal,
   type ActiveVoice,
   type LoopParams,
+  type LoopRecipe,
   type SfxCategory,
   type SfxLayer,
   type SfxLoopName,
   type SfxMixState,
+  type SfxName,
   type SfxOneShot,
 } from './sfxRecipes';
+import { SFX_SAMPLES, sampleLoopGain, sampleUrl, type SfxSample } from './sfxSamples';
 
 export type { SfxLoopName, SfxName, SfxOneShot } from './sfxRecipes';
 
 /*
- * Sound effects, synthesised with Web Audio on the app's one AudioContext (see SFX.md).
+ * Sound effects on the app's one AudioContext (see SFX.md): real recordings from `public/sfx/`
+ * (`sfxSamples.ts`), or the synthesised recipe (`sfxRecipes.ts`) for the sounds without a file
+ * and whenever a file is missing, still loading or can't be decoded.
  *
  *   voice ─┐
  *   voice ─┼─ alert   ─┐
@@ -81,6 +86,64 @@ let voices: Voice[] = [];
 let loops: LoopVoice[] = [];
 let nextId = 1;
 const lastStart = new Map<SfxOneShot, number>();
+
+// ── Recordings: fetched and decoded once, then reused (an AudioBuffer works in any context) ──
+
+const buffers = new Map<SfxName, AudioBuffer>();
+const pendingLoads = new Set<SfxName>();
+const failedLoads = new Set<SfxName>(); // missing or undecodable: the recipe plays instead
+
+/** decodeAudioData in both its forms (older Safari only has the callbacks). */
+function decode(ctx: BaseAudioContext, data: ArrayBuffer): Promise<AudioBuffer> {
+  return new Promise((resolve, reject) => {
+    const promise: Promise<AudioBuffer> | undefined = ctx.decodeAudioData(data, resolve, reject);
+    if (promise) promise.catch(reject);
+  });
+}
+
+function loadSample(ctx: BaseAudioContext, name: SfxName, sample: SfxSample) {
+  if (buffers.has(name) || pendingLoads.has(name) || failedLoads.has(name)) return;
+  pendingLoads.add(name);
+  fetch(sampleUrl(sample))
+    .then((res) => {
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then((data) => decode(ctx, data))
+    .then((buffer) => {
+      buffers.set(name, buffer);
+    })
+    .catch(() => {
+      failedLoads.add(name);
+    })
+    .finally(() => {
+      pendingLoads.delete(name);
+    });
+}
+
+/**
+ * Start fetching and decoding every recording (once; later calls are free). Called in the tap
+ * that unlocks the player's sound, so the first take-off is ready; any first use also calls it.
+ */
+export function preloadSfx(): void {
+  try {
+    if (typeof window === 'undefined' || typeof fetch !== 'function') return;
+    const ctx = peekAudioContext();
+    if (!ctx || ctx.state === 'closed') return;
+    for (const [name, sample] of Object.entries(SFX_SAMPLES) as [SfxName, SfxSample | undefined][]) {
+      if (sample) loadSample(ctx, name, sample);
+    }
+  } catch {
+    // the recipes are always there
+  }
+}
+
+/** The decoded recording of `name`, or null (no file, still loading, failed): play the recipe. */
+function sampleFor(name: SfxName): { sample: SfxSample; buffer: AudioBuffer } | null {
+  const sample = SFX_SAMPLES[name];
+  const buffer = buffers.get(name);
+  return sample && buffer ? { sample, buffer } : null;
+}
 
 function mixState(): SfxMixState {
   const engine = getMusicEngine();
@@ -239,6 +302,7 @@ export function playSfx(name: SfxOneShot, opts: PlaySfxOptions = {}): void {
     if (!recipe) return;
     const ctx = opts.gesture ? getAudioContext() : peekAudioContext();
     if (!ctx || ctx.state === 'closed') return;
+    preloadSfx();
     if (ctx.state !== 'running' && !opts.gesture) return; // it would pile up and burst out later
     if (document.visibilityState === 'hidden') return;
     if (!sfxAudible(recipe.category, mixState())) return;
@@ -252,20 +316,36 @@ export function playSfx(name: SfxOneShot, opts: PlaySfxOptions = {}): void {
       if (victim) cut(victim, ctx);
     }
 
+    const recording = sampleFor(name);
     const vary = variation(recipe.vary);
     const extra = Math.min(1, Math.max(0, opts.gain ?? 1));
     const output = ctx.createGain();
-    output.gain.value = recipe.gain * vary.gain * extra;
+    output.gain.value = (recording ? recording.sample.gain : recipe.gain) * vary.gain * extra;
     output.connect(b.categories[recipe.category]);
     const voice: Voice = { id: nextId++, name, startedAt: clock, output, sources: [], nodes: [], timer: null, pending: 0, done: false };
     voices.push(voice);
 
     const t0 = ctx.currentTime + 0.005;
-    for (const layer of recipe.layers) {
-      for (const hit of layerHits(layer)) scheduleHit(ctx, b.noise, voice, layer, t0 + hit.at, hit.gain, vary.pitch);
+    let length: number;
+    if (recording) {
+      const rate = (recording.sample.rate ?? 1) * vary.pitch;
+      const source = ctx.createBufferSource();
+      source.buffer = recording.buffer;
+      source.playbackRate.value = rate;
+      source.connect(output);
+      voice.pending = 1;
+      source.onended = () => finish(voice);
+      source.start(t0);
+      voice.sources.push(source);
+      length = recording.buffer.duration / rate;
+    } else {
+      for (const layer of recipe.layers) {
+        for (const hit of layerHits(layer)) scheduleHit(ctx, b.noise, voice, layer, t0 + hit.at, hit.gain, vary.pitch);
+      }
+      length = recipeDuration(recipe);
     }
     // Safety net: if `ended` never fires (context suspended for good), free the nodes anyway.
-    voice.timer = setTimeout(() => finish(voice), (recipeDuration(recipe) + 2) * 1000);
+    voice.timer = setTimeout(() => finish(voice), (length + 2) * 1000);
   } catch {
     // sound is a bonus: never break the interface
   }
@@ -273,6 +353,156 @@ export function playSfx(name: SfxOneShot, opts: PlaySfxOptions = {}): void {
 
 function noopLoop(): SfxLoopStop {
   return Object.assign(() => {}, { setIntensity: () => {} });
+}
+
+/**
+ * Fade-in, stop (with its fade) and live intensity for a loop whose sound ends in `level`.
+ * `retune` applies an intensity at a time and returns the level it should reach.
+ */
+function controlLoop(
+  ctx: AudioContext,
+  recipe: LoopRecipe,
+  level: GainNode,
+  sources: AudioScheduledSourceNode[],
+  nodes: AudioNode[],
+  retune: (intensity: number, at: number) => number,
+  intensity: number,
+): SfxLoopStop {
+  const now = ctx.currentTime;
+  level.gain.setValueAtTime(SILENCE, now);
+  level.gain.exponentialRampToValueAtTime(Math.max(SILENCE * 2, retune(intensity, now)), now + recipe.fadeIn);
+
+  const id = nextId++;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const release = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    for (const node of nodes) {
+      try {
+        node.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
+  };
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    loops = loops.filter((l) => l.id !== id);
+    try {
+      const t = ctx.currentTime;
+      level.gain.cancelScheduledValues(t);
+      level.gain.setValueAtTime(Math.max(SILENCE, level.gain.value), t);
+      level.gain.exponentialRampToValueAtTime(SILENCE, t + recipe.fadeOut);
+      sources[0].onended = release;
+      for (const source of sources) source.stop(t + recipe.fadeOut + 0.05);
+      timer = setTimeout(release, (recipe.fadeOut + 2) * 1000);
+    } catch {
+      release();
+    }
+  };
+  const setIntensity = (value: number) => {
+    if (stopped) return;
+    try {
+      const t = ctx.currentTime;
+      const target = retune(value, t);
+      level.gain.cancelScheduledValues(t);
+      level.gain.setTargetAtTime(Math.max(SILENCE * 2, target), t, 0.12);
+    } catch {
+      // ignore
+    }
+  };
+  loops.push({ id, stop });
+  return Object.assign(stop, { setIntensity });
+}
+
+/** A recording looped over its seamless span (`sample.loop`). */
+function startSampleLoop(
+  ctx: AudioContext,
+  b: Bus,
+  name: SfxLoopName,
+  recipe: LoopRecipe,
+  { sample, buffer }: { sample: SfxSample; buffer: AudioBuffer },
+  intensity: number,
+): SfxLoopStop {
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+  const start = Math.min(Math.max(0, sample.loop?.start ?? 0), buffer.duration);
+  const end = Math.min(Math.max(start, sample.loop?.end ?? buffer.duration), buffer.duration);
+  source.loopStart = start;
+  source.loopEnd = end > start ? end : buffer.duration;
+  source.playbackRate.value = sample.rate ?? 1;
+  const level = ctx.createGain();
+  source.connect(level);
+  level.connect(b.categories[recipe.category]);
+  const stop = controlLoop(ctx, recipe, level, [source], [source, level], (i) => sampleLoopGain(name, sample, i), intensity);
+  source.start(ctx.currentTime, start);
+  return stop;
+}
+
+/** The synthesised engine: two detuned saws + noise, low-passed, with a flutter. */
+function startSynthLoop(ctx: AudioContext, b: Bus, recipe: LoopRecipe, intensity: number): SfxLoopStop {
+  const sawA = ctx.createOscillator();
+  const sawB = ctx.createOscillator();
+  sawA.type = 'sawtooth';
+  sawB.type = 'sawtooth';
+  sawA.detune.value = -7;
+  sawB.detune.value = 7;
+  const sawGain = ctx.createGain();
+  const noiseSrc = ctx.createBufferSource();
+  noiseSrc.buffer = b.noise;
+  noiseSrc.loop = true;
+  const noiseGain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.Q.value = 0.9;
+  const flutter = ctx.createGain(); // amplitude flutter of the engine
+  const lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  const lfoDepth = ctx.createGain();
+  const level = ctx.createGain();
+
+  sawA.connect(sawGain);
+  sawB.connect(sawGain);
+  sawGain.connect(filter);
+  noiseSrc.connect(noiseGain);
+  noiseGain.connect(filter);
+  filter.connect(flutter);
+  lfo.connect(lfoDepth);
+  lfoDepth.connect(flutter.gain);
+  flutter.connect(level);
+  level.connect(b.categories[recipe.category]);
+
+  const apply = (p: LoopParams, at: number, smooth: number) => {
+    const set = (param: AudioParam, value: number) => {
+      if (smooth > 0) param.setTargetAtTime(value, at, smooth);
+      else param.setValueAtTime(value, at);
+    };
+    set(sawA.frequency, p.oscFreq);
+    set(sawB.frequency, p.oscFreq);
+    set(sawGain.gain, 0.5 * (1 - p.noiseMix));
+    set(noiseGain.gain, p.noiseMix);
+    set(filter.frequency, p.cutoff);
+    set(lfo.frequency, p.flutterRate);
+    set(lfoDepth.gain, p.flutterDepth / 2);
+    set(flutter.gain, 1 - p.flutterDepth / 2);
+  };
+  let first = true;
+  const retune = (value: number, at: number) => {
+    const params = loopParams(recipe, value);
+    apply(params, at, first ? 0 : 0.12);
+    first = false;
+    return params.gain;
+  };
+
+  const sources: AudioScheduledSourceNode[] = [sawA, sawB, noiseSrc, lfo];
+  const nodes: AudioNode[] = [...sources, sawGain, noiseGain, filter, flutter, lfoDepth, level];
+  const stop = controlLoop(ctx, recipe, level, sources, nodes, retune, intensity);
+  const now = ctx.currentTime;
+  for (const source of sources) source.start(now);
+  return stop;
 }
 
 /**
@@ -285,109 +515,12 @@ export function startSfxLoop(name: SfxLoopName, opts: { intensity?: number } = {
     const recipe = SFX_LOOPS[name];
     const ctx = peekAudioContext();
     if (!recipe || !ctx || ctx.state === 'closed') return noopLoop();
+    preloadSfx();
     const b = ensureBus(ctx);
     while (loops.length >= MAX_LOOPS) loops[0].stop();
-
-    let params: LoopParams = loopParams(recipe, opts.intensity ?? 0);
-    const now = ctx.currentTime;
-
-    const sawA = ctx.createOscillator();
-    const sawB = ctx.createOscillator();
-    sawA.type = 'sawtooth';
-    sawB.type = 'sawtooth';
-    sawA.detune.value = -7;
-    sawB.detune.value = 7;
-    const sawGain = ctx.createGain();
-    const noiseSrc = ctx.createBufferSource();
-    noiseSrc.buffer = b.noise;
-    noiseSrc.loop = true;
-    const noiseGain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.Q.value = 0.9;
-    const flutter = ctx.createGain(); // amplitude flutter of the engine
-    const lfo = ctx.createOscillator();
-    lfo.type = 'sine';
-    const lfoDepth = ctx.createGain();
-    const level = ctx.createGain();
-
-    sawA.connect(sawGain);
-    sawB.connect(sawGain);
-    sawGain.connect(filter);
-    noiseSrc.connect(noiseGain);
-    noiseGain.connect(filter);
-    filter.connect(flutter);
-    lfo.connect(lfoDepth);
-    lfoDepth.connect(flutter.gain);
-    flutter.connect(level);
-    level.connect(b.categories[recipe.category]);
-
-    const apply = (p: LoopParams, at: number, smooth: number) => {
-      const set = (param: AudioParam, value: number) => {
-        if (smooth > 0) param.setTargetAtTime(value, at, smooth);
-        else param.setValueAtTime(value, at);
-      };
-      set(sawA.frequency, p.oscFreq);
-      set(sawB.frequency, p.oscFreq);
-      set(sawGain.gain, 0.5 * (1 - p.noiseMix));
-      set(noiseGain.gain, p.noiseMix);
-      set(filter.frequency, p.cutoff);
-      set(lfo.frequency, p.flutterRate);
-      set(lfoDepth.gain, p.flutterDepth / 2);
-      set(flutter.gain, 1 - p.flutterDepth / 2);
-    };
-    apply(params, now, 0);
-    level.gain.setValueAtTime(SILENCE, now);
-    level.gain.exponentialRampToValueAtTime(Math.max(SILENCE * 2, params.gain), now + recipe.fadeIn);
-
-    const sources: AudioScheduledSourceNode[] = [sawA, sawB, noiseSrc, lfo];
-    const nodes: AudioNode[] = [...sources, sawGain, noiseGain, filter, flutter, lfoDepth, level];
-    for (const source of sources) source.start(now);
-
-    const id = nextId++;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const release = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      for (const node of nodes) {
-        try {
-          node.disconnect();
-        } catch {
-          // already disconnected
-        }
-      }
-    };
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      loops = loops.filter((l) => l.id !== id);
-      try {
-        const t = ctx.currentTime;
-        level.gain.cancelScheduledValues(t);
-        level.gain.setValueAtTime(Math.max(SILENCE, level.gain.value), t);
-        level.gain.exponentialRampToValueAtTime(SILENCE, t + recipe.fadeOut);
-        sawA.onended = release;
-        for (const source of sources) source.stop(t + recipe.fadeOut + 0.05);
-        timer = setTimeout(release, (recipe.fadeOut + 2) * 1000);
-      } catch {
-        release();
-      }
-    };
-    const setIntensity = (intensity: number) => {
-      if (stopped) return;
-      try {
-        params = loopParams(recipe, intensity);
-        const t = ctx.currentTime;
-        apply(params, t, 0.12);
-        level.gain.cancelScheduledValues(t);
-        level.gain.setTargetAtTime(Math.max(SILENCE * 2, params.gain), t, 0.12);
-      } catch {
-        // ignore
-      }
-    };
-    loops.push({ id, stop });
-    return Object.assign(stop, { setIntensity });
+    const intensity = opts.intensity ?? 0;
+    const recording = sampleFor(name);
+    return recording ? startSampleLoop(ctx, b, name, recipe, recording, intensity) : startSynthLoop(ctx, b, recipe, intensity);
   } catch {
     return noopLoop();
   }

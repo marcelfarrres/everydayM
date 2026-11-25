@@ -1,7 +1,21 @@
 # Efectos de sonido (`lib/audio/sfx.ts`)
 
-Sintetizados con Web Audio sobre el `AudioContext` compartido (`lib/audio.ts`); sin archivos. Nunca bajan la música.
-Tabla de sonidos y niveles (para ajustar de oído): `sfxRecipes.ts`. Reglas puras probadas en `sfxRecipes.test.ts`.
+Sobre el `AudioContext` compartido (`lib/audio.ts`). Nunca bajan la música.
+
+## Grabaciones reales y sintetizados
+- **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `hammer`, `ratchet`, `puff`, `pam`, `banner`, `clack`, `ignite`. Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
+- **Sintetizados** (`sfxRecipes.ts`): `beep`, `beepFinal` y `engineRumble` (este ya no se usa, pero el nombre sigue).
+- Cada grabación se descarga y decodifica una sola vez (`fetch` + `decodeAudioData`) y se guarda. Empiezan a cargar en el toque de «Empezar» (`unlockPlayerAudio` → `preloadSfx()`) y, si no, con el primer efecto.
+- Si un archivo falta, no se puede decodificar o aún no ha llegado, suena su receta sintetizada, sin avisar.
+- **Cambiar un sonido**: sustituir su mp3 por otro con el mismo nombre. Para añadir o quitar uno, su línea en `sfxSamples.ts`.
+
+## Niveles (para ajustar de oído)
+- Grabaciones: `gain` de cada una en `sfxSamples.ts`. Los archivos vienen normalizados a un nivel común (los 200 ms más fuertes a unos −16 dBFS RMS, picos ≤ −1 dBFS), así que `gain` es solo la mezcla: vuelo y separación 0,7–0,75 (se oyen claros, por debajo de la música), reparación 0,4–0,55, clics de interfaz 0,28–0,4.
+- Sintetizados: `gain` de cada receta en `sfxRecipes.ts`. Todos: `SFX_MASTER` (en `sfxRecipes.ts`).
+- Música: por defecto al 0,4 (`DEFAULT_MUSIC_SETTINGS` en `mix.ts`, antes 0,8). La preferencia se guarda en `everydaym.music.v2`; la v1 se borra (conservando solo el silencio), así todos empiezan una vez al nuevo nivel. Los efectos van con el mismo volumen, así que la proporción efectos/música no cambia al moverlo.
+- Nadie los ha escuchado aún.
+
+Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`.
 
 ## API
 - `playSfx(name, { gain?, gesture? })`: un golpe. `gesture: true` solo si se llama dentro de un toque (puede despertar el contexto).
@@ -20,7 +34,7 @@ Tabla de sonidos y niveles (para ajustar de oído): `sfxRecipes.ts`. Reglas pura
 |---|---|---|
 | `beep` | aviso | Al entrar en los segundos 3 y 2 restantes del ejercicio. |
 | `beepFinal` | aviso | Al entrar en el último segundo (1). |
-| `engineRumble` | bucle | Desde que quedan 10 s del ejercicio que lleva al descanso con cohete hasta el despegue; `setIntensity(1 - restante/10)` cada segundo. Pararlo justo al llamar a `launch`. |
+| `engineRumble` | bucle | Quitado por decisión de Marcel (el nombre sigue, sintetizado y sin usar). Antes: desde que quedan 10 s del ejercicio que lleva al descanso con cohete hasta el despegue; `setIntensity(1 - restante/10)` cada segundo. Pararlo justo al llamar a `launch`. |
 | `launch` | ambiente | Al instante en que el cohete sale disparado. |
 | `slowMo` | bucle | Mientras el cohete sube despacio entre las nubes; pararlo al salir por arriba. |
 | `separate` | ambiente | Cada vez que se suelta un tramo o los propulsores. |
@@ -36,4 +50,4 @@ Tabla de sonidos y niveles (para ajustar de oído): `sfxRecipes.ts`. Reglas pura
 - Límite de 8 golpes a la vez (y por sonido, `maxVoices`); el más viejo se corta con un fundido de 30 ms. Bucles: 3.
 - Una llamada repetida antes de `minGap` se ignora (dobles renders en desarrollo, dobles toques).
 - Bus: aviso/ambiente → limitador suave → volumen general → salida. Los nodos se desconectan al terminar.
-- Nadie los ha escuchado aún: niveles bajos a propósito. Subir/bajar con `gain` de cada receta o `SFX_MASTER`.
+- Las grabaciones respetan lo mismo que las recetas: `vary` (tono y nivel), `maxVoices`, `minGap` y su categoría. `slowMo` es un bucle sin cortes de 4 s (`loop` en `sfxSamples.ts`, con 0,15 s de margen a cada lado del archivo).
