@@ -10,7 +10,7 @@ const entries = Object.entries(SFX_SAMPLES) as [SfxName, NonNullable<(typeof SFX
 describe('recorded effects', () => {
   it('records every sound the user kept, and leaves the 3-2-1 synthesised', () => {
     expect(entries.map(([name]) => name).sort()).toEqual(
-      ['banner', 'boost', 'clack', 'drumHit', 'drumRoll', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
+      ['banner', 'boost', 'clack', 'drumHit', 'drumRoll', 'error', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
     );
     for (const name of ['beep', 'beepFinal'] as const) expect(SFX_SAMPLES[name]).toBeUndefined();
     // every recording still has its recipe to fall back on

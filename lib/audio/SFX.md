@@ -3,7 +3,7 @@
 Sobre el `AudioContext` compartido (`lib/audio.ts`). Nunca bajan la música.
 
 ## Grabaciones reales y sintetizados
-- **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `pam`, `banner`, `clack`, `ignite`, `drumRoll`, `drumHit`. Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
+- **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `pam`, `banner`, `clack`, `ignite`, `drumRoll`, `drumHit`, `error`. Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
 - **Pantalla final (móvil)**: `drumRoll` es un redoble de caja real (bucle, 10,5 s sin repetirse; el crescendo es su intensidad, de 0,3 a 1) y `drumHit` el platillo que lo cierra. Sus recetas de reserva: ruido que tiembla 16–19 veces por segundo (el redoble) y un crash de ruido agudo sobre un golpe grave.
 - **Sintetizados** (`sfxRecipes.ts`): `beep` y `beepFinal`. (`engineRumble` y los sonidos de la reparación, `hammer`, `ratchet` y `puff`, se quitaron: el golpe agudo del martillo se confundía con el 3-2-1 y no aportaban nada sobre la música; los mecánicos trabajan en silencio.)
 - Cada grabación se descarga y decodifica una sola vez (`fetch` + `decodeAudioData`) y se guarda. Empiezan a cargar en el toque de «Empezar» (`unlockPlayerAudio` → `preloadSfx()`) y, si no, con el primer efecto.
@@ -46,6 +46,7 @@ Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`.
 | `clack` | ambiente | Cada vez que una pieza encaja al montar el cohete. |
 | `ignite` | ambiente | En el toque de un cohete-botón, con `{ gesture: true }`. |
 | `drumRoll` | bucle | Pantalla final (móvil): desde que la música se ha ido hasta el golpe final, creciendo; se para al instante con el golpe, al ocultarse la página y al salir. |
+| `error` | ambiente | Creador (móvil): al saltar una broma («¿Tan poco tiempo tenemos?», «¿Tan poco hemos dormido hoy?»), dentro del toque, con `{ gesture: true }`. Grave y áspero (cuadrada y sierra hacia 120–150 Hz en la receta), para que no se confunda con el 3-2-1. Si la grabación aún no ha cargado (la primera vez, antes de cualquier cohete), suena la receta. |
 | `drumHit` | ambiente | Pantalla final: cuando la última pieza encaja en el cohete (con movimiento reducido, al abrirse la pantalla). Las piezas de antes encajan con `pam` (la etapa que ya traía el cohete, con `clack`). |
 
 ## Notas
