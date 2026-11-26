@@ -8,7 +8,7 @@ import { studioErrorResponse } from '@/lib/server/studioHttp';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** Edit the text fields of a track or enable/disable it ({ enabled: boolean }). */
+/** Edit the text fields or the style of a track, or enable/disable it ({ enabled: boolean }). */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = guardStudioApi(req);
   if (denied) return denied;
