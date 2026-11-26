@@ -597,8 +597,8 @@ export interface Sink {
 
 export const UPRIGHT: Sink = { y: 0, rz: 0 };
 
-/** How high its stands hold it while it is worked on, and as they are taken away (px, up). */
-export const STANDS = { liftPx: 4, lowPx: 1.5, springMs: 560 } as const;
+/** How high its stands hold it while it is worked on, and as they are taken away (px, up; whole pixels: held there, the rocket stays crisp). */
+export const STANDS = { liftPx: 4, lowPx: 2, springMs: 560 } as const;
 
 export const sinkTransform = (s: Sink) => `translateY(${num(s.y)}px) rotate(${num(s.rz)}deg)`;
 
@@ -842,6 +842,29 @@ export function pose({ x = '0px', y = '0px', s = 1, rz = 0, ry = 0, sx = 1, sy =
 }
 
 export const PARKED_POSE = pose({});
+
+/** What `holdsOnlyParked` reads of an animation (the DOM's Animation has all of it). */
+export interface HeldAnimation {
+  id: string;
+  playState: string;
+  /** its effect's local time and end time (getComputedTiming) */
+  localTime: number | null;
+  endTime: number;
+}
+
+/**
+ * The parked rocket is drawn crisp only with no transform on it or above it (a held pose, even
+ * PARKED_POSE or an identity, makes it a layer drawn as a resampled texture). Every animation of
+ * the flight, the stretch and the jolts ends exactly where the rocket stands with no transform, so
+ * once parked, one that is over (finished, or paused past its end) holds nothing but that place
+ * and can be let go, whatever path left it there. Not the crouch of its last second (`keep`: it
+ * holds the crouched pose until the take-off), and nothing that is still moving.
+ */
+export function holdsOnlyParked(a: HeldAnimation, parked: boolean, keep: readonly string[]): boolean {
+  if (!parked || keep.includes(a.id)) return false;
+  if (a.playState === 'finished') return true;
+  return a.playState === 'paused' && a.localTime !== null && a.localTime >= a.endTime;
+}
 
 // (a type, not an interface, so it is assignable to the DOM's Keyframe)
 export type FlightKeyframe = {

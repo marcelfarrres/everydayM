@@ -66,6 +66,7 @@ import {
   type CloudSpot,
   type LaunchStart,
   type Flight,
+  holdsOnlyParked,
 } from '@/components/workout/rocketFlight';
 import { useCloudMoment, useCloudPainter } from '@/components/workout/cloudClock';
 import { finsAt, finsPending } from '@/components/workout/separation';
@@ -320,6 +321,7 @@ export function RocketWidget({
   };
   useDockClock(root, flight, onParked, cloudKey, ending, queue, currentIndex, reduced);
   useLook(dock, pair, shipEl, drawingEl, isPaused);
+  useCrispWhenParked(flight, flightEl, drawingEl);
   // the new tail's fins, springing out on the clouds' clock (pure: finsAt)
   const paintFins = useCallback(
     (t: number | null, key: number | null) => {
@@ -1068,6 +1070,48 @@ function useRocketFlight({
   }, [cloudKey, ending, queue, currentIndex, reduced, sounds]);
 
   return flight;
+}
+
+/** Held on the rocket on purpose while parked: the crouch of its last second (until the take-off). */
+const HELD_WHILE_PARKED = [CROUCH_ID];
+
+/**
+ * Parked, the rocket carries no transform at all (drawn crisp, like its panels), by construction:
+ * whatever path left an animation held on the rocket's drawing or on anything above it (a flight's
+ * landing, the arrival, a stretch, a jolt, a paused player), once the rocket is parked and that
+ * animation is over, it is let go (`holdsOnlyParked`: every one of them ends exactly where the
+ * rocket stands with no transform, so nothing moves). Checked four times a second and on coming
+ * back to the tab: a few getAnimations calls, nothing per frame. While a flight, the crouch or a
+ * jolt is still under way (or paused midway) it stays.
+ */
+function useCrispWhenParked(flight: RefObject<Flight>, flightEl: RefObject<HTMLDivElement | null>, drawingEl: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const release = () => {
+      const top = flightEl.current;
+      const drawing = drawingEl.current;
+      if (!top || !drawing || phaseAt(flight.current, performance.now()) !== 'parked') return;
+      // the rocket's drawing (each of its layers) and everything above it, up to the flight's layer
+      const chain = new Set<Element>();
+      drawing.querySelectorAll('[data-piece]').forEach((piece) => {
+        for (let n: Element | null = piece; n && !chain.has(n); n = n === top ? null : n.parentElement) chain.add(n);
+      });
+      chain.forEach((node) =>
+        node.getAnimations().forEach((a) => {
+          const t = a.effect?.getComputedTiming();
+          if (!t) return;
+          const held = { id: a.id, playState: a.playState, localTime: t.localTime === null || t.localTime === undefined ? null : Number(t.localTime), endTime: Number(t.endTime ?? 0) };
+          if (holdsOnlyParked(held, true, HELD_WHILE_PARKED)) a.cancel();
+        }),
+      );
+    };
+    release();
+    const timer = setInterval(release, 250);
+    document.addEventListener('visibilitychange', release);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', release);
+    };
+  }, [flight, flightEl, drawingEl]);
 }
 
 /**

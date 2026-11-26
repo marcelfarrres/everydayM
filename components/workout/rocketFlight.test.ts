@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exercise } from '@/lib/routine/fixtures.test-helpers';
 import { BLOCK_END_EXTRA_MS, BLOCK_END_LEAD_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
 import {
+  holdsOnlyParked,
   BLOCK_END,
   SEPARATION,
   separates,
@@ -455,6 +456,8 @@ describe('the rest: the rocket is repaired', () => {
     expect(STANDS.liftPx).toBeGreaterThanOrEqual(2);
     expect(STANDS.liftPx).toBeLessThanOrEqual(6);
     expect(STANDS.lowPx).toBeLessThan(STANDS.liftPx);
+    // (held while it rests on its stands: whole pixels, so the rocket stays crisp)
+    expect(Number.isInteger(STANDS.liftPx) && Number.isInteger(STANDS.lowPx)).toBe(true);
     const keys = springBackKeyframes({ y: -STANDS.lowPx, rz: 0 });
     expect(keys[0].transform).toBe(sinkTransform({ y: -STANDS.lowPx, rz: 0 }));
     expect(keys.at(-1)?.transform).toBe(sinkTransform(UPRIGHT));
@@ -904,5 +907,22 @@ describe('the minute between blocks (phone)', () => {
     expect(Math.max(...plan.breaks.map(([, b]) => b))).toBeLessThanOrEqual(plan.exitStart - REPAIR.finalWorkMs);
     expect(plan.hits.filter((t) => t > plan.exitStart - REPAIR.finalWorkMs).length).toBeGreaterThan(5);
     expect(repairPlan(15000).breaks).toEqual([]);
+  });
+});
+
+describe('the parked rocket lets go of what is over (crisp)', () => {
+  const keep = ['rw-crouch'];
+  it('releases a finished animation, or one paused past its end, only once parked', () => {
+    const done = { id: '', playState: 'finished', localTime: 900, endTime: 900 };
+    expect(holdsOnlyParked(done, true, keep)).toBe(true);
+    expect(holdsOnlyParked(done, false, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: 900, endTime: 900 }, true, keep)).toBe(true);
+  });
+  it('keeps the crouch, and anything still moving or paused midway', () => {
+    expect(holdsOnlyParked({ id: 'rw-crouch', playState: 'finished', localTime: 1, endTime: 1 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'running', localTime: 100, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: 400, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: null, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'idle', localTime: null, endTime: 900 }, true, keep)).toBe(false);
   });
 });
