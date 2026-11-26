@@ -28,11 +28,15 @@ describe('flightSounds', () => {
     expect(s.slowMo?.[1]).toBe(FLIGHT.cloudLiftMs + 3000);
   });
 
-  it('the separation after a block: the slow motion stops as the engine goes out, then the part, the coughs, the catch', () => {
+  it('the separation after a block: the slow motion stops as the engine goes out, then the part, the fins, the coughs, the catch', () => {
     const f = nextFlight(PARKED, 'clouds', 0, BLOCK_END_EXTRA_MS);
     const s = flightSounds(f, 'crouched');
     expect(s.slowMo).toEqual([FLIGHT.appearMs, SEPARATION.engineOffMs]);
-    expect(names(s)).toEqual(['launch', 'separate', 'ignite', 'ignite', 'ignite', 'boost', 'land', 'banner']);
+    expect(names(s)).toEqual(['launch', 'separate', 'clack', 'ignite', 'ignite', 'ignite', 'boost', 'land', 'banner']);
+    // (the fins' clack while they spring out)
+    const clack = s.hits.find((h) => h.sfx === 'clack')?.at ?? NaN;
+    expect(clack).toBeGreaterThan(SEPARATION.finsMs);
+    expect(clack).toBeLessThan(SEPARATION.finsMs + SEPARATION.finsSpringMs);
     const at = s.hits.map((h) => h.at);
     expect(at).toEqual([...at].sort((x, y) => x - y));
     expect(s.hits.find((h) => h.sfx === 'separate')?.at).toBe(SEPARATION.releaseMs);

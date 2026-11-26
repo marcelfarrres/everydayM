@@ -752,10 +752,12 @@ describe('the clouds after a block', () => {
     expect(luegoFade(BLOCK_END.afterMs + BLOCK_END.swapMs)).toBe(1);
   });
 
-  it('a second longer than before, for the separation', () => {
-    expect(BLOCK_END_EXTRA_MS).toBe(3500 + 1000);
+  it('a second longer than before, for the separation, and 0.4 s more for the fins (26-11-2026)', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(3500 + 1000 + 400);
     expect(SEPARATION.liftMs).toBe(FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS);
-    expect(cloudsOpenAt(BLOCK_END_EXTRA_MS)).toBe(TALK_LEAD_MS + 3500 + 1000);
+    expect(cloudsOpenAt(BLOCK_END_EXTRA_MS)).toBe(TALK_LEAD_MS + 3500 + 1000 + 400);
+    // the rest itself still lasts whole seconds more: 5, as before
+    expect(Math.ceil(BLOCK_END_EXTRA_MS / 1000)).toBe(5);
     expect(separates(BLOCK_END_EXTRA_MS)).toBe(true);
     expect(separates(0)).toBe(false);
   });
@@ -772,6 +774,7 @@ describe('the clouds after a block', () => {
       ['blow', S.releaseMs - S.windupMs, S.releaseMs],
       ['crew out, the part comes loose', S.releaseMs, Math.max(S.crewGoneMs, S.releaseMs + S.creepMs)],
       ['the part falls alone', S.releaseMs + S.creepMs, S.releaseMs + S.fallMs],
+      ['the new tail’s fins spring out', S.finsMs, S.finsMs + S.finsSpringMs],
       ['sputter 1', S.sputtersMs[0], S.sputtersMs[0] + S.sputterMs],
       ['sputter 2', S.sputtersMs[1], S.sputtersMs[1] + S.sputterMs],
       ['catch', S.catchMs, S.liftMs],
@@ -788,6 +791,10 @@ describe('the clouds after a block', () => {
     expect(S.crewGoneMs).toBeLessThanOrEqual(S.releaseMs + S.creepMs);
     // slower than it used to fall (1.3 s for 800 px): longer, and over a shorter way (out of the bottom)
     expect(S.fallMs).toBeGreaterThan(FLIGHT.dropFallMs);
+    // the fins: a quick spring (about 0.3 s), their own moment once the part has gone
+    expect(S.finsSpringMs).toBeGreaterThanOrEqual(250);
+    expect(S.finsSpringMs).toBeLessThanOrEqual(350);
+    expect(S.finsMs).toBeGreaterThanOrEqual(S.releaseMs + S.fallMs);
   });
 
   it('its flame: out by the hover, two sputters that die, then it catches before the lift', () => {

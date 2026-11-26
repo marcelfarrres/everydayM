@@ -173,6 +173,8 @@ export const BLOCK_END = {
  *      with the hammer: the release;
  *   3  they step back and run off while the part comes loose, and then it falls away slowly,
  *      tumbling a little, out of the bottom, alone;
+ *   3b once it has gone, the fins of the new tail spring out of the sides of the hull (a quick
+ *      spring with a little overshoot; after the boosters, the fins come out for the first time);
  *   4  the engine tries: two sputters that die (a puff each), then it catches and grows;
  *   5  only then the rocket speeds off out of the top, as ever.
  * Pure numbers: the rocket's keyframes (cloudKeyframes, cloudFlameKeyframes), its sounds
@@ -200,10 +202,13 @@ export const SEPARATION = {
   /** ...while the part comes loose (a few px, a tilt); then it falls away, out of the bottom */
   creepMs: 500,
   fallMs: 1400,
+  /** once it has gone, the new tail's fins spring out of the hull (26-11-2026: a moment of their own) */
+  finsMs: 7100,
+  finsSpringMs: 300,
   /** the engine tries: two sputters that die, then it catches and grows */
-  sputtersMs: [7040, 7260],
+  sputtersMs: [7440, 7660],
   sputterMs: 200,
-  catchMs: 7480,
+  catchMs: 7880,
   /** and the usual lift out of the top, a second later than it used to be */
   liftMs: CLOUD_TIMING.liftMs + BLOCK_END_EXTRA_MS,
 } as const;
