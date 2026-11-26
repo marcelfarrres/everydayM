@@ -106,7 +106,12 @@ export function RestClock({
       const L = widgetLayout(width);
       const P = panelLayout(L);
       k = SIDE_CLOCK_PX / el.offsetHeight;
-      left = (vw - L.B) / 2 + P.left + PANEL_TIME.left;
+      // centred in that panel, clear of the rocket's fin at its bottom-left (its layout width: the
+      // panel's own transforms, rising out of the hull, are vertical)
+      const panel = document.querySelector<HTMLElement>('[data-rw="panel-1"]');
+      left = panel
+        ? (vw - L.B) / 2 + P.left + (panel.offsetWidth - el.offsetWidth * k) / 2
+        : (vw - L.B) / 2 + P.left + PANEL_TIME.left;
       top = vh - MINI.BOTTOM - L.box + P.top + PANEL_TIME.top;
     }
     el.style.transform = `translate(${Math.round(left - el.offsetLeft)}px, ${Math.round(top - el.offsetTop)}px) scale(${k.toFixed(4)})`;

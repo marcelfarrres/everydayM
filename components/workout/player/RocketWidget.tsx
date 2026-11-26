@@ -491,7 +491,8 @@ export function RocketWidget({
                           data-rw="time"
                           role="timer"
                           aria-label={`${time} de descanso`}
-                          className="text-[28px] font-bold leading-[28px] tabular-nums tracking-[-0.02em]"
+                          // (centred in the panel, clear of the rocket's fin at its bottom-left)
+                          className="self-center text-[28px] font-bold leading-[28px] tabular-nums tracking-[-0.02em]"
                         >
                           {time}
                         </span>
