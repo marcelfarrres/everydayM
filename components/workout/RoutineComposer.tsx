@@ -45,6 +45,7 @@ import {
   FINALE,
   PAGE_DAY,
   finaleSentence,
+  shownMinutes,
   fittedTarget,
   igniteAt,
   joinNames,
@@ -920,10 +921,13 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const darkTop = (phoneAsk && finale?.path !== 'C') || (phoneQuestions && !skyInk(sky));
   // C: the start screen turns to day while its rocket takes off
   const dayC = phoneAsk && finale?.path === 'C';
-  const finaleText = finale && built && intent ? finaleSentence(focusText(intent), Math.round(built.meta.totalSeconds / 60), intensityLabel(intent.difficulty)) : null;
   // what is written on the pieces: the sentence as understood (or the local reading until then),
   // the answers, and once it is built, the routine's own numbers
   const localIntent = useMemo(() => parseIntentKeywords(text), [text]);
+  // the minutes shown (the piece and the sentence): the length chosen (answered, or said in the
+  // sentence); the routine's real length only when none was chosen
+  const minutesShown = built ? shownMinutes(answers.targetMinutes ?? localIntent.targetMinutes, Math.round(built.meta.totalSeconds / 60), { min: MIN_MINUTES, max: MAX_MINUTES }) : null;
+  const finaleText = finale && built && intent && minutesShown !== null ? finaleSentence(focusText(intent), minutesShown, intensityLabel(intent.difficulty)) : null;
   const understood = intent ?? heard ?? localIntent;
   const previewRounds = useMemo(() => {
     if (!phoneQuestions || library.length === 0 || built) return null;
@@ -934,7 +938,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const intensityWord = intensityLabel(answers.difficulty ?? understood.difficulty);
   const pieceLabels: Record<PieceId, string> = {
     nose: focusText(understood) || 'tu rutina',
-    minutes: `${built ? Math.round(built.meta.totalSeconds / 60) : (answers.targetMinutes ?? draftMinutes)} min`,
+    minutes: `${minutesShown ?? answers.targetMinutes ?? draftMinutes} min`,
     blocks: blocks ? `${blocks} ${blocks === 1 ? 'bloque' : 'bloques'}` : 'bloques',
     engine: intensityWord[0].toUpperCase() + intensityWord.slice(1),
   };

@@ -15,6 +15,7 @@ import {
   padHull,
   pieceBottom,
   pieceModes,
+  shownMinutes,
   skyInk,
   skyStep,
   truckTimeline,
@@ -190,6 +191,22 @@ describe('the timelines', () => {
     const shown = 10_000;
     expect(igniteAt(shown, LAUNCH.igniteMs) + LAUNCH.igniteMs).toBe(shown + FINALE.readMs);
     expect(igniteAt(shown, 5000, 3500)).toBe(shown);
+  });
+});
+
+describe('the minutes shown', () => {
+  it('shows the length chosen, not the real length of the routine', () => {
+    expect(shownMinutes(30, 28)).toBe(30);
+  });
+
+  it('shows the real length when none was chosen', () => {
+    expect(shownMinutes(null, 28)).toBe(28);
+    expect(shownMinutes(undefined, 28)).toBe(28);
+  });
+
+  it('keeps a chosen length within what a routine may last', () => {
+    expect(shownMinutes(55, 40)).toBe(40);
+    expect(shownMinutes(10, 20)).toBe(20);
   });
 });
 

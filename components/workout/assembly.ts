@@ -436,6 +436,16 @@ export function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
 }
 
+/**
+ * The minutes the creator shows (the piece and the finale's sentence): the length the person chose
+ * (answered, or written in the sentence), kept within what a routine may last; only when nothing
+ * was chosen, the built routine's real length.
+ */
+export function shownMinutes(chosen: number | null | undefined, real: number, { min = 20, max = 40 }: { min?: number; max?: number } = {}): number {
+  if (chosen === null || chosen === undefined || !Number.isFinite(chosen)) return real;
+  return Math.min(max, Math.max(min, Math.round(chosen)));
+}
+
 /** «Hoy, pierna y glúteo. 30 min, intensidad media.» */
 export function finaleSentence(focus: string, minutes: number, intensity: string): string {
   return `Hoy, ${focus}. ${minutes} min, intensidad ${intensity}.`;
