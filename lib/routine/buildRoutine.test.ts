@@ -193,10 +193,10 @@ describe('talks in long rests', () => {
     expect(stretched).toBeGreaterThan(0); // the talks really set the length somewhere
   });
 
-  it('gives the rest after a block its longer clouds (4.5 s), before the talks and in the countdown', () => {
-    expect(BLOCK_END_EXTRA_MS).toBe(4500);
+  it('gives the rest after a block its longer clouds (4.9 s), before the talks and in the countdown', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(4900);
     expect(BLOCK_END_LEAD_MS).toBe(TALK_LEAD_MS + BLOCK_END_EXTRA_MS);
-    expect(BLOCK_END_LEAD_MS).toBe(7870);
+    expect(BLOCK_END_LEAD_MS).toBe(8270);
     expect(getBlockEndRestBase(15)).toBe(getLongRestBase(15) + 5);
     // the talk, then the last 5 s
     expect(LONG_REST_READY_SECONDS).toBe(5);
@@ -207,8 +207,8 @@ describe('talks in long rests', () => {
     // between blocks: at least a minute, longer only if its talks need it
     expect(BETWEEN_BLOCKS_MIN_SECONDS).toBe(60);
     expect(getLongRestSeconds(15, 0, true)).toBe(60);
-    expect(getLongRestSeconds(15, 47, true)).toBe(60); // 7.87 + 47 + 5 = 59.87
-    expect(getLongRestSeconds(15, 48, true)).toBe(61); // the talk plays whole, then the last 5 s
+    expect(getLongRestSeconds(15, 46, true)).toBe(60); // 8.27 + 46 + 5 = 59.27
+    expect(getLongRestSeconds(15, 47, true)).toBe(61); // the talk plays whole, then the last 5 s
     expect(getLongRestSeconds(15, 70, true)).toBe(getTalkRestSeconds(70, BLOCK_END_LEAD_MS));
     // a talk longer than the minute: whole, plus the last seconds
     expect(getLongRestSeconds(15, 70, true) * 1000).toBeGreaterThanOrEqual(BLOCK_END_LEAD_MS + 70_000 + LONG_REST_READY_SECONDS * 1000);

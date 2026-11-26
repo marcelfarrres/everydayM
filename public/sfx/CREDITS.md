@@ -17,8 +17,14 @@ Recortados, en mono, normalizados a un nivel común y codificados en mp3 con FFm
 | `drumRoll.mp3` | Redoble de caja, constante: 10,5 s del centro (del segundo 20 al 30,5) de «Drum Roll», de la Concert Band de la United States Air Force Band (*Esprit de Corps*, 1997); sin graves por debajo de 60 Hz. El crescendo lo hace la app (la intensidad del bucle). | [Drum Roll - Concert Band - United States Air Force Band.mp3](https://commons.wikimedia.org/wiki/File:Drum_Roll_-_Concert_Band_-_United_States_Air_Force_Band.mp3) | United States Air Force Band | Dominio público (obra del Gobierno de EE. UU.; sin usar sus emblemas ni dar a entender que respalda la app) |
 | `drumHit.mp3` | Un golpe de platillo crash (el del segundo 29,3 de la muestra), sin el zumbido de la grabación por debajo de 200 Hz y apagado en 2,6 s; debajo, el golpe sordo de `pam.mp3`. | [CrashCymbalSample.ogg](https://commons.wikimedia.org/wiki/File:CrashCymbalSample.ogg) + Kenney (`pam`, arriba) | RyGuy · Kenney | Dominio público · CC0 |
 | `error.mp3` | Zumbido grave y corto de «respuesta incorrecta» (`error_005`), desde los 0,015 s y apagado en 0,285 s. Suena en las bromas del creador (móvil). | [Kenney · Interface Sounds](https://kenney.nl/assets/interface-sounds) | Kenney | CC0 |
+| `drumClick.mp3` | Clic seco de la carraca del tambor (`tick_002`), entero (0,027 s, apagado en los últimos 12 ms). | [Kenney · Interface Sounds](https://kenney.nl/assets/interface-sounds) | Kenney | CC0 |
+| `metalStep.mp3` | Paso por la pasarela: pisada sorda (`footstep_concrete_001`) y, 12 dB por debajo, un roce de chapa (`impactPlate_light_003`); recortado a 0,13 s y apagado en los últimos 50 ms. | [Kenney · Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 |
+| `ladderStep.mp3` | Peldaño de la escalera: golpe hueco sobre lata (`impactTin_medium_003`), recortado a 0,15 s y apagado en los últimos 60 ms. | [Kenney · Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 |
+| `buttonThunk.mp3` | El botón rojo: golpe grave sobre chapa (`impactPlate_medium_000`), recortado a 0,25 s y apagado en los últimos 100 ms. | [Kenney · Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 |
+| `towerDock.mp3` | Los brazos de la torre se cierran: golpe pesado sobre chapa (`impactPlate_heavy_002`), recortado a 0,45 s y apagado en los últimos 150 ms. | [Kenney · Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 |
 
 `beep` y `beepFinal` (3-2-1) no tienen archivo: siguen sintetizados (`lib/audio/sfxRecipes.ts`).
+Los cinco de la base de cohetes (de `drumClick` a `towerDock`) van sin graves por debajo de 40 Hz, a 44,1 kHz y 96 kbps como los demás, con picos de −1,8 a −2,8 dBFS.
 
 ## Cambiar un sonido
 Deja aquí un mp3 nuevo con el mismo nombre (p. ej. `launch.mp3`), corto, en mono y sin silencio al principio; si suena fuerte o flojo, ajusta su `gain` en `lib/audio/sfxSamples.ts` (para `slowMo`, también su tramo de bucle, `loop`).

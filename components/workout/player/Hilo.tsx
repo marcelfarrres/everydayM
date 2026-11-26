@@ -15,10 +15,12 @@ const COLOR: Record<'dark' | 'light', Record<StepState, string>> = {
 
 // `lg` (the phone's rocket, RocketShip): thick lines across nearly the whole body, clear gaps
 // between blocks, and the serie in progress almost twice as thick, so done / now / pending read
-// at a glance.
+// at a glance. `rocket` (a stage of the routine's rocket, under its block's name): as thick as
+// the room under the name allows, end to end of the stage (rocketShape's STAGE_TEXT: 7 and 10 px).
 const SIZE = {
   sm: { row: 'gap-2.5', block: 'gap-[3px]', line: { done: 'h-[3px]', now: 'h-[3px]', todo: 'h-[3px]' } },
   lg: { row: 'gap-2.5', block: 'gap-[3px]', line: { done: 'h-[7px]', now: 'h-[13px]', todo: 'h-[7px]' } },
+  rocket: { row: 'gap-2.5', block: 'gap-[3px]', line: { done: 'h-[7px]', now: 'h-[10px]', todo: 'h-[7px]' } },
 } as const;
 
 export function Hilo({
@@ -29,7 +31,7 @@ export function Hilo({
 }: {
   blocks: StepState[][];
   surface?: 'dark' | 'light';
-  size?: 'sm' | 'lg';
+  size?: keyof typeof SIZE;
   className?: string;
 }) {
   const palette = COLOR[surface];

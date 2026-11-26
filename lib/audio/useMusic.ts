@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { fetchMusic } from '@/lib/data/exercises';
+import type { MusicStyle } from '@/types/catalog';
 import { MusicEngine, getMusicEngine, type MusicSnapshot } from './music';
 import { releaseTalkVideo } from './talkVideo';
 
 const noopSubscribe = () => () => {};
 
-/** Mute, volume and whether there is any music, for the "···" menu. Remembered between visits. */
+/** Mute, volume, style and whether there is any music, for the "···" menu. Remembered between visits. */
 export function useMusicControls(): {
   music: MusicSnapshot;
   setMuted: (muted: boolean) => void;
   setVolume: (volume: number) => void;
+  setStyle: (style: MusicStyle | null) => void;
 } {
   const engine = getMusicEngine();
   const music = useSyncExternalStore(
@@ -21,7 +23,8 @@ export function useMusicControls(): {
   );
   const setMuted = useCallback((muted: boolean) => getMusicEngine()?.setMuted(muted), []);
   const setVolume = useCallback((volume: number) => getMusicEngine()?.setVolume(volume), []);
-  return { music, setMuted, setVolume };
+  const setStyle = useCallback((style: MusicStyle | null) => getMusicEngine()?.setStyle(style), []);
+  return { music, setMuted, setVolume, setStyle };
 }
 
 /** The music follows the player: plays while it is open, pauses with it, stops when it closes. */

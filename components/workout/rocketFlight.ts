@@ -173,6 +173,8 @@ export const BLOCK_END = {
  *      with the hammer: the release;
  *   3  they step back and run off while the part comes loose, and then it falls away slowly,
  *      tumbling a little, out of the bottom, alone;
+ *   3b once it has gone, the fins of the new tail spring out of the sides of the hull (a quick
+ *      spring with a little overshoot; after the boosters, the fins come out for the first time);
  *   4  the engine tries: two sputters that die (a puff each), then it catches and grows;
  *   5  only then the rocket speeds off out of the top, as ever.
  * Pure numbers: the rocket's keyframes (cloudKeyframes, cloudFlameKeyframes), its sounds
@@ -200,10 +202,13 @@ export const SEPARATION = {
   /** ...while the part comes loose (a few px, a tilt); then it falls away, out of the bottom */
   creepMs: 500,
   fallMs: 1400,
+  /** once it has gone, the new tail's fins spring out of the hull (26-11-2026: a moment of their own) */
+  finsMs: 7100,
+  finsSpringMs: 300,
   /** the engine tries: two sputters that die, then it catches and grows */
-  sputtersMs: [7040, 7260],
+  sputtersMs: [7440, 7660],
   sputterMs: 200,
-  catchMs: 7480,
+  catchMs: 7880,
   /** and the usual lift out of the top, a second later than it used to be */
   liftMs: CLOUD_TIMING.liftMs + BLOCK_END_EXTRA_MS,
 } as const;
@@ -592,8 +597,8 @@ export interface Sink {
 
 export const UPRIGHT: Sink = { y: 0, rz: 0 };
 
-/** How high its stands hold it while it is worked on, and as they are taken away (px, up). */
-export const STANDS = { liftPx: 4, lowPx: 1.5, springMs: 560 } as const;
+/** How high its stands hold it while it is worked on, and as they are taken away (px, up; whole pixels: held there, the rocket stays crisp). */
+export const STANDS = { liftPx: 4, lowPx: 2, springMs: 560 } as const;
 
 export const sinkTransform = (s: Sink) => `translateY(${num(s.y)}px) rotate(${num(s.rz)}deg)`;
 
@@ -837,6 +842,29 @@ export function pose({ x = '0px', y = '0px', s = 1, rz = 0, ry = 0, sx = 1, sy =
 }
 
 export const PARKED_POSE = pose({});
+
+/** What `holdsOnlyParked` reads of an animation (the DOM's Animation has all of it). */
+export interface HeldAnimation {
+  id: string;
+  playState: string;
+  /** its effect's local time and end time (getComputedTiming) */
+  localTime: number | null;
+  endTime: number;
+}
+
+/**
+ * The parked rocket is drawn crisp only with no transform on it or above it (a held pose, even
+ * PARKED_POSE or an identity, makes it a layer drawn as a resampled texture). Every animation of
+ * the flight, the stretch and the jolts ends exactly where the rocket stands with no transform, so
+ * once parked, one that is over (finished, or paused past its end) holds nothing but that place
+ * and can be let go, whatever path left it there. Not the crouch of its last second (`keep`: it
+ * holds the crouched pose until the take-off), and nothing that is still moving.
+ */
+export function holdsOnlyParked(a: HeldAnimation, parked: boolean, keep: readonly string[]): boolean {
+  if (!parked || keep.includes(a.id)) return false;
+  if (a.playState === 'finished') return true;
+  return a.playState === 'paused' && a.localTime !== null && a.localTime >= a.endTime;
+}
 
 // (a type, not an interface, so it is assignable to the DOM's Keyframe)
 export type FlightKeyframe = {

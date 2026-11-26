@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exercise } from '@/lib/routine/fixtures.test-helpers';
 import { BLOCK_END_EXTRA_MS, BLOCK_END_LEAD_MS, TALK_LEAD_MS } from '@/lib/routine/duration';
 import {
+  holdsOnlyParked,
   BLOCK_END,
   SEPARATION,
   separates,
@@ -455,6 +456,8 @@ describe('the rest: the rocket is repaired', () => {
     expect(STANDS.liftPx).toBeGreaterThanOrEqual(2);
     expect(STANDS.liftPx).toBeLessThanOrEqual(6);
     expect(STANDS.lowPx).toBeLessThan(STANDS.liftPx);
+    // (held while it rests on its stands: whole pixels, so the rocket stays crisp)
+    expect(Number.isInteger(STANDS.liftPx) && Number.isInteger(STANDS.lowPx)).toBe(true);
     const keys = springBackKeyframes({ y: -STANDS.lowPx, rz: 0 });
     expect(keys[0].transform).toBe(sinkTransform({ y: -STANDS.lowPx, rz: 0 }));
     expect(keys.at(-1)?.transform).toBe(sinkTransform(UPRIGHT));
@@ -752,10 +755,12 @@ describe('the clouds after a block', () => {
     expect(luegoFade(BLOCK_END.afterMs + BLOCK_END.swapMs)).toBe(1);
   });
 
-  it('a second longer than before, for the separation', () => {
-    expect(BLOCK_END_EXTRA_MS).toBe(3500 + 1000);
+  it('a second longer than before, for the separation, and 0.4 s more for the fins (26-11-2026)', () => {
+    expect(BLOCK_END_EXTRA_MS).toBe(3500 + 1000 + 400);
     expect(SEPARATION.liftMs).toBe(FLIGHT.cloudLiftMs + BLOCK_END_EXTRA_MS);
-    expect(cloudsOpenAt(BLOCK_END_EXTRA_MS)).toBe(TALK_LEAD_MS + 3500 + 1000);
+    expect(cloudsOpenAt(BLOCK_END_EXTRA_MS)).toBe(TALK_LEAD_MS + 3500 + 1000 + 400);
+    // the rest itself still lasts whole seconds more: 5, as before
+    expect(Math.ceil(BLOCK_END_EXTRA_MS / 1000)).toBe(5);
     expect(separates(BLOCK_END_EXTRA_MS)).toBe(true);
     expect(separates(0)).toBe(false);
   });
@@ -772,6 +777,7 @@ describe('the clouds after a block', () => {
       ['blow', S.releaseMs - S.windupMs, S.releaseMs],
       ['crew out, the part comes loose', S.releaseMs, Math.max(S.crewGoneMs, S.releaseMs + S.creepMs)],
       ['the part falls alone', S.releaseMs + S.creepMs, S.releaseMs + S.fallMs],
+      ['the new tail’s fins spring out', S.finsMs, S.finsMs + S.finsSpringMs],
       ['sputter 1', S.sputtersMs[0], S.sputtersMs[0] + S.sputterMs],
       ['sputter 2', S.sputtersMs[1], S.sputtersMs[1] + S.sputterMs],
       ['catch', S.catchMs, S.liftMs],
@@ -788,6 +794,10 @@ describe('the clouds after a block', () => {
     expect(S.crewGoneMs).toBeLessThanOrEqual(S.releaseMs + S.creepMs);
     // slower than it used to fall (1.3 s for 800 px): longer, and over a shorter way (out of the bottom)
     expect(S.fallMs).toBeGreaterThan(FLIGHT.dropFallMs);
+    // the fins: a quick spring (about 0.3 s), their own moment once the part has gone
+    expect(S.finsSpringMs).toBeGreaterThanOrEqual(250);
+    expect(S.finsSpringMs).toBeLessThanOrEqual(350);
+    expect(S.finsMs).toBeGreaterThanOrEqual(S.releaseMs + S.fallMs);
   });
 
   it('its flame: out by the hover, two sputters that die, then it catches before the lift', () => {
@@ -897,5 +907,22 @@ describe('the minute between blocks (phone)', () => {
     expect(Math.max(...plan.breaks.map(([, b]) => b))).toBeLessThanOrEqual(plan.exitStart - REPAIR.finalWorkMs);
     expect(plan.hits.filter((t) => t > plan.exitStart - REPAIR.finalWorkMs).length).toBeGreaterThan(5);
     expect(repairPlan(15000).breaks).toEqual([]);
+  });
+});
+
+describe('the parked rocket lets go of what is over (crisp)', () => {
+  const keep = ['rw-crouch'];
+  it('releases a finished animation, or one paused past its end, only once parked', () => {
+    const done = { id: '', playState: 'finished', localTime: 900, endTime: 900 };
+    expect(holdsOnlyParked(done, true, keep)).toBe(true);
+    expect(holdsOnlyParked(done, false, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: 900, endTime: 900 }, true, keep)).toBe(true);
+  });
+  it('keeps the crouch, and anything still moving or paused midway', () => {
+    expect(holdsOnlyParked({ id: 'rw-crouch', playState: 'finished', localTime: 1, endTime: 1 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'running', localTime: 100, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: 400, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'paused', localTime: null, endTime: 900 }, true, keep)).toBe(false);
+    expect(holdsOnlyParked({ id: '', playState: 'idle', localTime: null, endTime: 900 }, true, keep)).toBe(false);
   });
 });

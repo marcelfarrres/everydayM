@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { catalogRests, findRest, parseCatalog, updateCatalog, CATALOG_PATH } from './catalog';
-import { validateRestMetadata, validateRestPatch } from './exerciseMetadata';
+import { validateMusicMetadata, validateMusicPatch, validateRestMetadata, validateRestPatch } from './exerciseMetadata';
 import type { Catalog, RestVideo } from '@/types/catalog';
 
 // 'server-only' throws outside a React Server Components build; vi.mock is hoisted above the imports.
@@ -68,6 +68,63 @@ describe('parseCatalog · rests', () => {
   it('keeps a disabled rest video disabled', () => {
     const catalog = parseCatalog(JSON.stringify({ rests: [rest('a', { enabled: false })] }));
     expect(catalog.rests?.[0].enabled).toBe(false);
+  });
+});
+
+describe('parseCatalog · music styles', () => {
+  const track = (id: string, style?: unknown) => ({
+    id,
+    title: id,
+    audio_url: `/dev-media/music/${id}.m4a`,
+    duration_seconds: 120,
+    ...(style === undefined ? {} : { style }),
+  });
+
+  it('keeps a valid style, turns unknown values and a missing field into no style', () => {
+    const catalog = parseCatalog(
+      JSON.stringify({
+        music: [track('a', 'regueton'), track('b', 'anos-80'), track('c', 'salsa'), track('d', 7), track('e', null), track('f')],
+      }),
+    );
+    expect(catalog.music.map((m) => [m.id, m.style])).toEqual([
+      ['a', 'regueton'],
+      ['b', 'anos-80'],
+      ['c', null],
+      ['d', null],
+      ['e', null],
+      ['f', null],
+    ]);
+  });
+
+  it('keeps the style through a write by another section', async () => {
+    store.clear();
+    store.set(CATALOG_PATH, JSON.stringify({ version: 1, exercises: [], music: [track('a', 'techno-house'), track('b')] }));
+    await updateCatalog((catalog) => {
+      catalogRests(catalog).unshift(rest('r'));
+    });
+    const saved = parseCatalog(store.get(CATALOG_PATH) ?? '');
+    expect(saved.music.map((m) => m.style)).toEqual(['techno-house', null]);
+  });
+});
+
+describe('validateMusicMetadata / validateMusicPatch · style', () => {
+  it('accepts a style from the list, and no style as absent, null or empty', () => {
+    expect(validateMusicMetadata({ title: 'Uno', style: 'comercial' }).style).toBe('comercial');
+    expect(validateMusicMetadata({ title: 'Uno' }).style).toBeNull();
+    expect(validateMusicMetadata({ title: 'Uno', style: null }).style).toBeNull();
+    expect(validateMusicMetadata({ title: 'Uno', style: '' }).style).toBeNull();
+  });
+
+  it('refuses a style outside the list', () => {
+    expect(() => validateMusicMetadata({ title: 'Uno', style: 'salsa' })).toThrow('estilo');
+    expect(() => validateMusicMetadata({ title: 'Uno', style: 3 })).toThrow('estilo');
+    expect(() => validateMusicPatch({ style: 'Reguetón' })).toThrow('estilo');
+  });
+
+  it('changes only the style when the patch only has it, and can clear it', () => {
+    expect(validateMusicPatch({ style: 'anos-80' })).toEqual({ style: 'anos-80' });
+    expect(validateMusicPatch({ style: null })).toEqual({ style: null });
+    expect(validateMusicPatch({ enabled: false })).toEqual({ enabled: false });
   });
 });
 

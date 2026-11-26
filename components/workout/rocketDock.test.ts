@@ -20,7 +20,7 @@ import {
   stretchFrom,
   PARKED,
 } from './rocketFlight';
-import { PANEL, PANEL_TIME, SHIP, lookTransform, panelLayout, panelRise, segmentAt, stackGeometry, widgetFrame, widgetLayout, type LookPair } from './rocketShape';
+import { PANEL, PANEL_LIFT, PANEL_TIME, SHIP, hullHalfAt, lookTransform, panelLayout, panelRise, segmentAt, stackGeometry, widgetFrame, widgetLayout, type LookPair } from './rocketShape';
 import { flightSounds } from './rocketSounds';
 
 /*
@@ -42,8 +42,12 @@ describe('the stretched rocket', () => {
         expect(full.xs).toBe(whole.xs);
         expect(full.tip).toBe(whole.tip);
         expect(full.segments.map((s) => s.block)).toEqual(real.segments.map((s) => s.block));
-        const lengths = full.segments.map((s) => s.end - s.start);
-        for (const l of lengths) expect(l).toBeCloseTo((whole.xs - whole.x0) / (5 - first), 0);
+        // end to end over the whole body, every stage with the same room for its name and bars
+        expect(full.segments[0].start).toBe(full.x0);
+        expect(full.segments.at(-1)!.end).toBe(full.xs);
+        for (const [i, s] of full.segments.entries()) if (i > 0) expect(s.start).toBe(full.segments[i - 1].end);
+        const rooms = full.segments.map((s) => s.content.right - s.content.left);
+        for (const r of rooms) expect(Math.abs(r - rooms[0])).toBeLessThanOrEqual(0.15);
         // the stages still on are longer, so the current block's hilo has more room
         if (first > 1) expect(full.segments[0].content.right - full.segments[0].content.left).toBeGreaterThan(real.segments[0].content.right - real.segments[0].content.left);
       }
@@ -120,9 +124,14 @@ describe('the panels', () => {
       const whole = stackGeometry({ width: L.frame });
       const P = panelLayout(L);
       expect(P.left).toBeCloseTo(L.ship.left + whole.x0, 1);
-      expect(P.right).toBeCloseTo(L.ship.left + whole.xs, 1);
+      // (and over the nearly flat start of the nose: their white, behind it, reaches down to its
+      // line, there no more than a couple of px lower than the hull's)
+      expect(P.right).toBeCloseTo(L.ship.left + whole.xs + PANEL.OVER_NOSE, 1);
+      expect(hullHalfAt(whole, whole.xs + PANEL.OVER_NOSE)).toBeGreaterThan(SHIP.T / 2 - 2.5);
       expect(P.base).toBe(L.ship.top + SHIP.F);
-      expect(P.base - P.top).toBe(PANEL.H);
+      // (26-11-2026) on the fins' band: the fins at the tail and the warm-up's boosters reach as high
+      expect(P.base - P.top).toBe(PANEL.H + PANEL_LIFT);
+      expect(PANEL_LIFT).toBe(SHIP.F - SHIP.STROKE / 2);
       expect(P.clip).toBeGreaterThan(P.base);
       // they reach far enough into the hull for its "¡pam!" (a 0.7 squash from its belly) and its stands
       expect(P.clip - P.base).toBeGreaterThanOrEqual(SHIP.T * 0.3 + 4);
@@ -131,10 +140,12 @@ describe('the panels', () => {
       // two panels side by side: the controls (three 44 px targets) and the name and time
       // (on a narrow phone the rocket takes more of the width, so the name still has room: 25-11-2026)
       expect(P.right - P.left - PANEL.SEAM - 3 * 44).toBeGreaterThanOrEqual(95);
-      // with the boosters on they stand on the boosters' top line
-      const B = panelLayout(L, true);
-      expect(B.base - B.top).toBe(PANEL.H + SHIP.F - SHIP.STROKE / 2);
-      expect(B.clip).toBe(P.clip);
+      // nothing of the rocket reaches into their text (their top PANEL.H): not the fins' tips, not the boosters
+      const text = P.top + PANEL.H;
+      const fins = stackGeometry({ width: L.frame, blocks: 3 }).fins!;
+      expect(L.ship.top + SHIP.F - fins.h).toBeGreaterThanOrEqual(text - 1);
+      const boosters = stackGeometry({ width: L.frame, blocks: 3, boosters: true }).boosters!;
+      expect(L.ship.top + boosters.shape.upper.y).toBeGreaterThanOrEqual(text);
     });
   }
 
@@ -152,7 +163,7 @@ describe('the panels', () => {
       const rise = panelRise(size, 2);
       // two lines of size + 2 px in the room of one of 18 px
       expect(rise).toBe(2 * (size + 2) - 18);
-      const T = panelLayout(L, false, rise);
+      const T = panelLayout(L, rise);
       expect(P.top - T.top).toBe(rise);
       expect(T.base).toBe(P.base);
       expect(T.clip).toBe(P.clip);

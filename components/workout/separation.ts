@@ -182,6 +182,47 @@ export function pieceAt(t: number, fall: number, reduced = false): PiecePose {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The fins of the new tail
+
+/**
+ * A fin springing out of the hull, `p` (0..1) of the way: its height as a share of its own,
+ * quickly past its full size, back a little under it, and settled (a spring with a little
+ * overshoot). Held at 0 before and 1 after.
+ */
+export function finPop(p: number): number {
+  return round(
+    track(
+      [
+        [0, 0, out],
+        [0.5, 1.16, io],
+        [0.75, 0.95, io],
+        [0.9, 1.02, io],
+        [1, 1],
+      ],
+      p,
+    ),
+  );
+}
+
+/** When the new tail's fins are out of the hull again (ms of the clouds' clock). */
+export const FINS_OUT_MS = S.finsMs + S.finsSpringMs;
+
+/**
+ * The new tail's fins at `t` (a share of their height): before the release the rocket still has
+ * its old tail (its fins out, or the boosters on and no fins); from the release they are inside the
+ * hull until their moment, after the part has gone (`finsMs`), and spring out. Reduced motion:
+ * there are no fins to watch spring (no clouds): they are simply out.
+ */
+export function finsAt(t: number, reduced = false): number {
+  if (reduced || t < S.releaseMs || t >= FINS_OUT_MS) return 1;
+  if (t < S.finsMs) return 0;
+  return finPop((t - S.finsMs) / S.finsSpringMs);
+}
+
+/** Are the new tail's fins still inside the hull, or on their way out, at `t`? (null: not in its clouds) */
+export const finsPending = (t: number | null, reduced = false) => !reduced && t !== null && t >= S.releaseMs && t < FINS_OUT_MS;
+
+// ---------------------------------------------------------------------------------------------
 // Smoke
 
 export interface Puff {

@@ -2,10 +2,12 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Ellipsis } from 'lucide-react';
+import type { MusicStyle } from '@/types/catalog';
+import { MUSIC_STYLE_LABELS, toMusicStyle } from '@/lib/musicStyles';
 
 /*
- * The only control at the top: "···". Inside: the beep of the last 3 s, music (mute and volume),
- * "Crear clip" when the Studio is on, and Salir.
+ * The only control at the top: "···". Inside: the beep of the last 3 s, music (mute, volume and,
+ * once some tracks have a style, which style plays), "Crear clip" when the Studio is on, and Salir.
  */
 
 const ITEM_FOCUS = 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink';
@@ -28,6 +30,9 @@ export function PlayerMenu({
   onToggleMusic,
   musicVolume,
   onMusicVolume,
+  musicStyles,
+  musicStyle,
+  onMusicStyle,
   onCreateClip,
   onExit,
 }: {
@@ -38,6 +43,9 @@ export function PlayerMenu({
   onToggleMusic: () => void;
   musicVolume: number; // 0..1
   onMusicVolume: (volume: number) => void;
+  musicStyles: MusicStyle[]; // styles with enabled tracks; [] hides the choice
+  musicStyle: MusicStyle | null; // the one that plays; null = «Todas»
+  onMusicStyle: (style: MusicStyle | null) => void;
   onCreateClip?: () => void;
   onExit: () => void;
 }) {
@@ -126,6 +134,25 @@ export function PlayerMenu({
               className="h-11 min-w-0 flex-1 cursor-pointer accent-ink disabled:cursor-default"
             />
           </label>
+          {musicAvailable && musicStyles.length > 0 && (
+            <label className={`flex min-h-11 items-center gap-3 px-3 ${musicOn ? '' : 'opacity-45'}`}>
+              <span className="text-[13px] text-ink/70">Estilo</span>
+              <select
+                value={musicStyle ?? ''}
+                disabled={!musicOn}
+                onChange={(e) => onMusicStyle(toMusicStyle(e.target.value))}
+                aria-label="Estilo de la música"
+                className={`h-9 min-w-0 flex-1 cursor-pointer rounded-lg bg-ink/6 px-2 text-[15px] font-medium text-ink disabled:cursor-default ${ITEM_FOCUS}`}
+              >
+                <option value="">Todas</option>
+                {musicStyles.map((s) => (
+                  <option key={s} value={s}>
+                    {MUSIC_STYLE_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {onCreateClip && (
             <button
               type="button"

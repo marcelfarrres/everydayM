@@ -1,5 +1,6 @@
 import type { MusicTrack, RestVideo } from '@/types/catalog';
 import type { Exercise, ExerciseTalk } from '@/types/workout';
+import { toMusicStyle } from '@/lib/musicStyles';
 
 // The catalogue the Studio publishes next to the media: { version, updatedAt, exercises, music, rests }.
 // Only what the app needs is read here; unknown fields are ignored.
@@ -76,6 +77,7 @@ function toTrack(value: unknown): MusicTrack | null {
     audio_url: audioUrl,
     duration_seconds: Number.isFinite(duration) && duration > 0 ? duration : 0,
     enabled: true,
+    style: toMusicStyle(value.style), // unknown or missing: no style
   };
 }
 

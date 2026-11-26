@@ -32,16 +32,21 @@ describe('sound table', () => {
         'beep',
         'beepFinal',
         'boost',
+        'buttonThunk',
         'clack',
+        'drumClick',
         'drumHit',
         'drumRoll',
         'error',
         'ignite',
         'land',
+        'ladderStep',
         'launch',
+        'metalStep',
         'pam',
         'separate',
         'slowMo',
+        'towerDock',
       ].sort(),
     );
     expect(sfxCategory('beep')).toBe('alert');
@@ -84,6 +89,24 @@ describe('sound table', () => {
       if (layer.kind === 'tone') expect(layer.wave).not.toBe('sine');
     }
     expect(recipeDuration(error)).toBeLessThan(0.4);
+  });
+
+  it("keeps the rocket base's sounds quiet, short and unlike the 3-2-1", () => {
+    const base = ['drumClick', 'metalStep', 'ladderStep', 'buttonThunk', 'towerDock'] as const;
+    for (const name of base) {
+      const recipe = SFX_RECIPES[name];
+      expect(recipe.category).toBe('ambient');
+      // ambience: under the joke's buzzer and the ignition
+      expect(recipe.gain).toBeLessThanOrEqual(SFX_RECIPES.error.gain);
+      expect(recipeDuration(recipe)).toBeLessThan(0.35);
+      // no clean sine anywhere near the beeps' pitch
+      for (const layer of recipe.layers) {
+        if (layer.kind === 'tone' && layer.wave === 'sine') expect(layer.freq).toBeLessThan(SFX_RECIPES.beep.layers[0].freq / 4);
+      }
+    }
+    // the ticks and the steps are the quietest, and the ratchet can't machine-gun
+    for (const soft of ['drumClick', 'metalStep', 'ladderStep'] as const) expect(SFX_RECIPES[soft].gain).toBeLessThan(SFX_RECIPES.buttonThunk.gain);
+    expect(SFX_RECIPES.drumClick.minGap).toBeGreaterThanOrEqual(0.07);
   });
 
   it('synthesises the end drums when their files are missing: a roll that trembles and grows, a hit that rings', () => {

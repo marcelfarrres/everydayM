@@ -10,7 +10,8 @@ import { SFX_LOOPS, clamp01, type SfxName } from './sfxRecipes';
  * its mp3 (same name); to make it louder or softer, change its `gain` here.
  *
  * Levels (not yet checked by ear) relative to the music, which plays at the same volume knob:
- * flight and separation clearly audible but under it, the stands' thud softer, interface clicks subtle.
+ * flight and separation clearly audible but under it, the stands' thud softer, interface clicks subtle,
+ * and the rocket base's ambience (drum, steps, button, tower) subtler still.
  */
 
 export interface SfxSample {
@@ -46,6 +47,13 @@ export const SFX_SAMPLES: Partial<Record<SfxName, SfxSample>> = {
   drumHit: { file: 'drumHit.mp3', gain: 0.8 },
   // The creator's joke: a low "wrong answer" buzz (no music plays in the creator yet)
   error: { file: 'error.mp3', gain: 0.5 },
+  // The first screen's rocket base (phone): ambience, below the interface clicks and the buzzer.
+  // The ratchet and the steps repeat fast, so they sit lowest.
+  drumClick: { file: 'drumClick.mp3', gain: 0.12 },
+  metalStep: { file: 'metalStep.mp3', gain: 0.08 },
+  ladderStep: { file: 'ladderStep.mp3', gain: 0.08 },
+  buttonThunk: { file: 'buttonThunk.mp3', gain: 0.24 },
+  towerDock: { file: 'towerDock.mp3', gain: 0.22 },
   // beep and beepFinal (3-2-1) stay synthesised.
 };
 

@@ -379,3 +379,285 @@ body {
     rotate: -0.3deg;
   }
 }
+
+/* The first screen's rocket base (phone, LaunchBase). Transform and opacity only. */
+/* the engine of a drum rocket: out, lit at the centre, at full on ignition (the flame scales from the nozzle) */
+.pad-drum-rocket [data-rocket-flame] {
+  transform: scale(0, 0.55) !important;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.pad-drum-rocket[data-live] [data-rocket-flame] {
+  transform: scale(0.5, 0.8) !important;
+}
+.pad-drum-rocket[data-ignite] [data-rocket-flame],
+.pad-visitor[data-ignite] [data-rocket-flame] {
+  transform: scale(1.2, 1.1) !important;
+}
+/* the text bar's rocket flying from the base keeps its own flame until ignition */
+.pad-visitor [data-rocket-flame] {
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.pad-flicker {
+  animation: pad-flicker 0.11s ease-in-out infinite alternate;
+}
+@keyframes pad-flicker {
+  from {
+    transform: scale(0.82, 0.94);
+  }
+  to {
+    transform: scale(1.1, 1.04);
+  }
+}
+/* the centred rocket trembles a little; on ignition, harder */
+.pad-drum-rocket[data-live] .pad-shake {
+  animation: rw-shake 0.12s linear infinite;
+  --rw-amp: 0.45;
+}
+.pad-drum-rocket[data-ignite] .pad-shake,
+.pad-visitor[data-ignite] .pad-shake {
+  animation: rw-shake 0.08s linear infinite;
+  --rw-amp: 1.1;
+}
+/* the crew hatch swings open on its hinges (left) */
+.pad-door {
+  transition: transform 150ms ease-in-out;
+}
+[data-hatch-open] .pad-door {
+  transform: scaleX(0.14);
+}
+/* the text bar's round window swings open the same way, on the dark cabin */
+.pad-window {
+  transition: transform 150ms ease-in-out;
+}
+[data-window-open] .pad-window {
+  transform: scaleX(0.14);
+}
+/* the right tower's ladder telescopes up to the text bar (field focused), then its gangway unfolds
+   over the bar's nose; back: the gangway folds, then the ladder slides down into the tower */
+.pad-ext {
+  transform: translateY(var(--pad-ext, 0px));
+  transition: transform 280ms cubic-bezier(0.3, 0.7, 0.3, 1) 160ms;
+}
+[data-roof-out] .pad-ext {
+  transform: none;
+  transition-delay: 0ms;
+}
+.pad-gangway {
+  transform: scaleX(0);
+  transition: transform 200ms cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+[data-roof-out] .pad-gangway {
+  transform: scaleX(1);
+  transition-delay: 240ms;
+}
+/* the clamps let go while the drum turns, and close on the rocket that comes to the centre */
+.pad-hook-top,
+.pad-hook-bottom,
+.pad-cradle {
+  transition: transform 200ms cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+[data-moving] .pad-hook-top {
+  transform: translateY(-6px);
+}
+[data-moving] .pad-hook-bottom {
+  transform: translateY(6px);
+}
+[data-moving] .pad-cradle {
+  transform: translateX(6px);
+}
+/* the red button: the dome sinks when pressed */
+.pad-dome {
+  transition: transform 90ms ease-out;
+}
+.pad-random:active .pad-dome,
+.pad-random[data-hit] .pad-dome {
+  transform: translateY(3px);
+}
+/* the astronauts: idle (look around, shift their weight, a wave now and then), walking, climbing */
+.pad-astro .pad-leg,
+.pad-astro .pad-arm,
+.pad-astro .pad-head,
+.pad-astro .pad-sway {
+  transform-box: fill-box;
+}
+.pad-astro .pad-leg {
+  transform-origin: 50% 0;
+}
+.pad-astro .pad-arm {
+  transform-origin: 0 0;
+}
+.pad-astro .pad-sway {
+  transform-origin: 50% 100%;
+}
+.pad-astro[data-mode='stand'] .pad-head {
+  animation: pad-look 5.4s ease-in-out var(--pad-delay, 0s) infinite;
+}
+.pad-astro[data-mode='stand'] .pad-sway {
+  animation: pad-sway 3.2s ease-in-out var(--pad-delay, 0s) infinite;
+}
+.pad-astro[data-mode='stand'] .pad-arm {
+  animation: pad-wave 8.5s ease-in-out var(--pad-delay, 0s) infinite;
+}
+.pad-astro[data-mode='walk'] .pad-leg-a {
+  animation: pad-step 0.22s ease-in-out infinite alternate;
+}
+.pad-astro[data-mode='walk'] .pad-leg-b {
+  animation: pad-step 0.22s ease-in-out infinite alternate-reverse;
+}
+.pad-astro[data-mode='walk'] .pad-sway {
+  animation: pad-bob 0.22s ease-in-out infinite alternate;
+}
+.pad-astro[data-mode='climb'] .pad-leg-a,
+.pad-astro[data-mode='climb'] .pad-arm {
+  animation: pad-climb 0.28s ease-in-out infinite alternate;
+}
+.pad-astro[data-mode='climb'] .pad-leg-b {
+  animation: pad-climb 0.28s ease-in-out infinite alternate-reverse;
+}
+@keyframes pad-look {
+  0%,
+  40%,
+  100% {
+    transform: translateX(0);
+  }
+  48%,
+  60% {
+    transform: translateX(-0.7px);
+  }
+  70%,
+  82% {
+    transform: translateX(0.6px);
+  }
+}
+@keyframes pad-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+@keyframes pad-wave {
+  0%,
+  78%,
+  100% {
+    transform: rotate(0deg);
+  }
+  82%,
+  90% {
+    transform: rotate(-150deg);
+  }
+  86%,
+  94% {
+    transform: rotate(-115deg);
+  }
+}
+@keyframes pad-step {
+  from {
+    transform: rotate(-28deg);
+  }
+  to {
+    transform: rotate(28deg);
+  }
+}
+@keyframes pad-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-0.6px);
+  }
+}
+@keyframes pad-climb {
+  from {
+    transform: rotate(-35deg);
+  }
+  to {
+    transform: rotate(10deg);
+  }
+}
+/* the dawn's road: a few cars in silhouette, both ways, long gaps between them (12, 16 and 21 s);
+   transform only; with reduced motion they stay parked mid-road. --pad-road: the base's width */
+.pad-car-a {
+  transform: translateX(calc(var(--pad-road, 320px) * 0.34));
+}
+.pad-car-b {
+  transform: translateX(calc(var(--pad-road, 320px) * 0.53));
+}
+.pad-car-c {
+  transform: translateX(calc(var(--pad-road, 320px) * -0.19));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pad-car-a {
+    animation: pad-drive-r 12s linear -2s infinite;
+  }
+  .pad-car-b {
+    animation: pad-drive-l 16s linear -6s infinite;
+  }
+  .pad-car-c {
+    animation: pad-drive-r 21s linear -15s infinite;
+  }
+}
+@keyframes pad-drive-r {
+  0% {
+    transform: translateX(-80px);
+  }
+  42%,
+  100% {
+    transform: translateX(calc(var(--pad-road, 320px) + 30px));
+  }
+}
+@keyframes pad-drive-l {
+  0%,
+  15% {
+    transform: translateX(calc(var(--pad-road, 320px) + 30px));
+  }
+  62%,
+  100% {
+    transform: translateX(-80px);
+  }
+}
+/* ignition: smoke at the pad, puffing out to both sides */
+.pad-smoke {
+  opacity: 0;
+}
+[data-ignite] .pad-smoke {
+  animation: pad-smoke 0.9s cubic-bezier(0.2, 0.6, 0.4, 1) var(--pad-delay, 0s) infinite;
+}
+@keyframes pad-smoke {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.3);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--pad-dx, 20px), -10px) scale(1.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pad-flicker,
+  .pad-drum-rocket[data-live] .pad-shake,
+  .pad-drum-rocket[data-ignite] .pad-shake,
+  .pad-visitor[data-ignite] .pad-shake,
+  .pad-astro .pad-leg,
+  .pad-astro .pad-arm,
+  .pad-astro .pad-head,
+  .pad-astro .pad-sway,
+  [data-ignite] .pad-smoke {
+    animation: none !important;
+  }
+  .pad-door,
+  .pad-hook-top,
+  .pad-hook-bottom,
+  .pad-cradle,
+  .pad-dome,
+  .pad-window,
+  .pad-ext,
+  .pad-gangway {
+    transition: none;
+  }
+}

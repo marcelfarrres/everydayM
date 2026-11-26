@@ -38,10 +38,12 @@ export function flightSounds(f: Flight, start: LaunchStart): FlightSounds {
       const lift = t0 + FLIGHT.cloudLiftMs + (f.extra ?? 0);
       if (separates(f.extra) && !f.placed) {
         // the separation (SEPARATION): the slow motion stops (with its fade) as the engine goes out;
-        // the part gives at the hammer's blow; the engine coughs twice and catches
+        // the part gives at the hammer's blow; the new tail's fins snap out (a clack as they reach
+        // their full size); the engine coughs twice and catches
         const S = SEPARATION;
         slowMo = [t0 + FLIGHT.appearMs, t0 + S.engineOffMs];
         hits.push({ at: t0 + S.releaseMs, sfx: 'separate' });
+        hits.push({ at: t0 + S.finsMs + S.finsSpringMs * 0.4, sfx: 'clack' });
         for (const at of [...S.sputtersMs, S.catchMs]) hits.push({ at: t0 + at, sfx: 'ignite' });
       } else {
         // from coming up from below (braking into slow motion) until it speeds off out of the top

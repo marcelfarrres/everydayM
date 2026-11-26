@@ -66,8 +66,10 @@ import {
   type CloudSpot,
   type LaunchStart,
   type Flight,
+  holdsOnlyParked,
 } from '@/components/workout/rocketFlight';
-import { useCloudMoment } from '@/components/workout/cloudClock';
+import { useCloudMoment, useCloudPainter } from '@/components/workout/cloudClock';
+import { finsAt, finsPending } from '@/components/workout/separation';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import { flightSounds, type FlightSounds } from '@/components/workout/rocketSounds';
 import { playSfx, startSfxLoop, type SfxLoopStop } from '@/lib/audio/sfx';
@@ -187,15 +189,28 @@ export function RocketWidget({
   // (reduced motion: no mechanics; the part is simply gone once the calm version of the clouds,
   // their sentences on a still background, is over: CloudTransition)
   const calm = reduced && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
-  const holding = useCloudMoment((m) =>
+  // ...and once it has gone, the new tail's fins spring out of the hull (until then they are in:
+  // drawn hidden, then painted by the same clock, below). One reading of the clock says both, so
+  // the render that first draws the new tail is the one that draws its fins inside the hull.
+  const stage = useCloudMoment((m): 'hold' | 'fins' | 'free' =>
     separating
       ? m.key === cloudKey
         ? m.t !== null && m.t < SEPARATION.releaseMs
+          ? 'hold'
+          : finsPending(m.t)
+            ? 'fins'
+            : 'free'
         : currentIndex === cloudKey
+          ? 'hold'
+          : 'free'
       : calm
         ? currentIndex === cloudKey && (m.key !== cloudKey || m.t !== null)
-        : false,
+          ? 'hold'
+          : 'free'
+        : 'free',
   );
+  const holding = stage === 'hold';
+  const finsIn = stage === 'fins';
   const [heldIndex, setHeldIndex] = useState(currentIndex);
   if (!holding && heldIndex !== currentIndex) setHeldIndex(currentIndex);
   const lagged = useLagged(currentIndex, entering && !separating ? FLIGHT.dropMs : 0);
@@ -229,7 +244,7 @@ export function RocketWidget({
   const rise = panelRise(fit.size, fit.lines);
   useLayoutEffect(() => setPanelRise(rise), [rise]);
   useEffect(() => () => setPanelRise(0), []);
-  const P = panelLayout(L, drawn.boosters, rise);
+  const P = panelLayout(L, rise);
 
   // a part that has just come off falls away, turning slowly (in the clouds)
   const [shownStack, setShownStack] = useState<Stack>(drawn);
@@ -306,6 +321,20 @@ export function RocketWidget({
   };
   useDockClock(root, flight, onParked, cloudKey, ending, queue, currentIndex, reduced);
   useLook(dock, pair, shipEl, drawingEl, isPaused);
+  useCrispWhenParked(flight, flightEl, drawingEl);
+  // the new tail's fins, springing out on the clouds' clock (pure: finsAt)
+  const paintFins = useCallback(
+    (t: number | null, key: number | null) => {
+      const drawing = drawingEl.current;
+      if (!drawing || !separating || key !== cloudKey || !finsPending(t)) return;
+      const s = finsAt(t ?? 0);
+      drawing.querySelectorAll<SVGElement>('[data-fin]').forEach((n) => {
+        n.style.transform = `scale(1, ${s})`;
+      });
+    },
+    [separating, cloudKey],
+  );
+  useCloudPainter(paintFins);
 
   // ---- the list's 5 s: restarted by any touch, wheel or scroll inside the widget
   const [touch, setTouch] = useState(0);
@@ -371,7 +400,8 @@ export function RocketWidget({
       onKeyDownCapture={bump}
       className="pointer-events-none fixed bottom-[max(6px,env(safe-area-inset-bottom))] left-[max(6px,env(safe-area-inset-left))] right-[max(6px,env(safe-area-inset-right))] z-[61] font-[family-name:var(--font-display)] text-ink"
     >
-      <div className="relative mx-auto" style={{ width: L.B, height: L.box }}>
+      {/* (its height rounded up: it hangs from the screen's bottom, so the rocket lands on whole pixels) */}
+      <div className="relative mx-auto" style={{ width: L.B, height: Math.ceil(L.box) }}>
         {/* the list, above the panels */}
         <AnimatePresence initial={false}>
           {open && (
@@ -515,7 +545,8 @@ export function RocketWidget({
           {/* the rocket: its frame stands where the whole rocket stands */}
           <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
             {/* (at its real length what is left of it stands centred: its drawing moves by the missing half) */}
-            <div ref={shipEl} data-rw="ship" className="absolute inset-0" style={{ transform: `translateX(${shift}px)` }}>
+            {/* (no transform at all when it needs none: parked, it is drawn crisp, like its panels) */}
+            <div ref={shipEl} data-rw="ship" className="absolute inset-0" style={shift ? { transform: `translateX(${shift}px)` } : undefined}>
               {/* the lift: on the stands of a rest (and its jolts) */}
               <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                 <div className="absolute inset-0">
@@ -527,6 +558,7 @@ export function RocketWidget({
                         <RocketShip
                           g={g}
                           hilo={hilo}
+                          finsOut={!finsIn}
                           className="absolute left-0 top-0"
                           behind={
                             // (all of it hangs from the tail: it moves with the tail as the rocket stretches)
@@ -642,6 +674,9 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
     const anims: Animation[] = [];
     const run = (node: Element, part: LookPart) => {
       const a = node.animate([{ transform: lookTransform(pair, to, from, part) }, { transform: lookTransform(pair, to, to, part) }], timing);
+      // (it ends where the parts' own style has them: once there, nothing is held on them, so the
+      // parked rocket carries no leftover transform and is drawn crisp)
+      a.onfinish = () => a.cancel();
       // (anchored to the clock, like the flight; its last second runs on the routine's)
       if (!dock.pausable) a.startTime = now;
       else if (pausedNow.current) a.pause();
@@ -654,7 +689,7 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
       if (kind === 'tail') return run(node, { kind: 'tail' });
       const block = Number(node.getAttribute('data-piece')?.replace('seg-', ''));
       if (!Number.isFinite(block)) return;
-      if (kind === 'start' || kind === 'end') run(node, { kind, block });
+      if (kind === 'start' || kind === 'end' || kind === 'mid') run(node, { kind, block });
       else if (kind === 'body') {
         const hilo = node.getAttribute('data-rocket') === 'hilo';
         run(node, { kind: 'body', block, left: hilo ? (drawn.segments.find((s) => s.block === block)?.content.left ?? 0) : 0 });
@@ -666,7 +701,8 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
     const l = look.current;
     if (!l?.dock.pausable) return;
     l.anims.forEach((a) => {
-      if (a.playState === 'finished') return;
+      // (finished, or released once finished: never played again)
+      if (a.playState === 'finished' || a.playState === 'idle') return;
       if (paused) a.pause();
       else a.play();
     });
@@ -1036,6 +1072,48 @@ function useRocketFlight({
   return flight;
 }
 
+/** Held on the rocket on purpose while parked: the crouch of its last second (until the take-off). */
+const HELD_WHILE_PARKED = [CROUCH_ID];
+
+/**
+ * Parked, the rocket carries no transform at all (drawn crisp, like its panels), by construction:
+ * whatever path left an animation held on the rocket's drawing or on anything above it (a flight's
+ * landing, the arrival, a stretch, a jolt, a paused player), once the rocket is parked and that
+ * animation is over, it is let go (`holdsOnlyParked`: every one of them ends exactly where the
+ * rocket stands with no transform, so nothing moves). Checked four times a second and on coming
+ * back to the tab: a few getAnimations calls, nothing per frame. While a flight, the crouch or a
+ * jolt is still under way (or paused midway) it stays.
+ */
+function useCrispWhenParked(flight: RefObject<Flight>, flightEl: RefObject<HTMLDivElement | null>, drawingEl: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const release = () => {
+      const top = flightEl.current;
+      const drawing = drawingEl.current;
+      if (!top || !drawing || phaseAt(flight.current, performance.now()) !== 'parked') return;
+      // the rocket's drawing (each of its layers) and everything above it, up to the flight's layer
+      const chain = new Set<Element>();
+      drawing.querySelectorAll('[data-piece]').forEach((piece) => {
+        for (let n: Element | null = piece; n && !chain.has(n); n = n === top ? null : n.parentElement) chain.add(n);
+      });
+      chain.forEach((node) =>
+        node.getAnimations().forEach((a) => {
+          const t = a.effect?.getComputedTiming();
+          if (!t) return;
+          const held = { id: a.id, playState: a.playState, localTime: t.localTime === null || t.localTime === undefined ? null : Number(t.localTime), endTime: Number(t.endTime ?? 0) };
+          if (holdsOnlyParked(held, true, HELD_WHILE_PARKED)) a.cancel();
+        }),
+      );
+    };
+    release();
+    const timer = setInterval(release, 250);
+    document.addEventListener('visibilitychange', release);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', release);
+    };
+  }, [flight, flightEl, drawingEl]);
+}
+
 /**
  * The widget is `inert` exactly while its controls can't be used (see controlsLiveAt), and once a
  * flight has landed it the rocket is docked (`onParked`: it stretches, on the flight's clock). One
@@ -1178,7 +1256,16 @@ function playFlight(
   // shown again, which would push the whole flight late. With its start time set, it is wherever
   // it should be by now the moment the page is seen.
   const run = (node: HTMLElement, keys: Keyframe[], options: KeyframeAnimationOptions) => {
-    node.animate(keys, options).startTime = now;
+    const a = node.animate(keys, options);
+    a.startTime = now;
+    return a;
+  };
+  // Landed: the flight's animations let go of the rocket. They end exactly in its parked place
+  // (PARKED_POSE, or none), which is where it stands with no transform at all; held, the pose's
+  // perspective would keep the rocket a 3D layer, drawn as a resampled texture (blurry next to its
+  // panels). A new flight starts from that same place.
+  const releaseOnLanding = (landing: Animation) => {
+    landing.onfinish = () => el.flight.getAnimations().forEach((a) => a.playState === 'finished' && a.cancel());
   };
   const podIn = () => holdPanelsIn(el.pod, now);
   // the panels slide into the hull before the rocket moves (see launchLeadMs), unless they already have
@@ -1235,11 +1322,11 @@ function playFlight(
   const at = delay(f.returnAt);
   const parkedAt = at + FLIGHT.returnMs;
   if (reduced) {
-    run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill });
+    releaseOnLanding(run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill }));
     run(el.pod, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: parkedAt + DOCK.outAtMs, fill });
     return;
   }
-  run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill });
+  releaseOnLanding(run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill }));
   // the flame burns on the way in and dies as it settles
   run(
     el.flame,
@@ -1437,8 +1524,8 @@ function separationScene(before: Stack, after: Stack, L: WidgetLayout, top: numb
   const b = g.boosters;
   if (off === 'boosters' && !b) return null;
   const [from, to] = off === 'segment' || !b ? [seg.start, seg.end] : [b.x0, b.x1];
-  // the latch: the segment's joint, or where the boosters' cones begin
-  const joint = off === 'segment' ? seg.end : to - SHIP.F * 1.5;
+  // the latch: the segment's ring, or where the boosters' cones begin
+  const joint = off === 'segment' ? seg.end : to - Math.min(1.9 * (b?.shape.h ?? 8), 0.45 * (to - from));
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const k = Math.min(0.52 * vh, 544) / L.g.W;
@@ -1448,7 +1535,7 @@ function separationScene(before: Stack, after: Stack, L: WidgetLayout, top: numb
     piece: off === 'segment' ? `seg-${before.first}` : 'boosters',
     joint,
     part: joint - Math.max(40, (to - from) * 0.55),
-    edge: off === 'segment' ? SHIP.F : SHIP.STROKE / 2,
+    edge: off === 'segment' ? SHIP.F : (b?.shape.upper.y ?? SHIP.STROKE / 2),
     tail: stackGeometry({ width: L.frame, ...after }).xe,
     fall: Math.max(150, Math.round((vh - upperEnd) / k + 30)),
     off: Math.round((railLeft(vw) * vw) / k + MECHANIC.W + 24),
