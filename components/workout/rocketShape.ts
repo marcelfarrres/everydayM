@@ -50,7 +50,7 @@ export const SHIP = {
   /** an interstage ring: its width along the body */
   JOINT: 6,
   /** clear space between a stage's ends (its ring, its livery) and its name and bars */
-  CONTENT_GAP: 3,
+  CONTENT_GAP: 2,
   /** the flame at full size */
   FLAME_LENGTH: 72,
 } as const;
@@ -299,7 +299,8 @@ export interface StageLabel {
  */
 export function stageLabels(g: ShipGeometry, measure: MeasureText = estimateTextWidth): StageLabel[] {
   const { name, maxPx } = stageLayout(g);
-  const rooms = g.segments.map((s) => Math.max(0, s.content.right - s.content.left - 2));
+  // (half a px clear each side: the canvas measurement already carries its own margin)
+  const rooms = g.segments.map((s) => Math.max(0, s.content.right - s.content.left - 1));
   const sizeFor = (text: (b: number) => string) =>
     Math.min(
       maxPx,

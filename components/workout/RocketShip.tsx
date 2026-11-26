@@ -230,7 +230,7 @@ export function RocketShip({
   if (shows('nose')) {
     back.push(
       svg('nose', 'back', [
-        <AntennaPart key="a" x0={g.antenna.x0} x1={g.antenna.x1} light={g.antenna.light} cy={cy} Tf={T} sw={sw} tag={false} />,
+        <AntennaPart key="a" x0={g.antenna.x0} x1={g.antenna.x1} light={g.antenna.light} cy={cy} Tf={T} sw={sw} halo tag={false} />,
         <NosePart key="n" x1={g.xs} top={F} bottom={F + T} cy={cy} T={T} Tf={T} sw={sw} tag={false} />,
       ]),
     );

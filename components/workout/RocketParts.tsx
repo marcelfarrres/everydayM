@@ -142,10 +142,31 @@ export function WindowPart({ w, sw, glint = true, tag = true }: { w: { cx: numbe
 }
 
 /** The antenna on the nose's end and its red light. */
-export function AntennaPart({ x0, x1, light, cy, Tf, sw, tag = true }: { x0: number; x1: number; light: number; cy: number; Tf: number; sw: number; tag?: boolean }) {
+export function AntennaPart({
+  x0,
+  x1,
+  light,
+  cy,
+  Tf,
+  sw,
+  halo = false,
+  tag = true,
+}: {
+  x0: number;
+  x1: number;
+  light: number;
+  cy: number;
+  Tf: number;
+  sw: number;
+  /** a white edge under the ink line, so it reads over a dark video (the player's rocket) */
+  halo?: boolean;
+  tag?: boolean;
+}) {
+  const d = `M${f1(x0 + 0.01 * Tf)} ${cy}H${x1}`;
   return (
     <g data-part={tagged(tag, 'antenna')}>
-      <path d={`M${f1(x0 + 0.01 * Tf)} ${cy}H${x1}`} strokeWidth={sw * 0.75} />
+      {halo && <path d={d} stroke={C.hull} strokeWidth={sw * 0.75 + 1.6} strokeLinecap="round" />}
+      <path d={d} strokeWidth={sw * 0.75} />
       <circle cx={f1(x1 + light)} cy={cy} r={f1(Math.max(1.6, light))} fill={C.red} stroke="none" />
     </g>
   );
