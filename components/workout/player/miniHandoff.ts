@@ -49,9 +49,9 @@ export interface MiniRect {
 
 type Layout = Pick<WidgetLayout, 'B' | 'box' | 'frame' | 'ship'>;
 
-/** The rocket's first panel on a `vw` × `vh` screen (no boosters in a rest; `rise`: taller, see panelRise): its left end and its top. */
+/** The rocket's first panel on a `vw` × `vh` screen (`rise`: taller, see panelRise): its left end and its top. */
 function firstPanel(vw: number, vh: number, L: Layout, rise = 0) {
-  const P = panelLayout(L, false, rise);
+  const P = panelLayout(L, rise);
   return { left: (vw - L.B) / 2 + P.left, top: vh - MINI.BOTTOM - L.box + P.top };
 }
 

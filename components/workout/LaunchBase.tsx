@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { PadRocket } from '@/components/workout/PadRocket';
-import { PAD_COLORS as C, estimateTextWidth, padRocketGeometry, type LabelFit, type MeasureText } from '@/components/workout/padRocketShape';
+import { PAD_COLORS as C, padRocketGeometry, type LabelFit } from '@/components/workout/padRocketShape';
+import { useTextMeasure } from '@/components/workout/textMeasure';
 import { fitDrumLabel } from '@/components/workout/drumLabel';
 import { stepsTo, type RandomLanding } from '@/components/workout/drumRandom';
 import {
@@ -66,40 +67,8 @@ const LABEL_MIN = 11;
 const clockNow = () => performance.now();
 const ASTRO_UNIT = 34; // astronaut drawing: body thickness / this = its scale
 
-/** The real width of a label in the page's font (a canvas measurement), once it can be made. */
-function canvasMeasure(family: string): MeasureText | null {
-  if (typeof document === 'undefined') return null;
-  const ctx = document.createElement('canvas').getContext('2d');
-  if (!ctx) return null;
-  return (text, px) => {
-    ctx.font = `600 ${px}px ${family}`;
-    // a hair of margin for the rendering's rounding
-    return ctx.measureText(text).width * 1.03 + 1;
-  };
-}
-
-/**
- * Measures labels in the font `ref`'s element uses: an estimate until the browser can measure,
- * then the real widths (again once the web font has arrived).
- */
-export function useTextMeasure(ref: React.RefObject<HTMLElement | null>): MeasureText {
-  const [measure, setMeasure] = useState<MeasureText>(() => estimateTextWidth);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let alive = true;
-    const real = () => {
-      const m = canvasMeasure(getComputedStyle(el).fontFamily);
-      if (alive && m) setMeasure(() => m);
-    };
-    real();
-    document.fonts?.ready.then(real).catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [ref]);
-  return measure;
-}
+// (the labels are measured in the page's font: textMeasure.ts, shared with the creator's bar)
+export { useTextMeasure };
 
 export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap }: LaunchBaseProps) {
   const reduced = useReducedMotion() ?? false;

@@ -73,7 +73,10 @@ describe('the rocket by segments (RocketShip)', () => {
     const whole = stackGeometry({ width: 330, blocks: 4 });
     const left = stackGeometry({ width: 330, blocks: 4, first: 3 });
     expect(left.segments.map((s) => s.block)).toEqual([3, 4]);
-    expect(left.segments[0]).toEqual(whole.segments[2]);
+    expect([left.segments[0].start, left.segments[0].end]).toEqual([whole.segments[2].start, whole.segments[2].end]);
+    // (the new tail wears the tail's livery: what is written in it starts after it)
+    expect(left.segments[0].content.left).toBeGreaterThan(left.livery.end);
+    expect(left.segments[1]).toEqual(whole.segments[3]);
     expect(left.tip).toBe(whole.tip);
     // the tail's nozzle is now the third segment's
     expect(left.x0).toBe(whole.segments[2].start);
@@ -82,17 +85,36 @@ describe('the rocket by segments (RocketShip)', () => {
     expect(stackGeometry({ width: 330, blocks: 4, first: 9 }).segments.map((s) => s.block)).toEqual([4]);
   });
 
-  it('has a short nose with a window and a probe, and boosters only with all its segments on', () => {
+  it('has the approved nose (an ogive, then the antenna) with its window, and boosters only with all its stages on', () => {
     const g = stackGeometry({ width: 330, blocks: 3, boosters: true });
-    expect(g.tip - g.xs).toBe(SHIP.NOSE);
-    expect((g.tip - g.xs) / T).toBeLessThanOrEqual(1.2);
+    expect(g.tip - g.xs).toBeCloseTo(SHIP.NOSE, 0);
+    // not blunt, not a needle: about 1.3 body thicknesses to its rounded end, then the antenna
+    expect((g.nose.end - g.xs) / T).toBeCloseTo(1.3, 1);
+    expect((g.tip - g.xs) / T).toBeLessThanOrEqual(1.7);
     expect(g.window.cx).toBeGreaterThan(g.xs);
-    expect(g.window.cx).toBeLessThan(g.xs + SHIP.CAP);
+    expect(g.window.cx + g.window.r).toBeLessThan(g.xs + 0.6 * T);
     expect(g.boosters).not.toBeNull();
-    // shorter than the body, and inside the band above and below it
+    // shorter than the body, short of the nose, and inside the band above the body (and below it)
     expect((g.boosters?.x1 ?? 0) - (g.boosters?.x0 ?? 0)).toBeLessThan(g.xs - g.x0);
+    expect(g.boosters?.x1 ?? Infinity).toBeLessThan(g.xs);
+    expect(g.boosters?.shape.upper.y).toBeGreaterThanOrEqual(0);
+    expect((g.boosters?.shape.upper.y ?? 0) + (g.boosters?.shape.h ?? 0)).toBeLessThan(F);
+    expect((g.boosters?.shape.lower.y ?? 0) + (g.boosters?.shape.h ?? 0)).toBeLessThanOrEqual(g.H);
     expect(stackGeometry({ width: 330, blocks: 3, first: 2, boosters: true }).boosters).toBeNull();
     expect(stackGeometry({ width: 330, blocks: 3 }).boosters).toBeNull();
+  });
+
+  it('shows its fins at the tail only once the boosters are off (and on every new tail)', () => {
+    expect(stackGeometry({ width: 330, blocks: 3, boosters: true }).fins).toBeNull();
+    for (const first of [1, 2, 3]) {
+      const g = stackGeometry({ width: 330, blocks: 3, first });
+      const fins = g.fins!;
+      // at the tail, from the hull out into the band above and below it, not past the first stage
+      expect(fins.x0).toBeGreaterThan(g.x0);
+      expect(fins.x0 + fins.len).toBeLessThan(g.segments[0].end);
+      expect(fins.h).toBeLessThanOrEqual(F);
+      expect(fins.h).toBeGreaterThan(F - 1);
+    }
   });
 
   it('stands centred whatever is left of it', () => {
@@ -238,11 +260,12 @@ describe("the routine creator's bar", () => {
     const thin = shipGeometry(330);
     const thick = shipGeometry(330, t[2]);
     expect(thick.H - thin.H).toBeCloseTo(t[2] - SHIP.T, 5);
-    expect(thick.tip - thick.xs - SHIP.PROBE).toBe(Math.round(thick.T * 0.9));
+    expect((thick.nose.end - thick.xs) / thick.T).toBeCloseTo(1.3, 1);
     expect(hullHalfAt(thick, thick.xs + 1)).toBeCloseTo(thick.T / 2, 0);
     // still long and slim, with room for the sentence
     expect((thick.tip - thick.xe) / thick.T).toBeGreaterThanOrEqual(4);
-    expect(thick.content.right - thick.content.left).toBeGreaterThanOrEqual(140);
+    // (26-11-2026: the approved nose is longer and the tail wears its livery: 120 px, was 140)
+    expect(thick.content.right - thick.content.left).toBeGreaterThanOrEqual(120);
   });
 
   it('counts the lines of the field from its content height', () => {
