@@ -135,7 +135,7 @@ export function WorkoutPlayer({
 
   // Background music: started in the "Empezar" tap, paused with the player, stopped on exit.
   usePlayerMusic(isPaused);
-  const { music, setMuted, setVolume } = useMusicControls();
+  const { music, setMuted, setVolume, setStyle } = useMusicControls();
 
   // Entering a rest, the screen changes only once the clouds cover it; on a phone the end screen
   // waits for the rocket's last takeoff; anywhere else at once.
@@ -311,6 +311,9 @@ export function WorkoutPlayer({
         onToggleMusic={() => setMuted(!music.muted)}
         musicVolume={music.volume}
         onMusicVolume={setVolume}
+        musicStyles={music.styles}
+        musicStyle={music.style}
+        onMusicStyle={setStyle}
         onCreateClip={onOpenTiktok}
         onExit={onExit}
       />
