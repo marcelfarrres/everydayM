@@ -39,6 +39,35 @@ describe('a stage: its name over its bars', () => {
   });
 });
 
+describe('every stage still on has the same room (the bar: its stages stretched over the body)', () => {
+  const cases = [280, 325, 380].flatMap((width) => [2, 3, 4].flatMap((blocks) => Array.from({ length: blocks }, (_, i) => ({ width, blocks, first: i + 1 }))));
+
+  it.each(cases)('the same width for every name and every row of bars, end to end (%o)', ({ width, blocks, first }) => {
+    const g = stackGeometry({ width, blocks, first, stretch: true });
+    const rooms = g.segments.map((s) => s.content.right - s.content.left);
+    for (const r of rooms) expect(Math.abs(r - rooms[0])).toBeLessThanOrEqual(0.15);
+    // contiguous, from the tail to the nose's base, a ring at every inner end
+    expect(g.segments[0].start).toBe(g.x0);
+    expect(g.segments.at(-1)!.end).toBe(g.xs);
+    for (const [i, s] of g.segments.entries()) if (i > 0) expect(s.start).toBe(g.segments[i - 1].end);
+    expect(g.joints.map((j) => j.x)).toEqual(g.segments.slice(0, -1).map((s) => s.end));
+    // each name in the middle of its room
+    for (const [i, l] of stageLabels(g).entries()) expect(l.x).toBeCloseTo((g.segments[i].content.left + g.segments[i].content.right) / 2, 1);
+  });
+
+  it('leaves the one-stage rockets exactly as they were', () => {
+    for (const [w, xs, right] of [
+      [150, 100.7, 97.1],
+      [325, 275.7, 272.1],
+      [460, 410.7, 407.1],
+    ]) {
+      const g = stackGeometry({ width: w });
+      expect([g.xe, g.x0, g.xs, g.livery.end]).toEqual([18, 29, xs, 48.3]);
+      expect(g.segments).toEqual([{ block: 1, start: 29, end: xs, content: { left: 50.3, right, top: g.F + SHIP.STROKE, bottom: g.F + g.T - SHIP.STROKE } }]);
+    }
+  });
+});
+
 describe('the block names', () => {
   const cases = FRAMES.flatMap((frame) =>
     [1, 2, 3, 4, 6].flatMap((blocks) =>

@@ -45,12 +45,14 @@ const LAST: Stack = { blocks: 3, first: 3, boosters: false };
 const STAGES = [WARMUP, BLOCK1, { blocks: 3, first: 2, boosters: false }, LAST];
 
 describe('the rocket by segments (RocketShip)', () => {
-  it.each([1, 2, 3, 4, 6])('splits its body into %i equal segments, block 1 at the tail', (n) => {
+  it.each([1, 2, 3, 4, 6])('splits its body into %i segments with the same room each, block 1 at the tail', (n) => {
     const g = stackGeometry({ width: 330, blocks: n });
     expect(g.segments).toHaveLength(n);
     expect(g.segments.map((s) => s.block)).toEqual(Array.from({ length: n }, (_, i) => i + 1));
-    const lengths = g.segments.map((s) => s.end - s.start);
-    lengths.forEach((l) => expect(l).toBeCloseTo(lengths[0], 0));
+    const rooms = g.segments.map((s) => s.content.right - s.content.left);
+    rooms.forEach((r) => expect(Math.abs(r - rooms[0])).toBeLessThanOrEqual(0.15));
+    // (the tail's is longer by the livery it wears)
+    if (n > 1) expect(g.segments[0].end - g.segments[0].start).toBeGreaterThan(g.segments[1].end - g.segments[1].start + 10);
     expect(g.segments[0].start).toBe(g.x0);
     expect(g.segments.at(-1)?.end).toBeCloseTo(g.xs, 0);
     expect(g.joints).toHaveLength(n - 1);

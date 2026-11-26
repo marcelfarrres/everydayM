@@ -21,7 +21,10 @@ describe('endShip', () => {
   it('arrives as the nose and its last stage, centred', () => {
     const { g, shift } = endShip(frame, 4, 1, false);
     expect(g.segments.map((s) => s.block)).toEqual([4]);
-    expect(g.segments[0].end - g.segments[0].start).toBeCloseTo(seg, 0);
+    // (where it will be in the finished rocket; on average its stages are `seg` long)
+    const whole = endShip(frame, 4, 4, false).g;
+    expect(g.segments[0]).toMatchObject({ start: whole.segments[3].start, end: whole.segments[3].end });
+    expect((whole.xs - whole.x0) / 4).toBeCloseTo(seg, 0);
     expect(g.boosters).toBeNull();
     expect(shift).toBeLessThan(0);
   });
@@ -42,11 +45,13 @@ describe('endShip', () => {
 
   it('slides the boosters back to the new tail as each stage joins', () => {
     expect(boosterSlide(frame, 4, 1)).toBeNull();
+    const whole = endShip(frame, 4, 4, false).g;
     for (let on = 2; on <= 4; on++) {
       const slide = boosterSlide(frame, 4, on)!;
       const dx = Number(/translateX\((-?[\d.]+)px\)/.exec(slide.from)![1]);
-      // (they were further forward: a stage's length)
-      expect(dx).toBeCloseTo(seg, 0);
+      // (they were further forward: the length of the stage that joins)
+      const joined = whole.segments[4 - on];
+      expect(dx).toBeCloseTo(joined.end - joined.start, 1);
     }
   });
 

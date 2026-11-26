@@ -23,6 +23,7 @@ import { estimateTextWidth, type MeasureText } from '@/components/workout/padRoc
  */
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** The nose along the rocket for a body `t` thick: the ogive, the antenna, its light (and the light's radius). */
 function noseLengths(t: number) {
@@ -128,7 +129,7 @@ export function hullHalfAt(g: Pick<ShipGeometry, 'xs' | 'T'>, x: number): number
  */
 export function boostersAlong(x0: number, xs: number, t: number): Boosters {
   const length = xs - x0;
-  const bx0 = r1(x0 + 0.2 * t);
+  const bx0 = round2(x0 + 0.2 * t);
   const reach = Math.max(14, Math.min(Math.max(48, length * 0.5), length - 0.2 * t - 6));
   const bx1 = r1(bx0 + reach);
   const h = r1(Math.min(F - 3.6, 0.28 * t));
@@ -136,9 +137,41 @@ export function boostersAlong(x0: number, xs: number, t: number): Boosters {
   return { x0: bx0, x1: bx1, shape: boosterShape(bx0, bx1, h, gap, F, F + t) };
 }
 
+/** Where a stage's room (its name and bars) starts: past the tail's livery, or past its ring. */
+const stageLeft = (isTail: boolean, start: number, liveryEnd: number) => (isTail ? liveryEnd : start + JOINT / 2) + CONTENT_GAP;
+/** How far from a stage's front end its room stops: short of its ring, or (the last) of the outline by the nose. */
+const stageRight = (ringed: boolean) => (ringed ? JOINT / 2 : STROKE) + CONTENT_GAP;
+
+/**
+ * Where stages `from`..`n` start along a hull from `x0` to `xs` (and, last, `xs`), stage `from`
+ * wearing the tail's livery: the rings go where every stage gets the same room for its name and
+ * bars, so the tail stage is longer by its livery (and the last, with no ring by the nose, a
+ * little shorter). Inner ends to the hundredth of a px, so the rooms match to a few hundredths.
+ */
+function stageEnds(x0: number, xs: number, from: number, n: number, t: number): number[] {
+  const m = n - from + 1;
+  const liveryEnd = tailLivery(x0, t).end;
+  const left = (b: number) => stageLeft(b === from, 0, liveryEnd - x0);
+  let ends = 0;
+  for (let b = from; b <= n; b++) ends += left(b) + stageRight(b < n);
+  const room = (xs - x0 - ends) / m;
+  // (a hull too short for its stages: equal stages, as long as each can be)
+  const len = (b: number) => (room > 0 ? room + left(b) + stageRight(b < n) : (xs - x0) / m);
+  const out = [x0];
+  let at = x0;
+  for (let b = from; b < n; b++) {
+    at += len(b);
+    out.push(round2(at));
+  }
+  out.push(xs);
+  return out;
+}
+
 /**
  * The rocket, `width` long (its frame), `blocks` stages of which `first`..`blocks` are still on,
- * with or without its boosters; `thickness`: a thicker body, whose nose grows with it.
+ * with or without its boosters; `thickness`: a thicker body, whose nose grows with it. Whole (or
+ * stretched), every stage on has the same room for its name and bars (`stageEnds`); with stages
+ * gone at its real length, the rest stay where they were and the new tail's room is narrower.
  */
 export function stackGeometry({
   width,
@@ -168,10 +201,14 @@ export function stackGeometry({
   const antennaX1 = r1(tip - nl.lightR - nl.light);
   const noseEnd = r1(antennaX1 - nl.antenna);
   const xs = r1(noseEnd - nl.len);
-  const bodyFull = xs - (FLAME_ROOM + NOZZLE);
-  const segLen = bodyFull / (stretch ? n - f1 + 1 : n);
-  const x0 = r1(xs - (n - f1 + 1) * segLen);
-  const xe = r1(x0 - NOZZLE);
+  // the whole rocket's tail; stretched, the stages still on share the whole body from it
+  const tail = FLAME_ROOM + NOZZLE;
+  // where each stage starts (and the last one ends: the nose's base). Stretched, the tail stage is
+  // the first still on; at its real length, every stage stays where the whole rocket has it (the
+  // nose stays put as stages come off), so the new tail's room is narrower by the livery it wears
+  const ends = stretch ? stageEnds(tail, xs, f1, n, t) : stageEnds(tail, xs, 1, n, t).slice(f1 - 1);
+  const x0 = ends[0];
+  const xe = round2(x0 - NOZZLE);
   const livery = tailLivery(x0, t);
 
   const top = F + STROKE;
@@ -179,15 +216,15 @@ export function stackGeometry({
   const segments: Segment[] = [];
   const joints: { x: number; back: number }[] = [];
   for (let b = f1; b <= n; b++) {
-    const start = r1(xs - (n - b + 1) * segLen);
-    const end = r1(xs - (n - b) * segLen);
+    const start = ends[b - f1];
+    const end = ends[b - f1 + 1];
     segments.push({
       block: b,
       start,
       end,
       content: {
-        left: r1((b === f1 ? livery.end : start + JOINT / 2) + CONTENT_GAP),
-        right: r1(end - (b < n ? JOINT / 2 : STROKE) - CONTENT_GAP),
+        left: round2(stageLeft(b === f1, start, livery.end)),
+        right: round2(end - stageRight(b < n)),
         top,
         bottom,
       },
@@ -323,7 +360,7 @@ export function stageLabels(g: ShipGeometry, measure: MeasureText = estimateText
     block: s.block,
     text: text(s.block),
     px,
-    x: r1((s.content.left + s.content.right) / 2),
+    x: round2((s.content.left + s.content.right) / 2),
     y: nameBaseline(name, px),
     room: rooms[i],
   }));

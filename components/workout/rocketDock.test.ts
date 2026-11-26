@@ -42,8 +42,12 @@ describe('the stretched rocket', () => {
         expect(full.xs).toBe(whole.xs);
         expect(full.tip).toBe(whole.tip);
         expect(full.segments.map((s) => s.block)).toEqual(real.segments.map((s) => s.block));
-        const lengths = full.segments.map((s) => s.end - s.start);
-        for (const l of lengths) expect(l).toBeCloseTo((whole.xs - whole.x0) / (5 - first), 0);
+        // end to end over the whole body, every stage with the same room for its name and bars
+        expect(full.segments[0].start).toBe(full.x0);
+        expect(full.segments.at(-1)!.end).toBe(full.xs);
+        for (const [i, s] of full.segments.entries()) if (i > 0) expect(s.start).toBe(full.segments[i - 1].end);
+        const rooms = full.segments.map((s) => s.content.right - s.content.left);
+        for (const r of rooms) expect(Math.abs(r - rooms[0])).toBeLessThanOrEqual(0.15);
         // the stages still on are longer, so the current block's hilo has more room
         if (first > 1) expect(full.segments[0].content.right - full.segments[0].content.left).toBeGreaterThan(real.segments[0].content.right - real.segments[0].content.left);
       }
