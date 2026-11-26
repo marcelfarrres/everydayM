@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { PadRocket } from '@/components/workout/PadRocket';
-import { PAD_COLORS as C, estimateTextWidth, fitLabel, padRocketGeometry, type LabelFit, type MeasureText } from '@/components/workout/padRocketShape';
+import { PAD_COLORS as C, estimateTextWidth, padRocketGeometry, type LabelFit, type MeasureText } from '@/components/workout/padRocketShape';
+import { fitDrumLabel } from '@/components/workout/drumLabel';
+import { stepsTo, type RandomLanding } from '@/components/workout/drumRandom';
 import {
   DRUM,
   LAUNCH,
@@ -15,6 +17,7 @@ import {
   rouletteEase,
   rouletteMs,
   rouletteSteps,
+  rouletteSwapAt,
   snapEase,
   snapTarget,
   ticksBetween,
@@ -48,6 +51,10 @@ interface LaunchBaseProps {
   onCentre: (index: number) => void;
   /** the centred rocket was tapped: its launch starts (block the rest of the screen) */
   onLaunchStart?: () => void;
+  /** Random: where to land (any sentence of the bank; null: one of the drum's at random) */
+  onRandom?: (centre: number) => RandomLanding | null;
+  /** ...and put that sentence on that rocket (called while it is out of sight) */
+  onSwap?: (index: number, text: string) => void;
   /** the launched rocket is out of sight: go on with this suggestion */
   onLaunch: (suggestion: string) => void;
 }
@@ -94,7 +101,7 @@ export function useTextMeasure(ref: React.RefObject<HTMLElement | null>): Measur
   return measure;
 }
 
-export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch }: LaunchBaseProps) {
+export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap }: LaunchBaseProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -127,7 +134,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     if (!G) return [];
     const room = G.label.x1 - G.label.x0;
     const max = Math.round(G.T * 0.52);
-    return suggestions.map((s) => fitLabel(s, room, { max, min: LABEL_MIN }, measure));
+    return suggestions.map((s) => fitDrumLabel(s, room, { max, min: LABEL_MIN }, measure));
   }, [G, suggestions, measure]);
 
   const track: CrewTrack | null = useMemo(() => {
@@ -407,8 +414,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     const button = e.currentTarget;
     button.setAttribute('data-hit', '');
     setTimeout(() => button.removeAttribute('data-hit'), 170);
-    const steps = rouletteSteps(n);
     const from = anim.current ? anim.current.to : Math.round(pos.current);
+    const pick = onRandom?.(centreIndex(from, n)) ?? null;
+    const steps = pick ? stepsTo(centreIndex(from, n), pick.index, n) : rouletteSteps(n);
+    const swapIn = pick && pick.text !== suggestions[pick.index] ? () => onSwap?.(pick.index, pick.text) : null;
     if (reduced) {
       // no roulette: the drum fades, the new one is there, it fades back
       const layer = drumLayer.current;
@@ -416,6 +425,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       const out = layer?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' });
       const swap = () => {
         anim.current = null;
+        swapIn?.();
         pos.current = target;
         startMoving();
         settle();
@@ -428,6 +438,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     }
     rolling.current = true;
     animateTo(from + steps, rouletteMs(steps), rouletteEase);
+    if (swapIn) {
+      const t = setTimeout(swapIn, rouletteSwapAt(from, steps, n, pick?.index ?? 0) * rouletteMs(steps));
+      pending.current.push(() => clearTimeout(t));
+    }
   };
 
   // ── the launch ───────────────────────────────────────────────────────────────────────────
@@ -579,7 +593,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           <div ref={drumLayer} className="absolute inset-0 z-10">
             <ul role="list" aria-label="Rutinas sugeridas" aria-describedby={`${uid}-hint`} className="contents">
               {suggestions.map((s, i) => (
-                <li key={s} className="contents">
+                <li key={i} className="contents">
                   <button
                     ref={(node) => {
                       rockets.current[i] = node;

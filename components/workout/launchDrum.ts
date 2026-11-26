@@ -200,3 +200,16 @@ export function launchTimeline(walkMs: number): LaunchTimeline {
   const liftAt = igniteAt + LAUNCH.igniteMs;
   return { doorOpenAt, hopAt: [b, a], doorCloseAt, fadeAt, turnAt, towerAt, dockAt, igniteAt, liftAt, endAt: liftAt + LAUNCH.liftMs };
 }
+
+/**
+ * When, during a roulette from `from` turning `steps`, the rocket `index` is out of sight (two
+ * steps or more from the centre), as a share of the spin (0..1): its sentence can be changed then
+ * without anyone seeing it. 0 when it already is; the fastest moment when it never is.
+ */
+export function rouletteSwapAt(from: number, steps: number, n: number, index: number): number {
+  for (let i = 0; i <= 200; i++) {
+    const p = i / 200;
+    if (Math.abs(wrapOffset(index, from + steps * rouletteEase(p), n)) >= 2) return p;
+  }
+  return 0;
+}

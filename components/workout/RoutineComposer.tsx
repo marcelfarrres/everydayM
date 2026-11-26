@@ -30,6 +30,7 @@ import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketS
 import { LaunchBase, useTextMeasure } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
 import { standInExercise } from '@/lib/intent/standIn';
+import { randomLanding } from '@/components/workout/drumRandom';
 import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
 import { creatorJoke, type CreatorSend } from '@/lib/intent/creatorJoke';
 import { CreatorJoke, jokeOrigin, type ActiveJoke } from '@/components/workout/CreatorJoke';
@@ -315,7 +316,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // ...the drum of suggestions: which one is centred (kept across "Cambiar"), and its stand-in clip
   const [drumCentre, setDrumCentre] = useState(0);
   const launching = useRef(false);
-  const standIn = useMemo(() => standInExercise(suggestions[drumCentre] ?? '', library), [suggestions, drumCentre, library]);
+  // ...the sentences on the drum: today's suggestions, with the ones "Random" brought from the
+  // whole bank put in their slots (kept across "Cambiar")
+  const [drumSwaps, setDrumSwaps] = useState<Record<number, string>>({});
+  const drum = useMemo(() => suggestions.map((s, i) => drumSwaps[i] ?? s), [suggestions, drumSwaps]);
+  const randomRecent = useRef<string[]>([]);
+  const standIn = useMemo(() => standInExercise(drum[drumCentre] ?? '', library), [drum, drumCentre, library]);
 
   const loadExercises = useCallback(() => {
     if (!exercisesRef.current) {
@@ -871,13 +877,19 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               while the keyboard is up */}
           <div className={`-mx-5 shrink-0 sm:-mx-8 lg:hidden ${typing ? 'hidden' : ''}`}>
             <LaunchBase
-              suggestions={suggestions}
+              suggestions={drum}
               initialIndex={drumCentre}
               onCentre={setDrumCentre}
               onLaunchStart={() => {
                 launching.current = true;
               }}
               onLaunch={(suggestion) => submit(suggestion, null, true)}
+              onRandom={(centre) => {
+                const pick = randomLanding({ bank: SUGGESTIONS, drum, centre, recent: randomRecent.current });
+                if (pick) randomRecent.current = pick.recent;
+                return pick;
+              }}
+              onSwap={(index, sentence) => setDrumSwaps((swaps) => ({ ...swaps, [index]: sentence }))}
             />
           </div>
         </form>
