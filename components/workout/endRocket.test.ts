@@ -29,9 +29,13 @@ describe('endShip', () => {
   it('puts the boosters on the tail end, and the finished rocket is the routine’s rocket at its start', () => {
     for (let on = 1; on <= 4; on++) {
       const g = endShip(frame, 4, on, true).g;
-      expect(g.boosters!.x0).toBeCloseTo(g.x0 + 4, 5);
+      // (just in from the tail: the new drawing's boosters start a fifth of the body's thickness in)
+      expect(g.boosters!.x0).toBeCloseTo(g.x0 + 0.2 * g.T, 5);
       expect(g.boosters!.x1).toBeLessThanOrEqual(g.xs);
+      // while the boosters are on, no fins
+      expect(g.fins).toBeNull();
     }
+    expect(endShip(frame, 4, 2, false).g.fins).not.toBeNull();
     // complete: exactly where the routine's rocket had them (along the tail half of the whole rocket)
     expect(endShip(frame, 4, 4, true).g.boosters).toEqual(stackGeometry({ width: frame, blocks: 4, boosters: true }).boosters);
   });
@@ -50,7 +54,10 @@ describe('endShip', () => {
     const two = endShip(frame, 4, 2, false).g;
     const three = endShip(frame, 4, 3, false).g;
     expect(three.segments.map((s) => s.block)).toEqual([2, 3, 4]);
-    expect(three.segments.slice(1)).toEqual(two.segments);
+    // (where they are; what is written in them moves off the tail's livery, which the new tail now wears)
+    const at = (g: typeof two) => g.segments.map((s) => ({ block: s.block, start: s.start, end: s.end }));
+    expect(at(three).slice(1)).toEqual(at(two));
+    expect(three.segments[0].content.left).toBeGreaterThan(three.livery.end);
     expect(endShip(frame, 4, 4, false).shift).toBeCloseTo(0);
   });
 

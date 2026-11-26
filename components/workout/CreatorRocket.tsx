@@ -3,7 +3,7 @@
 import { useLayoutEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { FlameDrawing, RocketFigure, RocketShip, flameBox, piecesOf, scaledBox } from '@/components/workout/RocketShip';
 import { HOP, LAUNCH_OFFSCREEN_AT, POD, launchKeyframes, podPopKeyframes, podRetractKeyframes, riseKeyframes } from '@/components/workout/rocketFlight';
-import { BANNER, SHIP, shipGeometry, widgetLayout } from '@/components/workout/rocketShape';
+import { BANNER, SHIP_ENDS, shipGeometry, widgetLayout } from '@/components/workout/rocketShape';
 import type { StepState } from '@/components/workout/player/model';
 import { useRocketWidth } from '@/components/workout/player/hooks';
 import { playSfx } from '@/lib/audio/sfx';
@@ -193,7 +193,8 @@ export function WaitingRocket({
 
 // px per character of the label (15 px semibold), and the rocket around it (rocket units at scale 1)
 const CHAR_PX = 8.2;
-const AROUND = { tail: 38, nose: SHIP.NOSE + 8, flameRoom: 14 } as const;
+// (the tail: flame room, nozzle and its livery; the nose with its antenna: rocketShape's SHIP_ENDS)
+const AROUND = { tail: Math.ceil(SHIP_ENDS.tail), nose: Math.ceil(SHIP_ENDS.nose), flameRoom: 14 } as const;
 
 /** How long a choice rocket is for a label of `chars` characters (px, at most the room there is). */
 const choicePx = (chars: number, room: number) => Math.min(room + AROUND.flameRoom, Math.round(chars * CHAR_PX + 12 + AROUND.tail + AROUND.nose));

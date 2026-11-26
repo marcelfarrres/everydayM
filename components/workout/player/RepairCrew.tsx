@@ -401,9 +401,9 @@ export function RepairCrew({
   );
   return (
     <div ref={root} aria-hidden="true" data-paused={paused ? '' : undefined} className="pointer-events-none absolute inset-0">
-      {/* the stands, under the body near either end */}
+      {/* the stands, under the body near either end (the tail's clear of its fins) */}
       <div data-part="stands" className="absolute inset-0" style={{ transformOrigin: `0px ${g.H}px`, transform: 'scaleY(0)' }}>
-        {stand(g.x0 + 12)}
+        {stand(g.fins ? g.fins.x0 + g.fins.len + 7 : g.x0 + 12)}
         {stand(g.xs - 12)}
       </div>
       {/* smoke at either end now and then */}

@@ -67,7 +67,8 @@ import {
   type LaunchStart,
   type Flight,
 } from '@/components/workout/rocketFlight';
-import { useCloudMoment } from '@/components/workout/cloudClock';
+import { useCloudMoment, useCloudPainter } from '@/components/workout/cloudClock';
+import { finsAt, finsPending } from '@/components/workout/separation';
 import { arrivalDelay } from '@/components/workout/rocketHandoff';
 import { flightSounds, type FlightSounds } from '@/components/workout/rocketSounds';
 import { playSfx, startSfxLoop, type SfxLoopStop } from '@/lib/audio/sfx';
@@ -196,6 +197,9 @@ export function RocketWidget({
         ? currentIndex === cloudKey && (m.key !== cloudKey || m.t !== null)
         : false,
   );
+  // ...and once it has gone, the new tail's fins spring out of the hull (until then they are in:
+  // drawn hidden, then painted by the same clock, below)
+  const finsIn = useCloudMoment((m) => separating && m.key === cloudKey && finsPending(m.t));
   const [heldIndex, setHeldIndex] = useState(currentIndex);
   if (!holding && heldIndex !== currentIndex) setHeldIndex(currentIndex);
   const lagged = useLagged(currentIndex, entering && !separating ? FLIGHT.dropMs : 0);
@@ -229,7 +233,7 @@ export function RocketWidget({
   const rise = panelRise(fit.size, fit.lines);
   useLayoutEffect(() => setPanelRise(rise), [rise]);
   useEffect(() => () => setPanelRise(0), []);
-  const P = panelLayout(L, drawn.boosters, rise);
+  const P = panelLayout(L, rise);
 
   // a part that has just come off falls away, turning slowly (in the clouds)
   const [shownStack, setShownStack] = useState<Stack>(drawn);
@@ -306,6 +310,19 @@ export function RocketWidget({
   };
   useDockClock(root, flight, onParked, cloudKey, ending, queue, currentIndex, reduced);
   useLook(dock, pair, shipEl, drawingEl, isPaused);
+  // the new tail's fins, springing out on the clouds' clock (pure: finsAt)
+  const paintFins = useCallback(
+    (t: number | null, key: number | null) => {
+      const drawing = drawingEl.current;
+      if (!drawing || !separating || key !== cloudKey || !finsPending(t)) return;
+      const s = finsAt(t ?? 0);
+      drawing.querySelectorAll<SVGElement>('[data-fin]').forEach((n) => {
+        n.style.transform = `scale(1, ${s})`;
+      });
+    },
+    [separating, cloudKey],
+  );
+  useCloudPainter(paintFins);
 
   // ---- the list's 5 s: restarted by any touch, wheel or scroll inside the widget
   const [touch, setTouch] = useState(0);
@@ -527,6 +544,7 @@ export function RocketWidget({
                         <RocketShip
                           g={g}
                           hilo={hilo}
+                          finsOut={!finsIn}
                           className="absolute left-0 top-0"
                           behind={
                             // (all of it hangs from the tail: it moves with the tail as the rocket stretches)
@@ -654,7 +672,7 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
       if (kind === 'tail') return run(node, { kind: 'tail' });
       const block = Number(node.getAttribute('data-piece')?.replace('seg-', ''));
       if (!Number.isFinite(block)) return;
-      if (kind === 'start' || kind === 'end') run(node, { kind, block });
+      if (kind === 'start' || kind === 'end' || kind === 'mid') run(node, { kind, block });
       else if (kind === 'body') {
         const hilo = node.getAttribute('data-rocket') === 'hilo';
         run(node, { kind: 'body', block, left: hilo ? (drawn.segments.find((s) => s.block === block)?.content.left ?? 0) : 0 });
@@ -1437,8 +1455,8 @@ function separationScene(before: Stack, after: Stack, L: WidgetLayout, top: numb
   const b = g.boosters;
   if (off === 'boosters' && !b) return null;
   const [from, to] = off === 'segment' || !b ? [seg.start, seg.end] : [b.x0, b.x1];
-  // the latch: the segment's joint, or where the boosters' cones begin
-  const joint = off === 'segment' ? seg.end : to - SHIP.F * 1.5;
+  // the latch: the segment's ring, or where the boosters' cones begin
+  const joint = off === 'segment' ? seg.end : to - Math.min(1.9 * (b?.shape.h ?? 8), 0.45 * (to - from));
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const k = Math.min(0.52 * vh, 544) / L.g.W;
@@ -1448,7 +1466,7 @@ function separationScene(before: Stack, after: Stack, L: WidgetLayout, top: numb
     piece: off === 'segment' ? `seg-${before.first}` : 'boosters',
     joint,
     part: joint - Math.max(40, (to - from) * 0.55),
-    edge: off === 'segment' ? SHIP.F : SHIP.STROKE / 2,
+    edge: off === 'segment' ? SHIP.F : (b?.shape.upper.y ?? SHIP.STROKE / 2),
     tail: stackGeometry({ width: L.frame, ...after }).xe,
     fall: Math.max(150, Math.round((vh - upperEnd) / k + 30)),
     off: Math.round((railLeft(vw) * vw) / k + MECHANIC.W + 24),
