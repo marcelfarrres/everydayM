@@ -7,6 +7,9 @@ import type { Exercise, ExerciseTalk } from '@/types/workout';
  * public URLs.
  */
 
+/** A music style (the list and its Spanish labels: lib/musicStyles.ts). */
+export type MusicStyle = 'techno-house' | 'anos-80' | 'regueton' | 'comercial';
+
 /** One track of the player's playlist. Files live in the media store, never on third-party sites. */
 export interface MusicTrack {
   id: string;
@@ -17,6 +20,7 @@ export interface MusicTrack {
   audio_url: string; // AAC ~96 kbit/s .m4a
   duration_seconds: number;
   enabled: boolean; // false = out of the playlist, not deleted
+  style?: MusicStyle | null; // absent or null = no style (tracks uploaded before styles existed)
 }
 
 /**

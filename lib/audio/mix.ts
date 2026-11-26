@@ -1,7 +1,10 @@
+import type { MusicStyle, MusicTrack } from '@/types/catalog';
+import { MUSIC_STYLES, toMusicStyle } from '@/lib/musicStyles';
+
 /*
  * The pure rules of the player's sound, kept apart from the browser so they can be tested:
- * how loud the music is, how the playlist is shuffled, when a talk ducks the music, and how
- * the listener's choices are remembered.
+ * how loud the music is, how the playlist is shuffled, when a talk ducks the music, how the
+ * listener's choices are remembered, and which tracks a music style plays.
  */
 
 /** Music level while a talk is audible, as a share of the chosen volume. */
@@ -12,17 +15,18 @@ export const RAMP_SECONDS = 0.3;
 export interface MusicSettings {
   volume: number; // 0..1
   muted: boolean;
+  style: MusicStyle | null; // the chosen style; null = «Todas» (every enabled track)
 }
 
 /** A fresh start: the music at half of the old 0.8 (the effects follow it, see sfxSamples.ts). */
-export const DEFAULT_MUSIC_SETTINGS: MusicSettings = { volume: 0.4, muted: false };
+export const DEFAULT_MUSIC_SETTINGS: MusicSettings = { volume: 0.4, muted: false, style: null };
 
 function clampVolume(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
 /** The gain the music should reach: silence when muted, a quarter while a talk speaks. */
-export function musicGain({ volume, muted, ducked }: MusicSettings & { ducked: boolean }): number {
+export function musicGain({ volume, muted, ducked }: Pick<MusicSettings, 'volume' | 'muted'> & { ducked: boolean }): number {
   if (muted) return 0;
   const level = clampVolume(Number.isFinite(volume) ? volume : DEFAULT_MUSIC_SETTINGS.volume);
   return ducked ? level * DUCK_LEVEL : level;
@@ -42,11 +46,40 @@ export function parseMusicSettings(raw: string | null | undefined): MusicSetting
   const volume =
     typeof row.volume === 'number' && Number.isFinite(row.volume) ? clampVolume(row.volume) : DEFAULT_MUSIC_SETTINGS.volume;
   const muted = typeof row.muted === 'boolean' ? row.muted : DEFAULT_MUSIC_SETTINGS.muted;
-  return { volume, muted };
+  // Saved before styles existed (no field), or a style that no longer exists: «Todas».
+  const style = toMusicStyle(row.style);
+  return { volume, muted, style };
 }
 
 export function serializeMusicSettings(settings: MusicSettings): string {
-  return JSON.stringify({ volume: clampVolume(settings.volume), muted: settings.muted });
+  return JSON.stringify({ volume: clampVolume(settings.volume), muted: settings.muted, style: settings.style });
+}
+
+/*
+ * Styles. A track counts for the player when it is enabled and has a file. The listener's
+ * choice is only honoured while its style still has such a track; otherwise «Todas» plays.
+ */
+type StyledTrack = Pick<MusicTrack, 'enabled' | 'audio_url' | 'style'>;
+
+function playable(track: StyledTrack): boolean {
+  return track.enabled && Boolean(track.audio_url);
+}
+
+/** The styles to offer in the menu (in the list's order): those with at least one playable track. */
+export function offeredStyles(tracks: readonly StyledTrack[]): MusicStyle[] {
+  return MUSIC_STYLES.filter((style) => tracks.some((t) => playable(t) && t.style === style));
+}
+
+/** The style that really plays: the chosen one while it has tracks, else null («Todas»). */
+export function effectiveStyle(chosen: MusicStyle | null, tracks: readonly StyledTrack[]): MusicStyle | null {
+  if (chosen === null) return null;
+  return tracks.some((t) => playable(t) && t.style === chosen) ? chosen : null;
+}
+
+/** The playlist for a choice: «Todas» is every playable track (with or without style). */
+export function playlistFor<T extends StyledTrack>(tracks: readonly T[], chosen: MusicStyle | null): T[] {
+  const style = effectiveStyle(chosen, tracks);
+  return tracks.filter((t) => playable(t) && (style === null || t.style === style));
 }
 
 /**

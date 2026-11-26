@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * New track: raw audio file in the body, x-studio-metadata {title, artist, source_url, license}.
+ * New track: raw audio file in the body, x-studio-metadata {title, artist, source_url, license,
+ * style} (style: one of lib/musicStyles.ts or null; anything else is refused).
  * Transcoded to AAC ~96 kbit/s (.m4a), duration read with ffprobe.
  */
 export async function POST(req: NextRequest) {

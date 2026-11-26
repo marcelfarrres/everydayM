@@ -60,6 +60,17 @@ describe('exercise catalogue', () => {
     expect(musicFromCatalog({ exercises: [] })).toEqual([]);
   });
 
+  it('reads each track style; unknown values and old tracks without it have none', () => {
+    const music = musicFromCatalog({
+      music: [
+        { id: 'a', audio_url: 'a.m4a', style: 'techno-house' },
+        { id: 'b', audio_url: 'b.m4a', style: 'Reguetón' }, // a label, not a value
+        { id: 'c', audio_url: 'c.m4a' },
+      ],
+    });
+    expect(music.map((m) => m.style)).toEqual(['techno-house', null, null]);
+  });
+
   it('fails clearly without the media base URL in production', async () => {
     vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE_URL', '');
     vi.stubEnv('NODE_ENV', 'production');

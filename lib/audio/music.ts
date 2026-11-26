@@ -1,17 +1,21 @@
-import type { MusicTrack } from '@/types/catalog';
+import type { MusicStyle, MusicTrack } from '@/types/catalog';
 import { getAudioContext } from '@/lib/audio';
 import {
   DEFAULT_MUSIC_SETTINGS,
   RAMP_SECONDS,
+  effectiveStyle,
   musicGain,
+  offeredStyles,
   parseMusicSettings,
+  playlistFor,
   serializeMusicSettings,
   shuffleOrder,
   type MusicSettings,
 } from './mix';
 
 /*
- * Background music: one shuffled playlist from the catalogue, on by default.
+ * Background music: one shuffled playlist from the catalogue (the chosen style's tracks, or
+ * all of them with «Todas»), on by default.
  *
  *   <audio> A â”€â”
  *              â”œâ”€ GainNode (volume Â· mute Â· ducking) â”€ AudioContext.destination
@@ -38,16 +42,24 @@ interface Deck {
 
 // v2: the default volume went down to 0.4, so everyone starts there once; what they choose
 // afterwards is remembered under this key. (v1 is read once for its mute, then removed.)
+// The music style was added to the same key: settings saved without it load as «Todas»,
+// keeping their volume and mute, so the key did not need to change.
 const STORAGE_KEY = 'everydaym.music.v2';
 const OLD_STORAGE_KEYS = ['everydaym.music.v1'];
 const VOLUME_RAMP_SECONDS = 0.05; // the slider: quick, but without clicks
 const END_FADE_SECONDS = 1; // the routine's end: the music fades out and stops (setEnded)
 
 export interface MusicSnapshot extends MusicSettings {
+  // `style` here is the style that plays: the chosen one, or null («Todas») when it has no tracks
   available: boolean; // the catalogue has at least one enabled track
+  styles: MusicStyle[]; // the styles the menu offers ([]: no track has a style, no choice shown)
 }
 
-const SERVER_SNAPSHOT: MusicSnapshot = { ...DEFAULT_MUSIC_SETTINGS, available: false };
+const SERVER_SNAPSHOT: MusicSnapshot = { ...DEFAULT_MUSIC_SETTINGS, available: false, styles: [] };
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((u, i) => u === b[i]);
+}
 
 function sameOrigin(url: string): boolean {
   try {
@@ -62,7 +74,8 @@ function isNotAllowed(err: unknown): boolean {
 }
 
 export class MusicEngine {
-  private urls: string[] = [];
+  private tracks: MusicTrack[] = []; // the catalogue's tracks, every style
+  private urls: string[] = []; // the playlist: the chosen style's enabled tracks (all with «Todas»)
   private order: number[] = [];
   private lastPlayed: number | null = null; // the track heard last
   private decks: [Deck, Deck] | null = null;
@@ -78,6 +91,8 @@ export class MusicEngine {
   private ended = false; // the routine reached its end screen (phone): faded out, the drums play alone
   private failures = 0;
   private waitingForTap = false;
+  private switching = false; // the style changed while playing: fading out before the new playlist
+  private switchTimer: ReturnType<typeof setTimeout> | null = null;
   private muteTimer: ReturnType<typeof setTimeout> | null = null;
   private volumeTimer: ReturnType<typeof setInterval> | null = null;
   private snapshot: MusicSnapshot;
@@ -102,7 +117,7 @@ export class MusicEngine {
       this.settings.muted = parseMusicSettings(legacy).muted;
       this.persist();
     }
-    this.snapshot = { ...this.settings, available: false };
+    this.snapshot = this.makeSnapshot();
     this.hidden = document.visibilityState === 'hidden';
     document.addEventListener('visibilitychange', this.onVisibility);
   }
@@ -120,8 +135,17 @@ export class MusicEngine {
     return SERVER_SNAPSHOT;
   }
 
+  private makeSnapshot(): MusicSnapshot {
+    return {
+      ...this.settings,
+      style: effectiveStyle(this.settings.style, this.tracks),
+      available: this.urls.length > 0,
+      styles: offeredStyles(this.tracks),
+    };
+  }
+
   private emit() {
-    this.snapshot = { ...this.settings, available: this.urls.length > 0 };
+    this.snapshot = this.makeSnapshot();
     this.listeners.forEach((listener) => listener());
   }
 
@@ -142,26 +166,27 @@ export class MusicEngine {
 
   // â”€â”€ What the app calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /** The playlist (enabled tracks). An empty list is a silent player. */
+  /**
+   * The catalogue's tracks. The playlist is the enabled ones of the chosen style (every enabled
+   * one with «Todas», or when that style has none left). An empty list is a silent player.
+   */
   setTracks(tracks: MusicTrack[]) {
-    const urls = tracks.filter((t) => t.enabled && t.audio_url).map((t) => t.audio_url);
-    if (urls.length === this.urls.length && urls.every((u, i) => u === this.urls[i])) return;
-    this.urls = urls;
-    this.order = [];
-    this.lastPlayed = null;
-    this.failures = 0;
-    if (this.decks) {
-      for (const deck of this.decks) this.unload(deck);
-    }
-    // Find out early whether the host lets Web Audio read the files.
-    const crossOrigin = urls.find((u) => !sameOrigin(u));
-    if (crossOrigin) {
-      void this.hasCors(crossOrigin).then((ok) => {
-        if (!ok) this.fallBackToDirect();
-      });
-    }
+    this.tracks = tracks;
+    this.refreshPlaylist();
     this.emit();
-    this.sync();
+  }
+
+  /**
+   * From the "···" menu: the style to play, null = «Todas». Remembered with the volume. While
+   * the music plays it fades out and a track of the new style fades in; the workout, the
+   * pause and the ducking under a talk are left as they are.
+   */
+  setStyle(style: MusicStyle | null) {
+    if (style === this.settings.style) return;
+    this.settings = { ...this.settings, style };
+    this.persist();
+    this.refreshPlaylist();
+    this.emit();
   }
 
   /**
@@ -235,10 +260,14 @@ export class MusicEngine {
     const wasDucked = this.ducked;
     this.ducked = false;
     if (wasDucked) this.emitDucked();
+    const switching = this.switching;
+    this.switching = false;
     this.clearTimers();
     if (this.decks) {
       for (const deck of this.decks) this.unload(deck);
     }
+    // Left in the middle of a style change: the next routine plays the new style.
+    if (switching) this.adoptPlaylist(this.currentPlaylist());
     this.applyGain(0);
   }
 
@@ -277,6 +306,8 @@ export class MusicEngine {
       ended: this.ended,
       hidden: this.hidden,
       settings: this.settings,
+      style: effectiveStyle(this.settings.style, this.tracks),
+      switching: this.switching,
       tracks: this.urls.length,
       gain: this.gain?.gain.value ?? null,
       contextState: getAudioContext()?.state ?? null,
@@ -297,6 +328,56 @@ export class MusicEngine {
     } catch {
       // not remembered this time
     }
+  }
+
+  private currentPlaylist(): string[] {
+    return playlistFor(this.tracks, this.settings.style).map((t) => t.audio_url);
+  }
+
+  /**
+   * Bring the playlist in line with the tracks and the chosen style. While music is heard the
+   * change waits for the level to fade out (RAMP_SECONDS, the same fade as muting); otherwise
+   * it is immediate.
+   */
+  private refreshPlaylist() {
+    const deck = this.decks?.[this.live];
+    const audible = this.switching || (deck !== undefined && deck.track !== null && !deck.el.paused && this.shouldPlay());
+    if (!audible) {
+      this.adoptPlaylist(this.currentPlaylist());
+      return;
+    }
+    if (!this.switching && sameList(this.currentPlaylist(), this.urls)) return;
+    this.switching = true;
+    this.applyGain(RAMP_SECONDS); // to 0 while switching
+    if (this.switchTimer) clearTimeout(this.switchTimer);
+    this.switchTimer = setTimeout(() => {
+      this.switchTimer = null;
+      this.switching = false;
+      // The new playlist fades in; if it ended up the same one (chosen back), the level returns.
+      if (!this.adoptPlaylist(this.currentPlaylist(), true)) this.sync();
+      this.emit();
+    }, RAMP_SECONDS * 1000 + 50);
+  }
+
+  /** Play from these files from now on. False when they are already the playlist. */
+  private adoptPlaylist(urls: string[], fadeIn = false): boolean {
+    if (sameList(urls, this.urls)) return false;
+    this.urls = urls;
+    this.order = [];
+    this.lastPlayed = null;
+    this.failures = 0;
+    if (this.decks) {
+      for (const deck of this.decks) this.unload(deck);
+    }
+    // Find out early whether the host lets Web Audio read the files.
+    const crossOrigin = urls.find((u) => !sameOrigin(u));
+    if (crossOrigin) {
+      void this.hasCors(crossOrigin).then((ok) => {
+        if (!ok) this.fallBackToDirect();
+      });
+    }
+    this.sync(fadeIn);
+    return true;
   }
 
   private ensureDecks(): [Deck, Deck] {
@@ -504,14 +585,17 @@ export class MusicEngine {
   private clearTimers() {
     if (this.muteTimer) clearTimeout(this.muteTimer);
     if (this.volumeTimer) clearInterval(this.volumeTimer);
+    if (this.switchTimer) clearTimeout(this.switchTimer);
     this.muteTimer = null;
     this.volumeTimer = null;
+    this.switchTimer = null;
   }
 
   /** Move the music level to where it should be, over `seconds`. `level` overrides the target. */
   private applyGain(seconds: number, level?: number) {
-    // (once the routine has ended nothing brings the level back up: a volume change, say)
-    const target = level ?? (this.ended ? 0 : musicGain({ ...this.settings, ducked: this.ducked }));
+    // (once the routine has ended nothing brings the level back up: a volume change, say;
+    // nor while a style change fades out the track it replaces)
+    const target = level ?? (this.ended || this.switching ? 0 : musicGain({ ...this.settings, ducked: this.ducked }));
     const ctx = getAudioContext();
     if (this.route === 'graph' && this.gain && ctx) {
       const param = this.gain.gain;

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Catalog, CatalogExercise, MusicTrack, RestVideo } from '@/types/catalog';
 import type { ExerciseTalk, MuscleSelection } from '@/types/workout';
 import { deleteObject, getObjectText, listObjects, putContent } from '@/lib/server/mediaStore';
+import { toMusicStyle } from '@/lib/musicStyles';
 
 /*
  * The catalog (catalog/catalog.json in the media store) is the app's whole database.
@@ -111,6 +112,7 @@ function normalizeTrack(raw: unknown): MusicTrack | null {
     audio_url: str(m.audio_url),
     duration_seconds: num(m.duration_seconds),
     enabled: m.enabled !== false,
+    style: toMusicStyle(m.style), // unknown or missing: no style
   };
 }
 

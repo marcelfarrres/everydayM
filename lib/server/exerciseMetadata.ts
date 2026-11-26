@@ -1,5 +1,7 @@
 import 'server-only';
 import type { MuscleId, MuscleRole, MuscleSelection } from '@/types/workout';
+import type { MusicStyle } from '@/types/catalog';
+import { isMusicStyle } from '@/lib/musicStyles';
 
 export type StudioClipType = 'workout' | 'warmup' | 'intro' | 'filler';
 
@@ -182,11 +184,22 @@ export function validateTalkMetadata(raw: unknown): ValidatedTalkMetadata {
   return { note: optionalText(obj, 'note', 'La nota', 200) };
 }
 
+/** A track's style: absent, null or '' is "no style"; anything else must be one of the list. */
+function optionalMusicStyle(obj: Record<string, unknown>): MusicStyle | null {
+  const value = obj.style;
+  if (value === undefined || value === null || value === '') return null;
+  if (!isMusicStyle(value)) {
+    throw new Error('El estilo de la pista no es válido.');
+  }
+  return value;
+}
+
 export interface ValidatedMusicMetadata {
   title: string;
   artist: string | null;
   source_url: string | null;
   license: string | null;
+  style: MusicStyle | null;
 }
 
 export function validateMusicMetadata(raw: unknown): ValidatedMusicMetadata {
@@ -200,6 +213,7 @@ export function validateMusicMetadata(raw: unknown): ValidatedMusicMetadata {
     artist: optionalText(obj, 'artist', 'El artista', 120),
     source_url: optionalHttpUrl(obj, 'source_url', 'La página de origen'),
     license: optionalText(obj, 'license', 'La licencia', 120),
+    style: optionalMusicStyle(obj),
   };
 }
 
@@ -218,6 +232,7 @@ export function validateMusicPatch(raw: unknown): ValidatedMusicPatch {
   if ('artist' in obj) patch.artist = optionalText(obj, 'artist', 'El artista', 120);
   if ('source_url' in obj) patch.source_url = optionalHttpUrl(obj, 'source_url', 'La página de origen');
   if ('license' in obj) patch.license = optionalText(obj, 'license', 'La licencia', 120);
+  if ('style' in obj) patch.style = optionalMusicStyle(obj);
   if ('enabled' in obj) {
     if (typeof obj.enabled !== 'boolean') {
       throw new Error('«enabled» debe ser verdadero o falso.');

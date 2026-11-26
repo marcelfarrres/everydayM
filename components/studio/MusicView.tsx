@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Loader2, Music, Plus, Trash2 } from 'lucide-react';
-import type { MusicTrack } from '@/types/catalog';
-import { FOCUS, TextField, type BannerMessage } from '@/components/studio/StudioUi';
+import type { MusicStyle, MusicTrack } from '@/types/catalog';
+import { MUSIC_STYLES, MUSIC_STYLE_LABELS, toMusicStyle } from '@/lib/musicStyles';
+import { FOCUS, TextField, fieldClass, type BannerMessage } from '@/components/studio/StudioUi';
 import {
   formatBytes,
   formatDuration,
@@ -13,7 +14,10 @@ import {
   uploadFile,
 } from '@/components/studio/studioClient';
 
-type TrackFields = { title: string; artist: string; source_url: string; license: string };
+type TrackFields = { title: string; artist: string; source_url: string; license: string; style: MusicStyle | '' };
+
+/** Which tracks the list shows: all, one style, or those still without one. */
+type ListFilter = 'all' | 'none' | MusicStyle;
 
 interface Draft extends TrackFields {
   id: string;
@@ -30,6 +34,7 @@ function fieldsOf(track: MusicTrack): TrackFields {
     artist: track.artist ?? '',
     source_url: track.source_url ?? '',
     license: track.license ?? '',
+    style: track.style ?? '',
   };
 }
 
@@ -40,6 +45,7 @@ function payloadOf(fields: TrackFields) {
     artist: fields.artist.trim() || null,
     source_url: fields.source_url.trim() || null,
     license: fields.license.trim() || null,
+    style: fields.style || null,
   };
 }
 
@@ -50,11 +56,31 @@ function TrackForm({ value, onChange }: { value: TrackFields; onChange: (patch: 
       <TextField label="Artista" value={value.artist} onChange={(artist) => onChange({ artist })} placeholder="Ej. Kulakovka" />
       <TextField label="Página de origen" type="url" value={value.source_url} onChange={(source_url) => onChange({ source_url })} placeholder="https://…" />
       <TextField label="Licencia" value={value.license} onChange={(license) => onChange({ license })} placeholder="Ej. Pixabay Content License" />
+      <label className="block">
+        <span className="mb-1.5 block text-[13px] font-semibold text-ink/60">Estilo</span>
+        <select value={value.style} onChange={(e) => onChange({ style: toMusicStyle(e.target.value) ?? '' })} className={fieldClass}>
+          <option value="">Sin estilo</option>
+          {MUSIC_STYLES.map((s) => (
+            <option key={s} value={s}>
+              {MUSIC_STYLE_LABELS[s]}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }
 
-/** Música: one shuffled playlist for the player. Upload, edit the credits, enable/disable, delete. */
+function matchesFilter(track: MusicTrack, filter: ListFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'none') return !track.style;
+  return track.style === filter;
+}
+
+/**
+ * Música: one shuffled playlist for the player. Upload, edit the credits and the style,
+ * enable/disable, delete; "Ver" narrows the list to one style (or the tracks without one).
+ */
 export function MusicView({
   notify,
   handleError,
@@ -69,6 +95,7 @@ export function MusicView({
   const [form, setForm] = useState<TrackFields | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ListFilter>('all');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -112,6 +139,7 @@ export function MusicView({
         artist: '',
         source_url: '',
         license: '',
+        style: '' as const,
         status: 'pending' as const,
         error: null,
       })),
@@ -179,6 +207,8 @@ export function MusicView({
 
   const enabledCount = tracks.filter((t) => t.enabled).length;
   const totalSeconds = tracks.filter((t) => t.enabled).reduce((sum, t) => sum + t.duration_seconds, 0);
+  const countOf = (f: ListFilter) => tracks.filter((t) => matchesFilter(t, f)).length;
+  const shown = tracks.filter((t) => matchesFilter(t, filter));
 
   return (
     <div className="flex flex-col gap-6">
@@ -246,15 +276,39 @@ export function MusicView({
         </section>
       )}
 
+      {!loading && tracks.length > 0 && (
+        <label className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold text-ink/60">Ver</span>
+          <select
+            value={filter}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFilter(value === 'all' || value === 'none' ? value : (toMusicStyle(value) ?? 'all'));
+            }}
+            className={`${fieldClass} max-w-xs`}
+          >
+            <option value="all">Todas ({tracks.length})</option>
+            {MUSIC_STYLES.map((s) => (
+              <option key={s} value={s}>
+                {MUSIC_STYLE_LABELS[s]} ({countOf(s)})
+              </option>
+            ))}
+            <option value="none">Sin estilo ({countOf('none')})</option>
+          </select>
+        </label>
+      )}
+
       {loading ? (
         <p className="flex items-center justify-center gap-2 py-16 text-ink/55">
           <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> Cargando música…
         </p>
       ) : tracks.length === 0 ? (
         <p className="py-16 text-center text-ink/55">Aún no hay pistas. Pulsa «Subir pistas».</p>
+      ) : shown.length === 0 ? (
+        <p className="py-16 text-center text-ink/55">No hay pistas en este grupo.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {tracks.map((track) => {
+          {shown.map((track) => {
             const isOpen = openId === track.id;
             return (
               <li key={track.id} className="rounded-2xl bg-white">
@@ -268,7 +322,9 @@ export function MusicView({
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate text-[16px] font-semibold ${track.enabled ? '' : 'text-ink/40'}`}>{track.title}</span>
                       <span className="block truncate text-[13px] text-ink/55">
-                        {[track.artist, formatDuration(track.duration_seconds), track.license].filter(Boolean).join(' · ')}
+                        {[track.style ? MUSIC_STYLE_LABELS[track.style] : null, track.artist, formatDuration(track.duration_seconds), track.license]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </span>
                     </span>
                     <ChevronDown className={`h-5 w-5 shrink-0 text-ink/30 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
