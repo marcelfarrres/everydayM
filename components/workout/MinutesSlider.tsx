@@ -24,6 +24,7 @@ export function MinutesSlider({
   preview,
   min = 20,
   max = 40,
+  wrap = false,
 }: {
   value: number;
   onChange: (minutes: number) => void;
@@ -31,6 +32,8 @@ export function MinutesSlider({
   preview?: string;
   min?: number;
   max?: number;
+  /** a narrow column (the phone's questions): the word goes under the number when they don't fit side by side */
+  wrap?: boolean;
 }) {
   const reduced = useReducedMotion();
   const [dragging, setDragging] = useState(false);
@@ -45,7 +48,7 @@ export function MinutesSlider({
 
   return (
     <div className="flex w-full flex-col gap-5 select-none">
-      <div className="flex items-end justify-between gap-4">
+      <div className={`flex items-end justify-between gap-4 ${wrap ? 'flex-wrap gap-y-0' : ''}`}>
         <p className="flex items-baseline gap-2 leading-none" aria-hidden="true">
           <span className="inline-flex overflow-hidden text-[clamp(4.5rem,18vw,7rem)] font-bold tabular-nums tracking-[-0.05em]">
             {String(value)

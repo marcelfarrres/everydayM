@@ -126,6 +126,7 @@ export function WaitingRocket({
   flame = 0.3,
   shake = 0.5,
   pullUp = 0,
+  room,
   className = '',
 }: {
   ref?: Ref<HTMLElement | null>;
@@ -140,10 +141,12 @@ export function WaitingRocket({
   pullUp?: number;
   /** null: it is there already; a number: it comes up from below after that many ms */
   riseDelay: number | null;
+  /** px it may take across (the screen less the margins, by default) */
+  room?: number;
   className?: string;
 }) {
   const width = useRocketWidth();
-  const px = Math.min(CREATOR.waitMaxPx, width - 28);
+  const px = Math.min(CREATOR.waitMaxPx, room ?? width - 28);
   const k = CREATOR.waitScale;
   const g = useCreatorShip(px, k);
   const own = useRef<HTMLElement | null>(null);

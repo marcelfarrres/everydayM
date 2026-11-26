@@ -661,3 +661,173 @@ body {
     transition: none;
   }
 }
+
+/* The start screen at full day (a routine taking off straight from the base): the base's day sky
+   over its dawn, and its sun climbing; both off unless the page sets --pad-day to 1. */
+.pad-day {
+  opacity: var(--pad-day, 0);
+  transition: opacity var(--pad-day-ms, 0ms) ease-in-out;
+}
+.pad-sun {
+  transform: translateY(calc(var(--pad-day, 0) * var(--pad-sun-up, 0px)));
+  transition: transform var(--pad-day-ms, 0ms) ease-in-out;
+}
+
+/* The creator's assembly (phone, AssemblyScene) and its finale (LaunchFinale). Transform and
+   opacity only. */
+/* the engine: out until ignition (the flame scales from the nozzle), then the whole rocket trembles */
+.asm-flame {
+  transform: scale(0, 0.55);
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+[data-ignite] .asm-flame {
+  transform: scale(1.15, 1.08);
+}
+[data-ignite] .asm-shake {
+  animation: rw-shake 0.08s linear infinite;
+  --rw-amp: 1.1;
+}
+/* the mechanics bolting a seam: their tool arm goes at it */
+[data-bolting] .asm-mech [data-part$='-arm'] {
+  animation: asm-bolt 0.16s ease-in-out infinite alternate;
+}
+@keyframes asm-bolt {
+  from {
+    transform: rotate(-40deg);
+  }
+  to {
+    transform: rotate(-95deg);
+  }
+}
+/* the little person in the porthole: idle, out through the door, back with more kit */
+.asm-pp-door {
+  transition: transform 200ms ease-in-out;
+}
+[data-phase='out'] .asm-pp-door,
+[data-phase='in'] .asm-pp-door {
+  transform: scaleX(0.15);
+}
+.asm-pp-walker {
+  transition:
+    transform 650ms ease-in-out,
+    opacity 150ms ease;
+}
+[data-phase='out'] .asm-pp-walker {
+  transform: translateX(var(--pp-door, -40px));
+  opacity: 0;
+  transition:
+    transform 650ms ease-in-out,
+    opacity 150ms ease 540ms;
+}
+[data-phase='out'] .asm-pp-face {
+  transform: scaleX(-1);
+}
+.asm-pp-leg,
+.asm-pp-breathe {
+  transform-box: fill-box;
+}
+.asm-pp-leg {
+  transform-origin: 50% 0;
+}
+[data-phase='out'] .asm-pp-leg-a,
+[data-phase='in'] .asm-pp-leg-a {
+  animation: asm-pp-step 0.22s ease-in-out infinite alternate;
+}
+[data-phase='out'] .asm-pp-leg-b,
+[data-phase='in'] .asm-pp-leg-b {
+  animation: asm-pp-step 0.22s ease-in-out infinite alternate-reverse;
+}
+.asm-pp-breathe {
+  transform-origin: 50% 100%;
+  animation: asm-pp-breathe 3.4s ease-in-out infinite;
+}
+.asm-pp-cheer {
+  animation: asm-pp-cheer 0.6s ease-in-out infinite alternate;
+}
+@keyframes asm-pp-step {
+  from {
+    transform: rotate(-16deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+@keyframes asm-pp-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(1.015);
+  }
+}
+@keyframes asm-pp-cheer {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-16deg);
+  }
+}
+/* «Cambiar»: a soft blinking halo; at lift-off it breaks in two and a few shards fly */
+.asm-halo {
+  animation: asm-halo 1.4s ease-in-out infinite;
+}
+@keyframes asm-halo {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+.asm-break-l {
+  animation: asm-break-l 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+}
+.asm-break-r {
+  animation: asm-break-r 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+}
+.asm-shard {
+  opacity: 0;
+  animation: asm-shard 0.55s ease-out forwards;
+}
+@keyframes asm-break-l {
+  to {
+    transform: translate(-26px, 14px) rotate(-18deg);
+    opacity: 0;
+  }
+}
+@keyframes asm-break-r {
+  to {
+    transform: translate(28px, 16px) rotate(16deg);
+    opacity: 0;
+  }
+}
+@keyframes asm-shard {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + (var(--shard) - 1.5) * 18px), calc(-50% - 22px + var(--shard) * 9px)) rotate(200deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asm-flame,
+  .asm-pp-door,
+  .asm-pp-walker {
+    transition: none;
+  }
+  [data-ignite] .asm-shake,
+  [data-bolting] .asm-mech [data-part$='-arm'],
+  .asm-pp-leg,
+  .asm-pp-breathe,
+  .asm-pp-cheer,
+  .asm-halo {
+    animation: none !important;
+  }
+}

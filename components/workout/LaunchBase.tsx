@@ -68,6 +68,8 @@ import {
 import { getAudioContext } from '@/lib/audio';
 import { playSfx } from '@/lib/audio/sfx';
 import { sfxCue } from '@/lib/audio/sfxCue';
+import { DAWN, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
+import { BASE_DAY } from '@/components/workout/assembly';
 
 /*
  * The rocket base of the first screen (phone): today's suggestions as rockets on a vertical drum
@@ -95,8 +97,16 @@ interface LaunchBaseProps {
   initialIndex: number;
   /** the drum came to rest with this rocket at the centre */
   onCentre: (index: number) => void;
-  /** the centred rocket was tapped: its launch starts (block the rest of the screen) */
-  onLaunchStart?: () => void;
+  /** the centred rocket was tapped: its launch starts (block the rest of the screen); inside the tap */
+  onLaunchStart?: (suggestion: string) => void;
+  /**
+   * Asked once, as a launch starts: may it hold on the pad before ignition? It returns true and
+   * calls go when the rocket may ignite (the routine is ready and its sentence has been read), or
+   * false: the launch goes on as always.
+   */
+  liftGate?: (go: () => void) => boolean;
+  /** a held launch (liftGate) lifts off now: where its pad is on the screen, px */
+  onLiftOff?: (pad: { x: number; y: number }) => void;
   /** Random: where to land (any sentence of the bank; null: one of the drum's at random) */
   onRandom?: (centre: number) => RandomLanding | null;
   /** ...and put that sentence on that rocket (called while it is out of sight) */
@@ -142,7 +152,7 @@ const ASTRO_UNIT = 34; // astronaut drawing: body thickness / this = its scale
 // (the labels are measured in the page's font: textMeasure.ts, shared with the creator's bar)
 export { useTextMeasure };
 
-export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap, crewUp = false, barRef, barG, barHang = 0, ref }: LaunchBaseProps) {
+export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap, liftGate, onLiftOff, crewUp = false, barRef, barG, barHang = 0, ref }: LaunchBaseProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -251,9 +261,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const last = useRef(0);
   const moving = useRef(false);
   const pending = useRef<(() => void)[]>([]);
-  const callbacks = useRef({ onCentre, onLaunch, onLaunchStart });
+  const alive = useRef(true);
+  const callbacks = useRef({ onCentre, onLaunch, onLaunchStart, liftGate, onLiftOff });
   useLayoutEffect(() => {
-    callbacks.current = { onCentre, onLaunch, onLaunchStart };
+    callbacks.current = { onCentre, onLaunch, onLaunchStart, liftGate, onLiftOff };
   });
 
   const stepPx = L ? L.radius * Math.sin(DRUM.step) : 60;
@@ -442,16 +453,17 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     paintCrew('stand', 'stand');
   }, [L, track, paintDrum, paintCrew, setLive, n, fits]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       if (raf.current !== null) cancelAnimationFrame(raf.current);
       // (cleared, or a later kick would think a frame is still coming: React's dev double mount)
       raf.current = null;
+      alive.current = false;
       pending.current.forEach((fn) => fn());
       pending.current = [];
-    },
-    [],
-  );
+    };
+  }, []);
 
   // ── input ────────────────────────────────────────────────────────────────────────────────
   /** Sound may start from here on (inside a touch). */
@@ -573,17 +585,62 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   };
 
   /**
+  /**
    * From the pad on, the same for every launch: the rocket `el` stands up (from `onPad` to
    * `upright`), the launch tower slides in from the left and its arms dock, ignition, lift-off
-   * out of the top of the screen. `body`: the hull's thickness on the pad, px.
+   * out of the top of the screen; `onEnd` once it is out of sight. `body`: the hull's thickness on
+   * the pad, px. A launch the page holds (liftGate) waits on the pad, docked, before ignition.
    */
-  const padSequence = (el: HTMLElement, tl: LaunchTimeline, onPad: () => string, upright: string, liftTo: (out: number) => string, standY: number, k: number, body: number) => {
+  const padSequence = (el: HTMLElement, tl: LaunchTimeline, onPad: () => string, upright: string, liftTo: (out: number) => string, standY: number, k: number, body: number, onEnd: () => void) => {
     const root = rootRef.current;
     if (!root || !L) return;
+    // 7. ignition: flame, a harder tremble, smoke at the pad
+    const ignite = () => {
+      el.setAttribute('data-ignite', '');
+      root.setAttribute('data-ignite', '');
+    };
+    // 8. lift-off: the arms let go and it climbs out of the top of the screen
+    const lift = () => {
+      root.querySelectorAll<SVGGElement>('[data-gantry-arm]').forEach((arm) =>
+        arm.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0.12)' }], { duration: 140, fill: 'forwards' }),
+      );
+      const top = root.getBoundingClientRect().top;
+      const out = standY - (top + L.centreY + standY + (L.rocket.length * k) / 2 + 2 * body + 40);
+      el.animate([{ transform: upright }, { transform: liftTo(out) }], {
+        duration: LAUNCH.liftMs,
+        easing: 'cubic-bezier(0.55, 0, 0.85, 0.35)',
+        fill: 'forwards',
+      });
+    };
+
+    // held on the pad until the page lets it go (both: its time has come, and the go)
+    let due = false;
+    let open = false;
+    let fired = false;
+    const fire = () => {
+      if (fired || !due || !open || !alive.current) return;
+      fired = true;
+      ignite();
+      playSfx('ignite');
+      later(LAUNCH.igniteMs, () => {
+        playSfx('launch');
+        lift();
+        const box = root.getBoundingClientRect();
+        callbacks.current.onLiftOff?.({ x: box.left + L.rocket.cx, y: box.top + L.padY });
+      });
+      later(LAUNCH.igniteMs + LAUNCH.liftMs, onEnd);
+    };
+    const held =
+      callbacks.current.liftGate?.(() => {
+        open = true;
+        fire();
+      }) ?? false;
+
     const cues = [
       sfxCue(clockNow() + tl.dockAt + LAUNCH.dockMs * 0.8, () => playSfx('towerDock')),
-      sfxCue(clockNow() + tl.igniteAt, () => playSfx('ignite')),
-      sfxCue(clockNow() + tl.liftAt, () => playSfx('launch')),
+      ...(held
+        ? []
+        : [sfxCue(clockNow() + tl.igniteAt, () => playSfx('ignite')), sfxCue(clockNow() + tl.liftAt, () => playSfx('launch'))]),
     ];
     pending.current.push(() => cues.forEach((cue) => cue?.cancel()));
 
@@ -608,25 +665,16 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       );
     });
 
-    // 7. ignition: flame, a harder tremble, smoke at the pad
-    later(tl.igniteAt, () => {
-      el.setAttribute('data-ignite', '');
-      root.setAttribute('data-ignite', '');
-    });
-
-    // 8. lift-off: the arms let go and it climbs out of the top of the screen
-    later(tl.liftAt, () => {
-      root.querySelectorAll<SVGGElement>('[data-gantry-arm]').forEach((arm) =>
-        arm.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0.12)' }], { duration: 140, fill: 'forwards' }),
-      );
-      const top = root.getBoundingClientRect().top;
-      const out = standY - (top + L.centreY + standY + (L.rocket.length * k) / 2 + 2 * body + 40);
-      el.animate([{ transform: upright }, { transform: liftTo(out) }], {
-        duration: LAUNCH.liftMs,
-        easing: 'cubic-bezier(0.55, 0, 0.85, 0.35)',
-        fill: 'forwards',
+    if (held) {
+      later(tl.igniteAt, () => {
+        due = true;
+        fire();
       });
-    });
+      return;
+    }
+    later(tl.igniteAt, ignite);
+    later(tl.liftAt, lift);
+    later(tl.endAt, onEnd);
   };
 
   /** The rocket's upright place over the pad: how much it shrinks (k) and how far down it stands. */
@@ -690,7 +738,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     if (!root || !el || !L || !G || !T) return;
     busy.current = true;
     wake();
-    callbacks.current.onLaunchStart?.();
+    callbacks.current.onLaunchStart?.(suggestions[index]);
     const text = suggestions[index];
     const finish = () => callbacks.current.onLaunch(text);
 
@@ -717,8 +765,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     // 4–8. it stands up, the tower docks, ignition, lift-off
     const { k, standY } = padPlace(L);
     const upright = `translate3d(0, ${standY}px, 0) rotate(-90deg) scale(${k})`;
-    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate3d(0, ${out}px, 0) rotate(-90deg) scale(${k})`, standY, k, G.T);
-    later(tl.endAt, finish);
+    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate3d(0, ${out}px, 0) rotate(-90deg) scale(${k})`, standY, k, G.T, finish);
   };
 
   /** The typed sentence's launch (see LaunchBaseHandle): the text bar's rocket flies from the base. */
@@ -770,8 +817,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 
     // 4–8. as every launch
     const { k, standY } = padPlace(L);
-    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body);
-    later(tl.endAt, onGone);
+    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body, onGone);
     return true;
   };
   const launchBarRef = useRef(launchBar);
@@ -876,81 +922,8 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 
 type Geo = ReturnType<typeof padRocketGeometry>;
 
-/** The dawn and the dark steel of the base. */
-const DAWN = {
-  /** the page's own dark (RoutineComposer's first view: `max-lg:bg-[#2b2a28]`): the sky starts in it */
-  page: '#2b2a28',
-  sky: ['#2b2a28', '#4a4156', '#a5606a', '#ec9d78', '#fbd9ae'],
-  skyAt: [0, 0.3, 0.6, 0.83, 1],
-  sun: '#fff4d8',
-  glow: '#fff1cf',
-  cloud: '#f7b592',
-  silhouette: '#2a2625',
-  ground: ['#2f2b29', '#211e1d'],
-  road: '#463f3b',
-  roadEdge: '#6e655f',
-  roadLine: '#f3d7a8',
-  lampPost: '#4a433f',
-  lamp: '#ffe6b0',
-  car: '#0f0e0d',
-  carEdge: '#9a8f88',
-  headlight: '#fff1cf',
-  /** the steel: chords, bracing, plates, the rail's marks and the ladder (light, to read on the steel) */
-  steel: '#7a6f69',
-  brace: '#5a514c',
-  plate: '#322e2c',
-  dark: '#171514',
-  mark: '#a39890',
-  ladder: '#cfc6bf',
-  hazard: '#f2c230',
-  label: '#f4f3f0',
-} as const;
-
 /** The base page itself, behind its scene (the same dark as the page, so nothing shows as a block). */
 export const BASE_PAGE = DAWN.page;
-
-/** A dark steel lattice tower: two chords, alternating diagonals, horizontals, a cap and a red beacon. */
-function SteelTower({ x, w, top, bottom }: { x: number; w: number; top: number; bottom: number }) {
-  const bay = Math.max(14, Math.round(w * 1.25));
-  let braces = '';
-  let flip = false;
-  for (let y = top; y < bottom - 1; y += bay) {
-    const y2 = Math.min(bottom, y + bay);
-    braces += `M${x} ${y}H${x + w}`;
-    braces += flip ? `M${x + w} ${y}L${x} ${y2}` : `M${x} ${y}L${x + w} ${y2}`;
-    flip = !flip;
-  }
-  const cx = x + w / 2;
-  return (
-    <g>
-      <path d={braces} fill="none" stroke={DAWN.brace} strokeWidth={1} />
-      <path d={`M${x} ${top - 2}V${bottom}M${x + w} ${top - 2}V${bottom}`} fill="none" stroke={DAWN.steel} strokeWidth={2.2} />
-      <rect x={x - 3} y={top - 6} width={w + 6} height={4} rx={1} fill={DAWN.steel} />
-      <path d={`M${cx} ${top - 6}V${top - 11}`} stroke={DAWN.steel} strokeWidth={1.2} />
-      <circle cx={cx} cy={top - 12} r={6} fill={C.red} opacity={0.25} />
-      <circle cx={cx} cy={top - 12} r={2.2} fill={C.red} />
-    </g>
-  );
-}
-
-/** A car in silhouette, nose to the right (`flip`: to the left), its top at `y`, `k` times the sketch's size. */
-function Car({ y, k, flip }: { y: number; k: number; flip: boolean }) {
-  return (
-    <g transform={`translate(0 ${y}) scale(${flip ? -k : k} ${k})`}>
-      <path d="M20.4 4.6 L40 1 L40 9 Z" fill={DAWN.lamp} opacity={0.42} />
-      <path
-        d="M0 7 V4.6 Q0 3.6 1.2 3.4 L5 2.8 L7.5 .6 Q8 0 9 0 H14 Q15 0 15.6 .6 L17.6 2.9 L19.4 3.4 Q20.4 3.7 20.4 4.8 V7 Z"
-        fill={DAWN.car}
-        stroke={DAWN.carEdge}
-        strokeWidth={0.5}
-      />
-      <circle cx={4.6} cy={7} r={1.7} fill={DAWN.car} />
-      <circle cx={15.6} cy={7} r={1.7} fill={DAWN.car} />
-      <circle cx={20} cy={4.7} r={1.2} fill={DAWN.headlight} />
-      <circle cx={0.6} cy={4.7} r={1} fill={C.red} />
-    </g>
-  );
-}
 
 /**
  * Behind everything: the dawn sky (from the page's dark), the sun low on the horizon, two thin lit
@@ -969,19 +942,17 @@ function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: C
   const walkX1 = L.tower.rightX;
   const railY = track.deckY - G.T * 0.55;
   const q = road.h / 20; // the sketch's road is 20 px
-  const lamp = (x: number) => (
-    <g key={x}>
-      <path d={`M${x} ${road.top}V${road.top - 9 * q}h${4 * q}`} fill="none" stroke={DAWN.lampPost} strokeWidth={1} />
-      <circle cx={x + 4 * q} cy={road.top - 8.4 * q} r={1.1 * q} fill={DAWN.lamp} />
-      <circle cx={x + 4 * q} cy={road.top - 8 * q} r={3.4 * q} fill={DAWN.lamp} opacity={0.18} />
-    </g>
-  );
   return (
     <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0">
       <defs>
         <linearGradient id={`${uid}-sky`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={hz + 1}>
           {DAWN.sky.map((c, i) => (
             <stop key={c} offset={DAWN.skyAt[i]} stopColor={c} />
+          ))}
+        </linearGradient>
+        <linearGradient id={`${uid}-day`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={hz + 1}>
+          {BASE_DAY.map(([at, c]) => (
+            <stop key={c} offset={at} stopColor={c} />
           ))}
         </linearGradient>
         <linearGradient id={`${uid}-gnd`} gradientUnits="userSpaceOnUse" x1={0} y1={hz} x2={0} y2={H}>
@@ -998,9 +969,14 @@ function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: C
       </defs>
       {/* the sky, the sun half under the horizon, two thin lit clouds */}
       <rect width={W} height={hz + 1} fill={`url(#${uid}-sky)`} />
+      {/* (the day, over the dawn: off unless the page sets --pad-day to 1, while a routine takes off
+          straight from here; the sun climbs with it) */}
+      <rect width={W} height={hz + 1} fill={`url(#${uid}-day)`} className="pad-day" />
       <g clipPath={`url(#${uid}-sky-clip)`}>
-        <circle cx={X(92)} cy={hz - 1} r={118 * k} fill={`url(#${uid}-glow)`} />
-        <circle cx={X(92)} cy={hz - 1} r={22 * k} fill={DAWN.sun} />
+        <g className="pad-sun" style={{ ['--pad-sun-up' as string]: `${-Math.round(hz * 0.5)}px` }}>
+          <circle cx={X(92)} cy={hz - 1} r={118 * k} fill={`url(#${uid}-glow)`} />
+          <circle cx={X(92)} cy={hz - 1} r={22 * k} fill={DAWN.sun} />
+        </g>
       </g>
       <path
         d={`M${X(150)} ${Y(204)}Q${X(200)} ${Y(199)} ${X(262)} ${Y(203)}Q${X(300)} ${Y(205)} ${X(320)} ${Y(201)}V${Y(206)}Q${X(280)} ${Y(209)} ${X(240)} ${Y(207)}Q${X(190)} ${Y(205)} ${X(150)} ${Y(207)}Z`}
@@ -1009,37 +985,16 @@ function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: C
       />
       <path d={`M0 ${Y(214)}Q${X(30)} ${Y(211)} ${X(60)} ${Y(214)}Q${X(40)} ${Y(217)} 0 ${Y(217)}Z`} fill={DAWN.cloud} opacity={0.3} />
       {/* the far skyline: hills, a hangar, a small gantry with its rocket, a water tower */}
-      <g fill={DAWN.silhouette}>
-        <path d={`M0 ${hz}V${Y(228)}Q${X(40)} ${Y(222)} ${X(84)} ${Y(229)}Q${X(130)} ${Y(233)} ${X(176)} ${Y(228)}Q${X(230)} ${Y(222)} ${W} ${Y(229)}V${hz}Z`} />
-        <rect x={X(128)} y={Y(224)} width={40 * k} height={11 * k} />
-        <path d={`M${X(128)} ${Y(224)}L${X(148)} ${Y(218)}L${X(168)} ${Y(224)}Z`} />
-        <rect x={X(184)} y={Y(212)} width={5 * k} height={23 * k} />
-        <rect x={X(181)} y={Y(209)} width={11 * k} height={3 * k} />
-        <path d={`M${X(194)} ${hz}V${Y(220)}Q${X(196.5)} ${Y(213)} ${X(199)} ${Y(220)}V${hz}Z`} />
-        <rect x={X(188)} y={Y(218)} width={7 * k} height={2 * k} />
-        <rect x={X(188)} y={Y(227)} width={7 * k} height={2 * k} />
-        <rect x={X(50)} y={Y(220)} width={3 * k} height={15 * k} />
-        <path d={`M${X(44)} ${Y(220)}h${15 * k}l${-3 * k} ${-6 * k}h${-9 * k}z`} />
-      </g>
+      <Skyline W={W} hz={hz} k={k} />
       {/* the ground and its road: shoulders, the dashed centre line, two lamps */}
       <rect y={hz} width={W} height={H - hz} fill={`url(#${uid}-gnd)`} />
       <rect y={road.top} width={W} height={road.h} fill={DAWN.road} />
       <path d={`M0 ${road.top}H${W}M0 ${road.top + road.h}H${W}`} stroke={DAWN.roadEdge} strokeOpacity={0.7} strokeWidth={0.8} />
       <path d={`M0 ${road.top + road.h / 2}H${W}`} stroke={DAWN.roadLine} strokeOpacity={0.55} strokeWidth={1} strokeDasharray={`${9 * q} ${8 * q}`} />
-      {lamp(X(118))}
-      {lamp(X(204))}
+      <RoadLamp x={X(118)} top={road.top} q={q} />
+      <RoadLamp x={X(204)} top={road.top} q={q} />
       {/* a few cars, both ways, long gaps between them (CSS: pad-car-*; parked with reduced motion) */}
-      <g style={{ ['--pad-road' as string]: `${W}px` }}>
-        <g className="pad-car pad-car-b">
-          <Car y={road.top - 0.2 * q} k={0.95 * q} flip />
-        </g>
-        <g className="pad-car pad-car-a">
-          <Car y={road.top + 8.6 * q} k={1.15 * q} flip={false} />
-        </g>
-        <g className="pad-car pad-car-c">
-          <Car y={road.top + 8.6 * q} k={1.15 * q} flip={false} />
-        </g>
-      </g>
+      <RoadCars W={W} top={road.top} q={q} />
       <g data-fitting="">
         {/* the drum's upper dotted arc */}
         <path

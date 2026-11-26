@@ -35,6 +35,24 @@ import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
 import { creatorJoke, type CreatorSend } from '@/lib/intent/creatorJoke';
 import { CreatorJoke, jokeOrigin, type ActiveJoke } from '@/components/workout/CreatorJoke';
 import { playSfx } from '@/lib/audio/sfx';
+import { unlockPlayerAudio } from '@/lib/audio/unlock';
+import { AssemblyScene } from '@/components/workout/AssemblyScene';
+import { FINALE_SENTENCE, LaunchFinale, type FinalePhase } from '@/components/workout/LaunchFinale';
+import { openVeil, type Veil } from '@/components/workout/whiteVeil';
+import { LAUNCH } from '@/components/workout/launchDrum';
+import type { Outfit } from '@/components/workout/PortholePerson';
+import {
+  FINALE,
+  PAGE_DAY,
+  finaleSentence,
+  fittedTarget,
+  igniteAt,
+  joinNames,
+  pieceModes,
+  skyInk,
+  skyStep,
+  type PieceId,
+} from '@/components/workout/assembly';
 import type {
   Exercise,
   MuscleId,
@@ -204,6 +222,30 @@ function intensityLabel(difficulty: number): string {
   return difficulty <= 4 ? 'suave' : difficulty <= 6 ? 'media' : 'alta';
 }
 
+/** The routine's focus in words: "pierna y glúteo", "full body", "full body con foco en hombros". */
+function focusText(intent: RoutineIntent): string {
+  const { fullBody, names } = focusParts(intent);
+  if (fullBody) return names.length > 0 ? `full body con foco en ${joinNames(names)}` : 'full body';
+  return joinNames(names);
+}
+
+/**
+ * Phone: the automatic finale after the routine is built (the questions' assembly, path B, or the
+ * start screen's own launch, path C): its phase, when the sentence went up, where the smoke starts,
+ * and whether the start screen's base is flying the rocket (it then holds on the pad: liftGate).
+ */
+type Finale = {
+  path: 'B' | 'C';
+  phase: FinalePhase;
+  startedAt: number;
+  shownAt: number | null;
+  smokeFrom: { x: number; y: number } | null;
+  viaBase: boolean;
+};
+
+const isPhone = () => typeof window !== 'undefined' && !window.matchMedia(DESKTOP).matches;
+const clockNow = () => performance.now();
+
 async function resolveIntent(text: string): Promise<RoutineIntent> {
   try {
     const response = await fetch('/api/routine-intent', {
@@ -242,6 +284,30 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [built, setBuilt] = useState<Built | null>(null);
   const [stage, setStage] = useState(0); // 0 thinking · 1 minutes · 2 muscles · 3 exercises · 4 ready
   const [tray, setTray] = useState<Tray>(null);
+  // Phone: the questions build the routine's rocket (AssemblyScene) and it then takes off by itself
+  const [skipped, setSkipped] = useState(false);
+  const [assembled, setAssembled] = useState(false);
+  // what the sentence was understood as (Gemini, or the local parser), for the pieces' labels
+  const [heard, setHeard] = useState<RoutineIntent | null>(null);
+  const [finale, setFinale] = useState<Finale | null>(null);
+  const finaleRef = useRef<Finale | null>(null);
+  // the start screen's base holding its rocket on the pad until the sentence has been read
+  const gateRef = useRef<(() => void) | null>(null);
+  const veilRef = useRef<Veil | null>(null);
+  // a fresh base after going back (a launch held on its pad is dropped with it)
+  const [baseKey, setBaseKey] = useState(0);
+  const updateFinale = useCallback((next: Partial<Finale> | Finale | null) => {
+    const value = next === null ? null : ({ ...(finaleRef.current ?? {}), ...next } as Finale);
+    finaleRef.current = value;
+    setFinale(value);
+  }, []);
+  useEffect(
+    () => () => {
+      // (left in the middle of the white: never leave it over the page)
+      veilRef.current?.release();
+    },
+    [],
+  );
 
   const exercisesRef = useRef<Promise<Exercise[]> | null>(null);
   const clipRef = useRef<HTMLVideoElement>(null);
@@ -458,10 +524,29 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const submit = (raw: string, picked?: HTMLElement | null, launched = false) => {
     const prompt = raw.trim();
     if (!prompt) return;
+    // (phone: a launch of the base that goes straight on into the finale has nothing more to do here)
+    if (launched && finaleRef.current) return;
     if (launching.current && !launched) return; // a rocket of the base is taking off
     launching.current = false;
     // a sentence the user wrote (not a suggestion) that asks for too little: teased, nothing flies
     if (!picked && !launched && tease({ kind: 'sentence', prompt }, barRef.current)) return;
+    // phone, a typed sentence that already says it all (path C): it takes off from the base as
+    // always, held on the pad until the routine is ready and its sentence read, then the finale
+    if (!picked && !launched && isPhone() && questionsFor(prompt).length === 0) {
+      beginAuto(prompt, true);
+      if (baseRef.current?.launchBar(prompt, () => goOn(prompt, true))) {
+        launching.current = true;
+        if (blurTimer.current) clearTimeout(blurTimer.current);
+        const field = document.getElementById('routine-prompt');
+        if (field instanceof HTMLElement) field.blur();
+        if (barRef.current) barRef.current.style.visibility = 'hidden';
+        return;
+      }
+      // nothing flies from the base (reduced motion): the finale goes on by itself
+      updateFinale({ viaBase: false });
+      setHop(launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }));
+      return;
+    }
     // phone: the typed sentence takes off from the rocket base with the same launch as a
     // suggestion's (the crew board the bar's rocket, it comes down to the pad, lift-off); the next
     // step comes once it is out of sight
@@ -494,11 +579,31 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     recognitionRef.current?.stop();
     setError('');
     setText(prompt);
-    intentRef.current = resolveIntent(prompt).then((parsed) => ({
+    const understood = resolveIntent(prompt).then((parsed) => ({
       ...parsed,
       rounds: parseRounds(prompt) ?? parsed.rounds ?? null,
       exercisesPerRound: parseExercisesPerRound(prompt) ?? parsed.exercisesPerRound ?? null,
     }));
+    intentRef.current = understood;
+    setHeard(null);
+    understood
+      .then((parsed) => {
+        if (intentRef.current === understood) setHeard(parsed);
+      })
+      .catch(() => {});
+  };
+
+  /**
+   * Phone, a sentence with nothing to ask (path C): the start screen's own launch carries it, the
+   * sky turns to day, and the finale follows. Inside the tap: the player's sound is unlocked now
+   * (no "Empezar" tap will come), the music only starts with the workout.
+   */
+  const beginAuto = (prompt: string, viaBase: boolean) => {
+    unlockPlayerAudio({ startMusic: false });
+    understand(prompt);
+    gateRef.current = null;
+    updateFinale({ path: 'C', phase: 'wait', startedAt: clockNow(), shownAt: null, smokeFrom: null, viaBase });
+    void build({}, false);
   };
 
   /** On to the questions, or straight to the build. `fromBase`: the bar's own launch from the base has just ended. */
@@ -509,15 +614,24 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       setTyping(false);
       setHeldHeight(null);
     }
+    // (phone, path C: the finale is already under way)
+    if (finaleRef.current) return;
     const pending = questionsFor(prompt);
     if (pending.length > 0) {
       setQuestions(pending);
       setAnswers({});
       setAsked(0);
+      setSkipped(false);
+      setAssembled(false);
       setView('questions');
       return;
     }
     void build({});
+  };
+
+  /** Phone: the last real tap of the creator (the routine starts by itself after it): sound unlocked now, music with the workout. */
+  const lastTap = () => {
+    if (isPhone()) unlockPlayerAudio({ startMusic: false });
   };
 
   /** The waiting rocket of a question flies off: a short hop to the next one, the full climb at the last. */
@@ -525,29 +639,34 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     setHop(launchRocket(waitRef.current, { ms: last ? HOP.launchMs : HOP.hopMs, tilt: CREATOR.tilt }));
 
   const answer = (patch: Partial<RoutineIntent>, picked?: HTMLElement | null) => {
+    const last = asked + 1 >= questions.length;
+    if (last) lastTap();
     // the option tapped takes off (its own rocket), or the waiting one ("Seguir")
-    if (picked) setHop(launchRocket(picked, { ms: asked + 1 >= questions.length ? HOP.launchMs : HOP.hopMs }));
-    else launchQuestion(asked + 1 >= questions.length);
+    if (picked) setHop(launchRocket(picked, { ms: last ? HOP.launchMs : HOP.hopMs }));
+    else launchQuestion(last);
     const next = { ...answers, ...patch };
     setAnswers(next);
     setAsked(asked + 1);
-    if (asked + 1 >= questions.length) void build(next);
+    // (phone: the routine is built behind the assembly; the finale starts it)
+    if (last) void build(next, !isPhone());
   };
 
-  const build = async (extra: Partial<RoutineIntent>) => {
+  /** `show`: the build-up of the ready view (the computer, "Cambiar"); without it (phone), it is built out of sight. */
+  const build = async (extra: Partial<RoutineIntent>, show = true) => {
     jokeFired.current = false; // the next routine created may be teased again
     setBuilt(null);
     setTray(null);
-    setStage(0);
-    setView('result');
-
-    const clip = clipRef.current;
-    setClipDone(false);
-    if (clip && !reducedMotion) {
-      clip.currentTime = 0;
-      clip.play().catch(() => setClipDone(true));
-    } else {
-      setClipDone(true);
+    if (show) {
+      setStage(0);
+      setView('result');
+      const clip = clipRef.current;
+      setClipDone(false);
+      if (clip && !reducedMotion) {
+        clip.currentTime = 0;
+        clip.play().catch(() => setClipDone(true));
+      } else {
+        setClipDone(true);
+      }
     }
 
     let list: Exercise[];
@@ -591,8 +710,96 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     setClipDone(false);
     setBarRises(true);
     remeasure();
+    // (phone: whatever was being built or taking off is dropped, the base starts afresh)
+    if (finaleRef.current) setBaseKey((k) => k + 1);
+    gateRef.current = null;
+    updateFinale(null);
+    launching.current = false;
+    setSkipped(false);
+    setAssembled(false);
     setView('ask');
   };
+
+  /**
+   * Phone, «Cambiar» in the finale (before lift-off): no take-off; the ready view straight away
+   * (the sentence to retouch and the «Empezar» rocket), without the build-up.
+   */
+  const cambiarFinale = () => {
+    const f = finaleRef.current;
+    if (!f || f.phase === 'smoke' || f.phase === 'white' || !built) return;
+    gateRef.current = null;
+    updateFinale(null);
+    launching.current = false;
+    setTray(null);
+    setClipDone(true);
+    setStage(4);
+    setView('result');
+  };
+
+  /** Phone, the finale's end: the workout starts (with the warm-up), under the white that then dissolves. */
+  const latest = useRef({ built, intent, text, onStart });
+  useLayoutEffect(() => {
+    latest.current = { built, intent, text, onStart };
+  });
+  const handOff = useCallback(() => {
+    const { built: b, intent: i, text: t, onStart: start } = latest.current;
+    if (!b || !i) return;
+    // (the player's rocket arrives once the white has gone)
+    launchedUntil(performance.now() + FINALE.veilFadeMs);
+    start(b.queue, b.meta, i, t);
+    veilRef.current?.release();
+    veilRef.current = null;
+  }, []);
+
+  // B: the whole rocket is on and the routine is built: the sentence and «Cambiar» go up
+  useEffect(() => {
+    if (desktop || view !== 'questions' || !assembled || !built || finaleRef.current) return;
+    const t = setTimeout(() => updateFinale({ path: 'B', phase: 'read', startedAt: performance.now(), shownAt: performance.now(), smokeFrom: null, viaBase: false }), 0);
+    return () => clearTimeout(t);
+  }, [desktop, view, assembled, built, updateFinale]);
+
+  // the finale, a phase at a time
+  useEffect(() => {
+    if (!finale) return;
+    const now = performance.now();
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, Math.max(0, ms)));
+    if (finale.phase === 'wait' && built) {
+      // C: the sentence goes up once the routine is built, and not before the drum has cleared away
+      at(finale.startedAt + FINALE.cSentenceMs - now, () => updateFinale({ phase: 'read', shownAt: performance.now() }));
+    } else if (finale.phase === 'read' && finale.shownAt !== null) {
+      if (finale.path === 'C' && finale.viaBase && !reducedMotion) {
+        // the base's rocket, held on its pad, ignites so that it lifts off once the sentence has been read
+        at(igniteAt(finale.shownAt, LAUNCH.igniteMs) - now, () => {
+          const go = gateRef.current;
+          gateRef.current = null;
+          if (go) {
+            updateFinale({ phase: 'launch' });
+            go();
+          } else updateFinale({ phase: 'smoke', smokeFrom: null });
+        });
+      } else {
+        at(finale.shownAt + FINALE.readMs - now, () =>
+          updateFinale(reducedMotion ? { phase: 'white' } : finale.path === 'B' ? { phase: 'launch' } : { phase: 'smoke', smokeFrom: null }),
+        );
+      }
+    } else if (finale.phase === 'smoke') {
+      at(FINALE.smokeMs, () => updateFinale({ phase: 'white' }));
+    } else if (finale.phase === 'white') {
+      veilRef.current ??= openVeil({ warmup: Boolean(built?.queue.some((item) => item.kind === 'warmup')), reduced: Boolean(reducedMotion) });
+      at(FINALE.whiteMs, handOff);
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [finale, built, reducedMotion, updateFinale, handOff]);
+
+  /** The rocket lifts off (the assembly's, or the base's held one): the smoke from its pad. */
+  const liftOff = useCallback(
+    (pad: { x: number; y: number }) => {
+      if (finaleRef.current) updateFinale({ phase: 'smoke', smokeFrom: pad });
+    },
+    [updateFinale],
+  );
+  const onAssembled = useCallback(() => setAssembled(true), []);
 
   // "Empezar": the rocket takes off, and the player's rocket arrives for the warm-up once it has gone.
   const start = () => {
@@ -704,32 +911,74 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   } as CSSProperties;
   // Phone, first view: the dark page with the porthole and the rocket base (computer: as before)
   const phoneAsk = view === 'ask';
+  // Phone: the questions build the rocket in the dawn (AssemblyScene); the sky's step follows the pieces
+  const phoneQuestions = view === 'questions' && !desktop;
+  const questionIds = questions.map((q) => q.id);
+  const fitted = fittedTarget(questionIds, asked, skipped);
+  const sky = skyStep(fitted);
+  // the sky is still dark at the top (light text) on the phone's first view and the first steps
+  const darkTop = (phoneAsk && finale?.path !== 'C') || (phoneQuestions && !skyInk(sky));
+  // C: the start screen turns to day while its rocket takes off
+  const dayC = phoneAsk && finale?.path === 'C';
+  const finaleText = finale && built && intent ? finaleSentence(focusText(intent), Math.round(built.meta.totalSeconds / 60), intensityLabel(intent.difficulty)) : null;
+  // what is written on the pieces: the sentence as understood (or the local reading until then),
+  // the answers, and once it is built, the routine's own numbers
+  const localIntent = useMemo(() => parseIntentKeywords(text), [text]);
+  const understood = intent ?? heard ?? localIntent;
+  const previewRounds = useMemo(() => {
+    if (!phoneQuestions || library.length === 0 || built) return null;
+    const { meta } = buildRoutine(library, { ...understood, ...answers, targetMinutes: answers.targetMinutes ?? draftMinutes }, () => 0.42);
+    return meta.rounds;
+  }, [phoneQuestions, library, built, understood, answers, draftMinutes]);
+  const blocks = built?.meta.rounds ?? answers.rounds ?? previewRounds;
+  const intensityWord = intensityLabel(answers.difficulty ?? understood.difficulty);
+  const pieceLabels: Record<PieceId, string> = {
+    nose: focusText(understood) || 'tu rutina',
+    minutes: `${built ? Math.round(built.meta.totalSeconds / 60) : (answers.targetMinutes ?? draftMinutes)} min`,
+    blocks: blocks ? `${blocks} ${blocks === 1 ? 'bloque' : 'bloques'}` : 'bloques',
+    engine: intensityWord[0].toUpperCase() + intensityWord.slice(1),
+  };
 
   return (
     <div
       ref={pageRef}
       className={`relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row ${phoneAsk ? 'max-lg:bg-[#2b2a28]' : ''}`}
+      style={
+        dayC
+          ? ({ '--pad-day': 1, '--pad-day-ms': `${reducedMotion ? 0 : FINALE.cSkyMs}ms` } as CSSProperties)
+          : undefined
+      }
     >
+      {/* phone, C: the day over the start screen's dark page (the base turns to day with it) */}
+      {phoneAsk && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 lg:hidden"
+          style={{ background: PAGE_DAY, opacity: dayC ? 1 : 0, transition: `opacity ${reducedMotion ? 0 : FINALE.cSkyMs}ms ease-in-out` }}
+        />
+      )}
       <header className="absolute inset-x-0 top-0 z-10 box-content flex h-16 items-center justify-between px-5 pt-[env(safe-area-inset-top)] sm:px-8">
-        {view !== 'ask' ? (
+        {view !== 'ask' && !(finale && !desktop) ? (
           <button
             type="button"
             onClick={backToAsk}
-            className={`-ml-2 flex min-h-11 items-center gap-1 rounded-full pl-2 pr-4 text-[15px] font-medium text-ink/75 hover:text-ink ${focusRing}`}
+            className={`-ml-2 flex min-h-11 items-center gap-1 rounded-full pl-2 pr-4 text-[15px] font-medium text-ink/75 hover:text-ink ${focusRing} ${
+              darkTop ? 'max-lg:text-white/85 max-lg:transition-colors max-lg:duration-[1200ms] max-lg:hover:text-white max-lg:focus-visible:outline-white' : 'max-lg:transition-colors max-lg:duration-[1200ms]'
+            }`}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Cambiar
           </button>
         ) : (
-          <span className="text-lg font-bold tracking-tight max-lg:text-white">Everyday M</span>
+          <span className={`text-lg font-bold tracking-tight max-lg:transition-colors max-lg:duration-[1200ms] ${darkTop ? 'max-lg:text-white' : 'max-lg:text-ink'}`}>Everyday M</span>
         )}
-        {onOpenStudio && (
+        {onOpenStudio && !(finale && !desktop) && (
           <button
             type="button"
             onClick={onOpenStudio}
             aria-label="Estudio y modo avanzado"
             className={`flex h-11 w-11 items-center justify-center rounded-full text-ink/65 hover:bg-ink/10 hover:text-ink ${focusRing} ${
-              phoneAsk ? 'max-lg:text-white/75 max-lg:hover:bg-white/10 max-lg:hover:text-white max-lg:focus-visible:outline-white' : ''
+              darkTop ? 'max-lg:text-white/75 max-lg:hover:bg-white/10 max-lg:hover:text-white max-lg:focus-visible:outline-white' : ''
             }`}
           >
             <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
@@ -747,7 +996,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         }}
         className={`media-feather relative mx-auto aspect-[9/16] shrink-0 overflow-hidden transition-[height,opacity] duration-500 lg:mx-0 lg:h-dvh ${view === 'questions' ? 'h-[30dvh]' : view === 'result' && ready ? 'h-[36dvh]' : 'h-[52dvh]'} ${
           // phone, first view: out of the way (the porthole shows Marcel); it stays loaded for the build
-          phoneAsk ? 'max-lg:pointer-events-none max-lg:absolute max-lg:inset-x-0 max-lg:top-0 max-lg:opacity-0' : ''
+          phoneAsk ? 'max-lg:pointer-events-none max-lg:absolute max-lg:inset-x-0 max-lg:top-0 max-lg:opacity-0' : view === 'questions' ? 'max-lg:hidden' : ''
         }`}
       >
         <motion.div
@@ -809,14 +1058,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           </motion.h1>
 
           {/* phone: the slogan over the dark page, and Marcel in the porthole behind it */}
-          <h1 className="relative z-10 mt-1 text-[clamp(1.9rem,9.6vw,2.75rem)] font-semibold leading-[1.04] tracking-[-0.03em] text-white lg:hidden">
+          <h1 className={`relative z-10 mt-1 text-[clamp(1.9rem,9.6vw,2.75rem)] font-semibold leading-[1.04] tracking-[-0.03em] text-white transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
             ¿Te quieres
             <br />
             poner como
             <br />
             <span className="text-heat">un cohete?</span>
           </h1>
-          <div className="relative min-h-0 flex-1 lg:hidden">
+          <div className={`relative min-h-0 flex-1 transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
             <Porthole
               clip={standIn}
               neutral={typing || text.trim() !== ''}
@@ -828,7 +1077,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           <div
             ref={barRef}
             style={barVars}
-            className="flex items-end gap-2 rounded-[28px] bg-white p-2 pl-5 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.35)] max-lg:relative max-lg:-mx-2 max-lg:mb-3 max-lg:block max-lg:h-[var(--bar-h)] max-lg:shrink-0 max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none"
+            className={`flex items-end gap-2 rounded-[28px] bg-white p-2 pl-5 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.35)] max-lg:relative max-lg:-mx-2 max-lg:mb-3 max-lg:block max-lg:h-[var(--bar-h)] max-lg:shrink-0 max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none ${dayC ? 'max-lg:opacity-0 max-lg:transition-opacity max-lg:duration-700' : ''}`}
           >
             <PadRocket
               g={bar.g}
@@ -923,6 +1172,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               while the keyboard is up (the crew then wait on the bar's top) */}
           <div className="-mx-5 shrink-0 sm:-mx-8 lg:hidden">
             <LaunchBase
+              key={baseKey}
               ref={baseRef}
               crewUp={typing || joke !== null}
               barRef={barRef}
@@ -931,9 +1181,18 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               suggestions={drum}
               initialIndex={drumCentre}
               onCentre={setDrumCentre}
-              onLaunchStart={() => {
+              onLaunchStart={(suggestion) => {
                 launching.current = true;
+                // (path C: a suggestion that says it all takes off into the finale; inside the tap)
+                if (isPhone() && questionsFor(suggestion).length === 0) beginAuto(suggestion, !reducedMotion);
               }}
+              liftGate={(go) => {
+                const f = finaleRef.current;
+                if (!f || f.path !== 'C' || !f.viaBase) return false;
+                gateRef.current = go;
+                return true;
+              }}
+              onLiftOff={liftOff}
               onLaunch={(suggestion) => submit(suggestion, null, true)}
               onRandom={(centre) => {
                 const pick = randomLanding({ bank: SUGGESTIONS, drum, centre, recent: randomRecent.current });
@@ -944,6 +1203,110 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             />
           </div>
         </form>
+      ) : phoneQuestions ? (
+        // phone: the questions on the left; on the right the routine's rocket is built, a piece per
+        // answer, in the dawn that turns to day; then it takes off by itself
+        <AssemblyScene
+          target={fitted}
+          modes={pieceModes(questionIds, asked)}
+          labels={pieceLabels}
+          sky={sky}
+          outfit={sky as Outfit}
+          finale={finale?.path !== 'B' ? 'none' : finale.phase === 'read' ? 'read' : finale.phase === 'wait' ? 'none' : 'launch'}
+          onAssembled={onAssembled}
+          onLiftOff={liftOff}
+        >
+          {(L, ink) =>
+            finale?.path === 'B' && finaleText ? (
+              <motion.p
+                initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, ease: EASE }}
+                aria-live="polite"
+                className={`pt-2 text-ink ${FINALE_SENTENCE}`}
+                style={{ maxWidth: L.column.titleWidth }}
+              >
+                {finaleText}
+              </motion.p>
+            ) : skipped || asked >= questions.length ? null : (
+              <div className="flex flex-col gap-5 pt-2">
+                <div style={{ minHeight: L.column.titleMin }}>
+                  <AnimatePresence mode="wait" initial={false}>
+                    {questions
+                      .filter((_, i) => i === asked)
+                      .map((q) => (
+                        <motion.h1
+                          key={q.id}
+                          initial={reducedMotion ? false : { opacity: 0, x: 40 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={reducedMotion ? undefined : { opacity: 0, x: -40 }}
+                          transition={{ duration: 0.45, ease: EASE }}
+                          style={{ maxWidth: L.column.titleWidth }}
+                          className={`text-balance text-[clamp(2.25rem,8vw,4rem)] font-semibold leading-[1] tracking-[-0.035em] transition-colors duration-[1200ms] ${ink ? 'text-ink' : 'text-white'}`}
+                        >
+                          {q.title}
+                        </motion.h1>
+                      ))}
+                  </AnimatePresence>
+                </div>
+                {questions[asked]?.id === 'minutes' ? (
+                  <div className="rounded-3xl bg-white p-4 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.5)]">
+                    <MinutesSlider wrap value={draftMinutes} onChange={setDraftMinutes} preview={shapeFor(draftMinutes)} />
+                  </div>
+                ) : questions[asked] ? (
+                  // each option is a rocket, one above the other; the one tapped takes off
+                  <RiseIn key={questions[asked].id} delay={Math.min(hop, 300)} className="flex flex-col items-start gap-3">
+                    {questions[asked].options.map((option) => (
+                      <ChoiceRocket
+                        key={option.label}
+                        text={option.label}
+                        room={L.column.right - L.column.left}
+                        minChars={Math.max(...questions[asked].options.map((o) => o.label.length))}
+                        onClick={(e) => {
+                          const q = questions[asked];
+                          const difficulty = q.id === 'intensity' ? option.patch.difficulty : undefined;
+                          if (difficulty !== undefined && tease({ kind: 'intensity', difficulty }, e.currentTarget)) return;
+                          answer(option.patch, e.currentTarget);
+                        }}
+                      />
+                    ))}
+                  </RiseIn>
+                ) : null}
+                {/* on the minutes the rocket waits for the tap: it is the "Seguir" button */}
+                {questions[asked]?.id === 'minutes' && (
+                  <WaitingRocket
+                    key={asked}
+                    ref={waitRef}
+                    riseDelay={hop}
+                    label="Seguir"
+                    room={L.column.right - L.column.left}
+                    onClick={() => {
+                      if (tease({ kind: 'minutes', minutes: draftMinutes }, waitRef.current)) return;
+                      answer({ targetMinutes: draftMinutes });
+                    }}
+                    flame={minutesEngine(draftMinutes).flame}
+                    shake={minutesEngine(draftMinutes).shake}
+                    pullUp={24}
+                  />
+                )}
+                {asked < questions.length && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      lastTap();
+                      launchQuestion(true);
+                      setSkipped(true);
+                      void build(answers, false);
+                    }}
+                    className={`self-start rounded-full bg-white/85 px-3.5 py-2 text-[15px] font-medium text-ink/75 underline decoration-ink/25 underline-offset-4 hover:text-ink ${focusRing}`}
+                  >
+                    Saltar, decide tú
+                  </button>
+                )}
+              </div>
+            )
+          }
+        </AssemblyScene>
       ) : view === 'questions' ? (
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-8 px-5 pb-8 sm:px-8 lg:px-16">
           <div className="flex items-center justify-between gap-4">
@@ -1252,6 +1615,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       )}
 
       <CreatorJoke joke={joke} shakeTarget={pageRef} onDone={() => setJoke(null)} />
+
+      {/* phone: the finale's sentence (C: written in the sky here), «Cambiar», the smoke */}
+      {finale && !desktop && finale.phase !== 'wait' && (
+        <LaunchFinale
+          phase={finale.phase}
+          sentence={finale.path === 'C' ? finaleText : null}
+          smokeFrom={finale.smokeFrom}
+          onCambiar={cambiarFinale}
+          reduced={Boolean(reducedMotion)}
+        />
+      )}
     </div>
   );
 }
