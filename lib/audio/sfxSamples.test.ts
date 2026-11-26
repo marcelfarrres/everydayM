@@ -6,11 +6,31 @@ import { SFX_SAMPLES, SFX_SAMPLE_DIR, sampleLoopGain, sampleUrl } from './sfxSam
 
 const PUBLIC_SFX = path.join(process.cwd(), 'public', 'sfx');
 const entries = Object.entries(SFX_SAMPLES) as [SfxName, NonNullable<(typeof SFX_SAMPLES)[SfxName]>][];
+/** The first screen's rocket base: ambience, quieter than everything else. */
+const BASE = ['drumClick', 'metalStep', 'ladderStep', 'buttonThunk', 'towerDock'] as const;
 
 describe('recorded effects', () => {
   it('records every sound the user kept, and leaves the 3-2-1 synthesised', () => {
     expect(entries.map(([name]) => name).sort()).toEqual(
-      ['banner', 'boost', 'clack', 'drumHit', 'drumRoll', 'error', 'ignite', 'land', 'launch', 'pam', 'separate', 'slowMo'].sort(),
+      [
+        'banner',
+        'boost',
+        'buttonThunk',
+        'clack',
+        'drumClick',
+        'drumHit',
+        'drumRoll',
+        'error',
+        'ignite',
+        'ladderStep',
+        'land',
+        'launch',
+        'metalStep',
+        'pam',
+        'separate',
+        'slowMo',
+        'towerDock',
+      ].sort(),
     );
     for (const name of ['beep', 'beepFinal'] as const) expect(SFX_SAMPLES[name]).toBeUndefined();
     // every recording still has its recipe to fall back on
@@ -47,8 +67,26 @@ describe('recorded effects', () => {
     for (const loud of ['launch', 'boost', 'land', 'separate'] as const) {
       expect(gain(loud)).toBeGreaterThan(gain('pam'));
     }
+    const base: readonly SfxName[] = BASE;
     for (const click of ['banner', 'clack'] as const) {
-      for (const other of entries.filter(([n]) => n !== 'banner' && n !== 'clack')) expect(gain(click)).toBeLessThan(other[1].gain);
+      for (const other of entries.filter(([n]) => n !== 'banner' && n !== 'clack' && !base.includes(n))) {
+        expect(gain(click)).toBeLessThan(other[1].gain);
+      }
+    }
+  });
+
+  it("keeps the rocket base's recordings as quiet ambience: under the clicks and the buzzer", () => {
+    const gain = (name: SfxName) => SFX_SAMPLES[name]?.gain ?? 0;
+    for (const name of BASE) {
+      expect(SFX_RECIPES[name].category).toBe('ambient');
+      expect(gain(name)).toBeGreaterThan(0);
+      expect(gain(name)).toBeLessThan(Math.min(gain('banner'), gain('clack'), gain('error')));
+      // short files (the tower's clank is the longest, under half a second): a few KB each
+      expect(fs.statSync(path.join(PUBLIC_SFX, `${name}.mp3`)).size).toBeLessThan(12 * 1024);
+    }
+    // the ratchet and the steps repeat fast: quieter than the button and the tower
+    for (const soft of ['drumClick', 'metalStep', 'ladderStep'] as const) {
+      for (const hard of ['buttonThunk', 'towerDock'] as const) expect(gain(soft)).toBeLessThan(gain(hard));
     }
   });
 

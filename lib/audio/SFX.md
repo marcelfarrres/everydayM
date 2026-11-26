@@ -3,20 +3,21 @@
 Sobre el `AudioContext` compartido (`lib/audio.ts`). Nunca bajan la música.
 
 ## Grabaciones reales y sintetizados
-- **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `pam`, `banner`, `clack`, `ignite`, `drumRoll`, `drumHit`, `error`. Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
+- **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `pam`, `banner`, `clack`, `ignite`, `drumRoll`, `drumHit`, `error`, y los de la base de cohetes de la primera pantalla (`drumClick`, `metalStep`, `ladderStep`, `buttonThunk`, `towerDock`). Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
 - **Pantalla final (móvil)**: `drumRoll` es un redoble de caja real (bucle, 10,5 s sin repetirse; el crescendo es su intensidad, de 0,3 a 1) y `drumHit` el platillo que lo cierra. Sus recetas de reserva: ruido que tiembla 16–19 veces por segundo (el redoble) y un crash de ruido agudo sobre un golpe grave.
-- **Sintetizados** (`sfxRecipes.ts`): `beep` y `beepFinal`, y los de la base de cohetes de la primera pantalla (`drumClick`, `metalStep`, `ladderStep`, `buttonThunk`, `towerDock`; aún sin grabación). (`engineRumble` y los sonidos de la reparación, `hammer`, `ratchet` y `puff`, se quitaron: el golpe agudo del martillo se confundía con el 3-2-1 y no aportaban nada sobre la música; los mecánicos trabajan en silencio.)
+- **Base de cohetes (móvil)**: grabaciones de Kenney (CC0), elegidas midiendo (nadie las ha escuchado): ruidosas, de graves a medios, sin un tono limpio en la zona del 3-2-1 (880–1320 Hz). `drumClick` es un clic de 27 ms que no resuena; `metalStep` una pisada sorda con un roce de chapa; `ladderStep` un golpe hueco de lata, más agudo, para que subir no suene como andar; `buttonThunk` un golpe grave de chapa (0,25 s) y `towerDock` uno más pesado (0,45 s). Sus recetas siguen de reserva.
+- **Sintetizados** (`sfxRecipes.ts`): `beep` y `beepFinal`. (`engineRumble` y los sonidos de la reparación, `hammer`, `ratchet` y `puff`, se quitaron: el golpe agudo del martillo se confundía con el 3-2-1 y no aportaban nada sobre la música; los mecánicos trabajan en silencio.)
 - Cada grabación se descarga y decodifica una sola vez (`fetch` + `decodeAudioData`) y se guarda. Empiezan a cargar en el toque de «Empezar» (`unlockPlayerAudio` → `preloadSfx()`) y, si no, con el primer efecto.
 - Si un archivo falta, no se puede decodificar o aún no ha llegado, suena su receta sintetizada, sin avisar.
 - **Cambiar un sonido**: sustituir su mp3 por otro con el mismo nombre. Para añadir o quitar uno, su línea en `sfxSamples.ts`.
 
 ## Niveles (para ajustar de oído)
-- Grabaciones: `gain` de cada una en `sfxSamples.ts`. Los archivos vienen normalizados a un nivel común (los 200 ms más fuertes a unos −16 dBFS RMS, picos ≤ −1 dBFS), así que `gain` es solo la mezcla: vuelo y separación 0,7–0,75 (se oyen claros, por debajo de la música), el golpe de los caballetes (`pam`) 0,55, clics de interfaz 0,28–0,4, y los tambores del final, que suenan solos, el redoble 0,6 y el platillo 0,8.
+- Grabaciones: `gain` de cada una en `sfxSamples.ts`. Los archivos vienen normalizados a un nivel común (los 200 ms más fuertes a unos −16 dBFS RMS, picos ≤ −1 dBFS), así que `gain` es solo la mezcla: vuelo y separación 0,7–0,75 (se oyen claros, por debajo de la música), el golpe de los caballetes (`pam`) 0,55, clics de interfaz 0,28–0,4, y los tambores del final, que suenan solos, el redoble 0,6 y el platillo 0,8. La base de cohetes, por debajo de los clics y del zumbido: carraca 0,12, pasos y peldaños 0,08, botón 0,24 y torre 0,22.
 - Sintetizados: `gain` de cada receta en `sfxRecipes.ts`. Todos: `SFX_MASTER` (en `sfxRecipes.ts`).
 - Música: por defecto al 0,4 (`DEFAULT_MUSIC_SETTINGS` en `mix.ts`, antes 0,8). La preferencia se guarda en `everydaym.music.v2`; la v1 se borra (conservando solo el silencio), así todos empiezan una vez al nuevo nivel. Los efectos van con el mismo volumen, así que la proporción efectos/música no cambia al moverlo.
 - Nadie los ha escuchado aún.
 
-Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`. Los de la base: ninguno es un seno limpio en la zona del 3-2-1, y todos van por debajo del zumbido de las bromas.
+Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`. Los de la base: ninguna receta es un seno limpio en la zona del 3-2-1, y recetas y grabaciones van por debajo del zumbido de las bromas (las grabaciones, también por debajo de `banner` y `clack`).
 
 ## API
 - `playSfx(name, { gain?, gesture? })`: un golpe. `gesture: true` solo si se llama dentro de un toque (puede despertar el contexto).

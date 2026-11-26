@@ -274,8 +274,8 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
     ],
   },
 
-  // The first screen's rocket base (phone): ambience, quiet. Only synthesised for now (no recording
-  // downloaded yet). None is a clean sine up high, so none can pass for the 3-2-1.
+  // The first screen's rocket base (phone): ambience, quiet. They have recordings (sfxSamples.ts):
+  // these recipes are the fallback. None is a clean sine up high, so none can pass for the 3-2-1.
 
   // The drum's ratchet: a dry metallic tick per rocket passing the centre. `minGap` keeps a fast
   // roulette from machine-gunning (at most ~12 a second).
