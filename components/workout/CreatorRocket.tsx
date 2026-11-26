@@ -194,7 +194,9 @@ export function WaitingRocket({
 // px per character of the label (15 px semibold), and the rocket around it (rocket units at scale 1)
 const CHAR_PX = 8.2;
 // (the tail: flame room, nozzle and its livery; the nose with its antenna: rocketShape's SHIP_ENDS)
-const AROUND = { tail: Math.ceil(SHIP_ENDS.tail), nose: Math.ceil(SHIP_ENDS.nose), flameRoom: 14 } as const;
+// (and a little air between the checker strip and the words)
+const LABEL_AIR = 5;
+const AROUND = { tail: Math.ceil(SHIP_ENDS.tail) + LABEL_AIR, nose: Math.ceil(SHIP_ENDS.nose), flameRoom: 14 } as const;
 
 /** How long a choice rocket is for a label of `chars` characters (px, at most the room there is). */
 const choicePx = (chars: number, room: number) => Math.min(room + AROUND.flameRoom, Math.round(chars * CHAR_PX + 12 + AROUND.tail + AROUND.nose));
@@ -231,7 +233,7 @@ export function ChoiceRocket({
       <RocketFigure g={g} hoverFlame className="pointer-events-none absolute top-0" style={{ left: -AROUND.flameRoom }} />
       <span
         className="pointer-events-none absolute flex items-center text-[15px] font-semibold leading-none text-ink"
-        style={{ ...scaledBox(g.content, 1), left: g.content.left - AROUND.flameRoom }}
+        style={{ ...scaledBox(g.content, 1), left: g.content.left - AROUND.flameRoom + LABEL_AIR, width: g.content.right - g.content.left - LABEL_AIR }}
       >
         <span className="truncate">{text}</span>
       </span>
