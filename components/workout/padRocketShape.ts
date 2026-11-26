@@ -12,6 +12,8 @@
  * layout (`padBarLayout`).
  */
 
+import { NOSE } from '@/components/workout/rocketPaths';
+
 export const PAD_COLORS = {
   ink: '#131313',
   red: '#ff3b30',
@@ -59,9 +61,9 @@ const round1 = (v: number) => Math.round(v * 10) / 10;
 /**
  * The approved nose (cohete-reproductor): it leaves the hull tangentially, tapers and ends in a
  * small rounded end in ink. In units of the body thickness: `len` from the hull to the rounded
- * end, then the antenna and its red light.
+ * end, then the antenna and its red light. (Shared with the routine's rocket: rocketPaths.ts.)
  */
-export const NOSE = { len: 1.295, antenna: 0.24, light: 0.04 } as const;
+export { NOSE };
 
 /**
  * The geometry of a rocket `length` px long (the box: nozzle to antenna light), body `body` px
