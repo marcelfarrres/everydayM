@@ -188,18 +188,28 @@ export function RocketWidget({
   // (reduced motion: no mechanics; the part is simply gone once the calm version of the clouds,
   // their sentences on a still background, is over: CloudTransition)
   const calm = reduced && cloudRest?.kind === 'rest' && blockEnds(cloudRest);
-  const holding = useCloudMoment((m) =>
+  // ...and once it has gone, the new tail's fins spring out of the hull (until then they are in:
+  // drawn hidden, then painted by the same clock, below). One reading of the clock says both, so
+  // the render that first draws the new tail is the one that draws its fins inside the hull.
+  const stage = useCloudMoment((m): 'hold' | 'fins' | 'free' =>
     separating
       ? m.key === cloudKey
         ? m.t !== null && m.t < SEPARATION.releaseMs
+          ? 'hold'
+          : finsPending(m.t)
+            ? 'fins'
+            : 'free'
         : currentIndex === cloudKey
+          ? 'hold'
+          : 'free'
       : calm
         ? currentIndex === cloudKey && (m.key !== cloudKey || m.t !== null)
-        : false,
+          ? 'hold'
+          : 'free'
+        : 'free',
   );
-  // ...and once it has gone, the new tail's fins spring out of the hull (until then they are in:
-  // drawn hidden, then painted by the same clock, below)
-  const finsIn = useCloudMoment((m) => separating && m.key === cloudKey && finsPending(m.t));
+  const holding = stage === 'hold';
+  const finsIn = stage === 'fins';
   const [heldIndex, setHeldIndex] = useState(currentIndex);
   if (!holding && heldIndex !== currentIndex) setHeldIndex(currentIndex);
   const lagged = useLagged(currentIndex, entering && !separating ? FLIGHT.dropMs : 0);
