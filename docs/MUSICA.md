@@ -102,6 +102,25 @@ Además de las 22 que ya están en el anexo de `PLAN-HILO-CONDUCTOR.md` (Kulakov
 - **Música generada con IA**: Pixabay ya tiene pistas marcadas como IA (una de las de arriba, además registrada en Content ID). [sin verificar] Los términos de Suno, Udio y similares: no los leí. Antes de usarla, mirar si el plan permite uso comercial y quién es el titular.
 - **Uppbeat gratis** cubre web y vídeos, pero solo da unas pocas descargas al mes y exige crédito.
 
+## Listas por estilo (26-11-2026)
+
+Cuatro estilos, con cada pista comprobada en su propia página. Descarga manual.
+
+- [Techno / house](musica/techno-house.md)
+- [Años 80](musica/anos-80.md)
+- [Reguetón](musica/regueton.md)
+- [Comercial](musica/comercial.md)
+
+Lo que salió al hacerlas y cambia lo dicho más arriba:
+
+- **Entre un tercio y más de la mitad de las pistas de Pixabay abiertas estaban en Content ID**, según el estilo. La lista de resultados nunca lo muestra.
+- **Un autor no es garantía**: Kulakovka tiene registradas las subidas antiguas y algunas de house; NickPanek escribe que no registra nada y tiene una registrada. Se comprueba pista a pista, también las 13 de Kulakovka del anexo del plan.
+- **Leer la descripción del autor además del aviso**: una pista sin aviso llevaba escrito «no es para uso comercial».
+- **Incompetech queda fuera**: su página dice que la música de Kevin MacLeod está prerregistrada en Content ID.
+- **Muchas pistas limpias están marcadas «AI generated»** (más de la mitad en reguetón y años 80). La licencia de Pixabay las cubre; [sin verificar] quién es el titular si hay que disputar una reclamación. Cada lista marca cuáles son.
+- **Una pista puede registrarse después de bajarla** (YuraSoop vende las mismas en AudioJungle). Por eso importa guardar la captura de la página el día de la descarga.
+- **CC BY encontradas**: Beat Mekanik y 1000 Handz en Free Music Archive. Exigen crédito; 1000 Handz lo pide «para usarla sin reclamaciones», señal de que usa algún sistema de detección.
+
 ## Recomendación
 
 1. **Aceptar solo**: CC0, CC BY 4.0 y Pixabay Content License. Fuera: NC, ND, SA, NCS, Bensound gratis, «no copyright versions», covers y cualquier cosa sacada de YouTube.
