@@ -25,6 +25,40 @@ export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | n
   const videoRef = useRef<HTMLVideoElement>(null);
   const posterRef = useRef<HTMLImageElement>(null);
   const showing = useRef<string | null>(null);
+  const retry = useRef<(() => void) | null>(null);
+
+  // Muted and inline as attributes too (some phones look at the attributes before letting a video
+  // play on its own), and no retry left behind on unmount.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+    }
+    return () => retry.current?.();
+  }, []);
+
+  /**
+   * Plays the clip on its own, as soon as it can. If the phone refuses (no touch yet, battery
+   * saving), the clip's poster stays up and it plays at the user's first touch anywhere.
+   */
+  const play = (video: HTMLVideoElement) => {
+    retry.current?.();
+    video.play().catch(() => {
+      const again = () => {
+        retry.current?.();
+        video.play().catch(() => {});
+      };
+      const events = ['pointerdown', 'touchstart', 'keydown'] as const;
+      events.forEach((name) => window.addEventListener(name, again, { capture: true, passive: true }));
+      retry.current = () => {
+        events.forEach((name) => window.removeEventListener(name, again, { capture: true }));
+        retry.current = null;
+      };
+    });
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -36,6 +70,7 @@ export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | n
       poster.dataset.on = 'false';
     };
     if (!want) {
+      retry.current?.();
       hide();
       const pause = setTimeout(() => video.pause(), FADE_MS);
       return () => clearTimeout(pause);
@@ -45,7 +80,7 @@ export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | n
       if (showing.current === want.id) {
         // the same clip as before (back from typing): play on
         poster.dataset.on = want.poster_url ? 'true' : 'false';
-        video.play().catch(() => {});
+        play(video);
         if (!video.paused || video.readyState >= 3) video.dataset.on = 'true';
         return;
       }
@@ -55,6 +90,8 @@ export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | n
       if (want.poster_url) {
         poster.dataset.on = 'false';
         poster.src = want.poster_url;
+        // (already in the cache: no load event comes)
+        if (poster.complete && poster.naturalWidth > 0) poster.dataset.on = 'true';
       } else {
         poster.removeAttribute('src');
         poster.dataset.on = 'false';
@@ -62,9 +99,10 @@ export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | n
       const swap = setTimeout(() => {
         video.pause();
         video.poster = want.poster_url ?? '';
+        video.preload = 'auto';
         video.src = playbackUrl(want);
         video.load();
-        video.play().catch(() => {});
+        play(video);
       }, FADE_MS);
       cleanup.push(() => clearTimeout(swap));
     }, DEBOUNCE_MS);
