@@ -577,6 +577,47 @@ body {
     transform: rotate(10deg);
   }
 }
+/* the dawn's road: a few cars in silhouette, both ways, long gaps between them (12, 16 and 21 s);
+   transform only; with reduced motion they stay parked mid-road. --pad-road: the base's width */
+.pad-car-a {
+  transform: translateX(calc(var(--pad-road, 320px) * 0.34));
+}
+.pad-car-b {
+  transform: translateX(calc(var(--pad-road, 320px) * 0.53));
+}
+.pad-car-c {
+  transform: translateX(calc(var(--pad-road, 320px) * -0.19));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pad-car-a {
+    animation: pad-drive-r 12s linear -2s infinite;
+  }
+  .pad-car-b {
+    animation: pad-drive-l 16s linear -6s infinite;
+  }
+  .pad-car-c {
+    animation: pad-drive-r 21s linear -15s infinite;
+  }
+}
+@keyframes pad-drive-r {
+  0% {
+    transform: translateX(-80px);
+  }
+  42%,
+  100% {
+    transform: translateX(calc(var(--pad-road, 320px) + 30px));
+  }
+}
+@keyframes pad-drive-l {
+  0%,
+  15% {
+    transform: translateX(calc(var(--pad-road, 320px) + 30px));
+  }
+  62%,
+  100% {
+    transform: translateX(-80px);
+  }
+}
 /* ignition: smoke at the pad, puffing out to both sides */
 .pad-smoke {
   opacity: 0;

@@ -153,6 +153,70 @@ export function baseLayout(width: number, height: number, safeBottom = 0): BaseL
 }
 
 // ---------------------------------------------------------------------------------------------
+// The scene behind the drum ("Amanecer", approved 26-11-2026: fondos-base.html, variant A): a dawn
+// sky from the page's own dark down to a warm horizon, a far skyline, the ground with its road,
+// steel towers, and the Random button on a console bolted to the right tower. The sketch is drawn
+// 320 px wide; its pieces scale with the base's width (`k`).
+
+export const SCENE = {
+  /** the sketch's width, px: everything in it scales by width / this */
+  sketchW: 320,
+  /** the far skyline's tallest piece (the water tower) above the horizon, sketch px */
+  skylineH: 26,
+  /** the ground's share of the base's height (sketch: 43 of 278) */
+  groundShare: 0.155,
+  /** the least ground: the road must fit, px */
+  minGround: 24,
+  /** the rail's light marks, px apart (they run while the drum turns) */
+  railPitch: 24,
+} as const;
+
+export interface BaseScene {
+  k: number;
+  /** y of the horizon (the ground starts there) and the top of the skyline */
+  horizon: number;
+  skylineTop: number;
+  /** the road on the ground */
+  road: { top: number; h: number };
+  /** the console of the Random button: its two brackets to the right tower (y, from x0 to x1) and two legs to the ground (x, from y0 down) */
+  console: { brackets: [number, number]; x0: number; x1: number; legs: [number, number]; legTop: number };
+}
+
+/** The bottom of the lowest drum rocket that can be seen (the neighbour under the centred one), px. */
+export function lowestRocketBottom(L: BaseLayout): number {
+  const n1 = drumSlot(1, L.radius);
+  return L.centreY + n1.y + (L.rocket.height * n1.scale) / 2;
+}
+
+/**
+ * The scene for a base `L`: the horizon as low as the sketch has it, but always under the lowest
+ * rocket with the whole skyline too (nothing of it behind a label), and with room for the road.
+ */
+export function baseScene(L: BaseLayout): BaseScene {
+  const k = L.width / SCENE.sketchW;
+  const ground = Math.max(SCENE.minGround, Math.round(L.height * SCENE.groundShare));
+  const clearOfRockets = lowestRocketBottom(L) + 2 + SCENE.skylineH * k;
+  const horizon = Math.round(Math.min(L.height - SCENE.minGround, Math.max(clearOfRockets, L.height - ground)));
+  const below = L.height - horizon;
+  const road = { top: horizon + Math.round(below * 0.21), h: Math.max(12, Math.round(below * 0.46)) };
+  const r = L.random;
+  const u = r.w / 64; // the button's drawing is 64 × 72
+  return {
+    k,
+    horizon,
+    skylineTop: horizon - SCENE.skylineH * k,
+    road,
+    console: {
+      brackets: [Math.round(r.y + r.h * 0.17), Math.round(r.y + r.h * 0.7)],
+      x0: r.x + r.w - 2,
+      x1: L.tower.rightX + 2,
+      legs: [Math.round(r.x + 8 * u), Math.round(r.x + r.w - 11 * u)],
+      legTop: r.y + r.h - 3,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
 // The launch, from the tap on the centred rocket to lift-off
 
 export const LAUNCH = {

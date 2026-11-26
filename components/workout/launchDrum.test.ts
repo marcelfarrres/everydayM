@@ -6,6 +6,9 @@ import {
   barLaunchTimeline,
   barOnPad,
   baseLayout,
+  baseScene,
+  lowestRocketBottom,
+  SCENE,
   centreIndex,
   drumSlot,
   launchTimeline,
@@ -162,5 +165,51 @@ describe('the launch', () => {
     const pad = barOnPad(L, 386, 46);
     expect(pad.scale * 386).toBeCloseTo(L.rocket.length, 6);
     expect(pad.body).toBeCloseTo(46 * pad.scale, 6);
+  });
+});
+
+describe('the dawn scene ("Amanecer")', () => {
+  const screens: [number, number, number][] = [
+    [320, 236, 0],
+    [320, 227, 0],
+    [360, 292, 0],
+    [375, 325, 34],
+    [390, 337.6, 34],
+    [390, 337.6, 0],
+    [430, 372, 34],
+    [600, 380, 20],
+  ];
+
+  it('puts the horizon, and the whole skyline, under the lowest rocket, with room for the road', () => {
+    for (const [w, h, safe] of screens) {
+      const L = baseLayout(w, h, safe);
+      const s = baseScene(L);
+      expect(s.skylineTop).toBeGreaterThan(lowestRocketBottom(L));
+      expect(s.horizon).toBeLessThanOrEqual(L.height - SCENE.minGround);
+      expect(s.road.top).toBeGreaterThan(s.horizon);
+      expect(s.road.top + s.road.h).toBeLessThanOrEqual(L.height);
+    }
+  });
+
+  it('keeps the Random console whole inside the screen, bolted to the right tower and standing on the ground', () => {
+    for (const [w, h, safe] of screens) {
+      const L = baseLayout(w, h, safe);
+      const { console: c } = baseScene(L);
+      expect(L.random.x).toBeGreaterThan(0);
+      expect(L.random.x + L.random.w).toBeLessThanOrEqual(w - 40);
+      expect(L.random.w).toBeGreaterThanOrEqual(44);
+      expect(L.random.h).toBeGreaterThanOrEqual(44);
+      expect(c.x0).toBeLessThan(c.x1);
+      expect(c.x1).toBeGreaterThan(L.tower.rightX);
+      for (const y of c.brackets) {
+        expect(y).toBeGreaterThan(L.random.y);
+        expect(y).toBeLessThan(L.random.y + L.random.h);
+      }
+      for (const x of c.legs) {
+        expect(x).toBeGreaterThan(L.random.x);
+        expect(x).toBeLessThan(L.random.x + L.random.w);
+      }
+      expect(c.legTop).toBeLessThan(L.height);
+    }
   });
 });

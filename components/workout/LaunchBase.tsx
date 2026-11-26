@@ -28,6 +28,7 @@ import {
   barLaunchTimeline,
   barOnPad,
   baseLayout,
+  baseScene,
   centreIndex,
   drumSlot,
   launchTimeline,
@@ -40,7 +41,9 @@ import {
   snapTarget,
   ticksBetween,
   wrapOffset,
+  SCENE,
   type BaseLayout,
+  type BaseScene,
   type LaunchTimeline,
 } from '@/components/workout/launchDrum';
 import {
@@ -167,6 +170,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   }, []);
 
   const L: BaseLayout | null = useMemo(() => (size ? baseLayout(size.w, size.h, size.safe) : null), [size]);
+  const scene: BaseScene | null = useMemo(() => (L ? baseScene(L) : null), [L]);
   const G = useMemo(() => (L ? padRocketGeometry({ length: L.rocket.length, body: L.rocket.body, hatch: true }) : null), [L]);
   const fits: LabelFit[] = useMemo(() => {
     if (!G) return [];
@@ -238,8 +242,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const lastTick = useRef(centre);
   const rockets = useRef<(HTMLButtonElement | null)[]>([]);
   const drumLayer = useRef<HTMLDivElement>(null);
-  const chains = useRef<(SVGGElement | null)[]>([]);
-  const gears = useRef<(SVGGElement | null)[]>([]);
+  const rails = useRef<(SVGGElement | null)[]>([]);
   const astros = useRef<(HTMLDivElement | null)[]>([]);
   const crew = useRef({ a: 0, b: 0, up: true, facingA: -1 as 1 | -1, facingB: 1 as 1 | -1, boarding: false });
   const lastStep = useRef(-Infinity);
@@ -268,16 +271,11 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       // (out of sight but still in the list: a screen reader can reach it, a finger can't)
       el.style.pointerEvents = slot.visible && slot.opacity > 0.02 ? 'auto' : 'none';
     }
+    // the rails' light marks run with the drum (where the chains used to)
     const travel = p * stepPx;
-    const pitch = 9;
+    const pitch = SCENE.railPitch;
     const off = -(((travel % pitch) + pitch) % pitch);
-    chains.current.forEach((g) => g?.setAttribute('transform', `translate(0 ${off.toFixed(2)})`));
-    gears.current.forEach((g) => {
-      if (!g) return;
-      const cx = Number(g.dataset.cx);
-      const cy = Number(g.dataset.cy);
-      g.setAttribute('transform', `rotate(${((travel / 6) * (180 / Math.PI)).toFixed(1)} ${cx} ${cy})`);
-    });
+    rails.current.forEach((g) => g?.setAttribute('transform', `translate(0 ${off.toFixed(2)})`));
     if (ticksBetween(lastTick.current, p) > 0) {
       lastTick.current = p;
       playSfx('drumClick');
@@ -796,12 +794,14 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      className="relative z-20 h-[clamp(236px,calc(var(--pad-dvh,1dvh)*40),380px)] w-full touch-none select-none rounded-t-[24px] border-t-2 border-ink bg-[#f4f3f0] text-ink"
+      className="relative z-20 h-[clamp(236px,calc(var(--pad-dvh,1dvh)*40),380px)] w-full touch-none select-none text-ink"
+      // (the page's own dark: the dawn sky starts in it, so the base is no separate block)
+      style={{ background: BASE_PAGE }}
     >
       <div data-safe-probe="" aria-hidden="true" className="pointer-events-none invisible absolute h-0 w-0 pb-[env(safe-area-inset-bottom)]" />
-      {L && G && track && (
+      {L && G && track && scene && (
         <>
-          <Backdrop L={L} G={G} track={track} />
+          <Backdrop L={L} G={G} track={track} scene={scene} uid={uid} />
           <div ref={drumLayer} className="absolute inset-0 z-10">
             <ul role="list" aria-label="Rutinas sugeridas" aria-describedby={`${uid}-hint`} className="contents">
               {suggestions.map((s, i) => (
@@ -816,7 +816,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
                     aria-label={i === centre ? `${s}: despegar` : s}
                     onClick={() => onRocket(i)}
                     onKeyDown={onKey}
-                    className="pad-drum-rocket absolute cursor-pointer rounded-full outline-none [transform-origin:50%_50%] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                    className="pad-drum-rocket absolute cursor-pointer rounded-full outline-none [transform-origin:50%_50%] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                     style={{ left: L.rocket.left, top: L.centreY - G.H / 2, width: G.W, height: G.H, opacity: 0 }}
                   >
                     <span className="pad-shake pointer-events-none absolute inset-0">
@@ -828,9 +828,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
             </ul>
           </div>
           {fullTrack?.roof && barBox && barG && (
-            <RoofLadder L={L} G={G} track={fullTrack} noseX={barBox.x + barG.body.x1} out={roofOut} />
+            <RoofLadder L={L} G={G} track={fullTrack} noseX={barBox.x + barG.body.x1} out={roofOut} uid={uid} />
           )}
-          <Foreground L={L} G={G} track={track} uid={uid} chains={chains} gears={gears} />
+          <Foreground L={L} G={G} track={track} scene={scene} uid={uid} rails={rails} />
           {/* the text bar's rocket, flying from the base (the typed sentence's launch) */}
           {visitor && (
             <div
@@ -870,35 +870,190 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 }
 
 // ---------------------------------------------------------------------------------------------
-// The pieces of the base (static SVG; only the chain, the gears and the clamps move)
+// The pieces of the base (static SVG; only the rails' marks, the clamps and the cars move). The
+// scene is "Amanecer" (approved 26-11-2026, fondos-base.html, variant A): numbers in launchDrum.ts
+// (baseScene), colours here.
 
 type Geo = ReturnType<typeof padRocketGeometry>;
 
-/** Behind the rockets: the drum's well and rims, the shadow under the centred one, the crew walkway. */
-function Backdrop({ L, G, track }: { L: BaseLayout; G: Geo; track: CrewTrack }) {
+/** The dawn and the dark steel of the base. */
+const DAWN = {
+  /** the page's own dark (RoutineComposer's first view: `max-lg:bg-[#2b2a28]`): the sky starts in it */
+  page: '#2b2a28',
+  sky: ['#2b2a28', '#4a4156', '#a5606a', '#ec9d78', '#fbd9ae'],
+  skyAt: [0, 0.3, 0.6, 0.83, 1],
+  sun: '#fff4d8',
+  glow: '#fff1cf',
+  cloud: '#f7b592',
+  silhouette: '#2a2625',
+  ground: ['#2f2b29', '#211e1d'],
+  road: '#463f3b',
+  roadEdge: '#6e655f',
+  roadLine: '#f3d7a8',
+  lampPost: '#4a433f',
+  lamp: '#ffe6b0',
+  car: '#0f0e0d',
+  carEdge: '#9a8f88',
+  headlight: '#fff1cf',
+  /** the steel: chords, bracing, plates, the rail's marks and the ladder (light, to read on the steel) */
+  steel: '#7a6f69',
+  brace: '#5a514c',
+  plate: '#322e2c',
+  dark: '#171514',
+  mark: '#a39890',
+  ladder: '#cfc6bf',
+  hazard: '#f2c230',
+  label: '#f4f3f0',
+} as const;
+
+/** The base page itself, behind its scene (the same dark as the page, so nothing shows as a block). */
+export const BASE_PAGE = DAWN.page;
+
+/** A dark steel lattice tower: two chords, alternating diagonals, horizontals, a cap and a red beacon. */
+function SteelTower({ x, w, top, bottom }: { x: number; w: number; top: number; bottom: number }) {
+  const bay = Math.max(14, Math.round(w * 1.25));
+  let braces = '';
+  let flip = false;
+  for (let y = top; y < bottom - 1; y += bay) {
+    const y2 = Math.min(bottom, y + bay);
+    braces += `M${x} ${y}H${x + w}`;
+    braces += flip ? `M${x + w} ${y}L${x} ${y2}` : `M${x} ${y}L${x + w} ${y2}`;
+    flip = !flip;
+  }
+  const cx = x + w / 2;
+  return (
+    <g>
+      <path d={braces} fill="none" stroke={DAWN.brace} strokeWidth={1} />
+      <path d={`M${x} ${top - 2}V${bottom}M${x + w} ${top - 2}V${bottom}`} fill="none" stroke={DAWN.steel} strokeWidth={2.2} />
+      <rect x={x - 3} y={top - 6} width={w + 6} height={4} rx={1} fill={DAWN.steel} />
+      <path d={`M${cx} ${top - 6}V${top - 11}`} stroke={DAWN.steel} strokeWidth={1.2} />
+      <circle cx={cx} cy={top - 12} r={6} fill={C.red} opacity={0.25} />
+      <circle cx={cx} cy={top - 12} r={2.2} fill={C.red} />
+    </g>
+  );
+}
+
+/** A car in silhouette, nose to the right (`flip`: to the left), its top at `y`, `k` times the sketch's size. */
+function Car({ y, k, flip }: { y: number; k: number; flip: boolean }) {
+  return (
+    <g transform={`translate(0 ${y}) scale(${flip ? -k : k} ${k})`}>
+      <path d="M20.4 4.6 L40 1 L40 9 Z" fill={DAWN.lamp} opacity={0.42} />
+      <path
+        d="M0 7 V4.6 Q0 3.6 1.2 3.4 L5 2.8 L7.5 .6 Q8 0 9 0 H14 Q15 0 15.6 .6 L17.6 2.9 L19.4 3.4 Q20.4 3.7 20.4 4.8 V7 Z"
+        fill={DAWN.car}
+        stroke={DAWN.carEdge}
+        strokeWidth={0.5}
+      />
+      <circle cx={4.6} cy={7} r={1.7} fill={DAWN.car} />
+      <circle cx={15.6} cy={7} r={1.7} fill={DAWN.car} />
+      <circle cx={20} cy={4.7} r={1.2} fill={DAWN.headlight} />
+      <circle cx={0.6} cy={4.7} r={1} fill={C.red} />
+    </g>
+  );
+}
+
+/**
+ * Behind everything: the dawn sky (from the page's dark), the sun low on the horizon, two thin lit
+ * clouds, the far skyline, the ground and its road with two lamps and a few cars passing (behind
+ * the towers and the console), the drum's upper dotted arc and the crew walkway in steel.
+ */
+function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: CrewTrack; scene: BaseScene; uid: string }) {
   const { width: W, height: H } = L;
+  const { k, horizon: hz, road } = scene;
+  const X = (x: number) => x * k;
+  const Y = (y: number) => hz + (y - 235) * k; // a sketch y (horizon at 235) to the base
   const wellX = L.tower.leftX + L.tower.w + 3;
   const wellW = L.tower.rightX - 3 - wellX;
   const rimTop = Math.max(10, L.centreY - L.radius * 0.95);
-  const rimBottom = Math.min(H - 10, L.centreY + L.radius * 0.95);
   const walkX0 = L.rocket.left + G.body.x1;
   const walkX1 = L.tower.rightX;
   const railY = track.deckY - G.T * 0.55;
+  const q = road.h / 20; // the sketch's road is 20 px
+  const lamp = (x: number) => (
+    <g key={x}>
+      <path d={`M${x} ${road.top}V${road.top - 9 * q}h${4 * q}`} fill="none" stroke={DAWN.lampPost} strokeWidth={1} />
+      <circle cx={x + 4 * q} cy={road.top - 8.4 * q} r={1.1 * q} fill={DAWN.lamp} />
+      <circle cx={x + 4 * q} cy={road.top - 8 * q} r={3.4 * q} fill={DAWN.lamp} opacity={0.18} />
+    </g>
+  );
   return (
-    <svg aria-hidden="true" data-fitting="" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0">
-      <rect x={wellX} y={6} width={wellW} height={H - 12} rx={20} fill="#e7e5e0" />
+    <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0">
+      <defs>
+        <linearGradient id={`${uid}-sky`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={hz + 1}>
+          {DAWN.sky.map((c, i) => (
+            <stop key={c} offset={DAWN.skyAt[i]} stopColor={c} />
+          ))}
+        </linearGradient>
+        <linearGradient id={`${uid}-gnd`} gradientUnits="userSpaceOnUse" x1={0} y1={hz} x2={0} y2={H}>
+          <stop offset={0} stopColor={DAWN.ground[0]} />
+          <stop offset={1} stopColor={DAWN.ground[1]} />
+        </linearGradient>
+        <radialGradient id={`${uid}-glow`}>
+          <stop offset={0} stopColor={DAWN.glow} stopOpacity={0.85} />
+          <stop offset={1} stopColor={DAWN.glow} stopOpacity={0} />
+        </radialGradient>
+        <clipPath id={`${uid}-sky-clip`}>
+          <rect width={W} height={hz + 1} />
+        </clipPath>
+      </defs>
+      {/* the sky, the sun half under the horizon, two thin lit clouds */}
+      <rect width={W} height={hz + 1} fill={`url(#${uid}-sky)`} />
+      <g clipPath={`url(#${uid}-sky-clip)`}>
+        <circle cx={X(92)} cy={hz - 1} r={118 * k} fill={`url(#${uid}-glow)`} />
+        <circle cx={X(92)} cy={hz - 1} r={22 * k} fill={DAWN.sun} />
+      </g>
       <path
-        d={`M${wellX + 6} ${rimTop + 18}Q${W / 2} ${rimTop - 14} ${wellX + wellW - 6} ${rimTop + 18}M${wellX + 6} ${rimBottom - 18}Q${W / 2} ${rimBottom + 14} ${wellX + wellW - 6} ${rimBottom - 18}`}
-        stroke="#b4b2a9"
-        strokeWidth={1.2}
-        strokeDasharray="3 5"
-        fill="none"
+        d={`M${X(150)} ${Y(204)}Q${X(200)} ${Y(199)} ${X(262)} ${Y(203)}Q${X(300)} ${Y(205)} ${X(320)} ${Y(201)}V${Y(206)}Q${X(280)} ${Y(209)} ${X(240)} ${Y(207)}Q${X(190)} ${Y(205)} ${X(150)} ${Y(207)}Z`}
+        fill={DAWN.cloud}
+        opacity={0.38}
       />
-      <ellipse cx={L.rocket.cx} cy={L.centreY + G.H / 2 - 2} rx={L.rocket.length * 0.36} ry={4} fill="#d3d1c7" />
-      {/* the crew walkway, from the right tower to the hatch's side of the nose */}
-      <g stroke={C.ink} strokeWidth={1.2} fill={C.hull}>
-        <rect x={walkX0} y={track.deckY} width={walkX1 - walkX0} height={3} />
-        <path d={`M${walkX0 + 4} ${railY}H${walkX1}M${walkX0 + 4} ${railY}V${track.deckY}M${(walkX0 + walkX1) / 2} ${railY}V${track.deckY}`} fill="none" />
+      <path d={`M0 ${Y(214)}Q${X(30)} ${Y(211)} ${X(60)} ${Y(214)}Q${X(40)} ${Y(217)} 0 ${Y(217)}Z`} fill={DAWN.cloud} opacity={0.3} />
+      {/* the far skyline: hills, a hangar, a small gantry with its rocket, a water tower */}
+      <g fill={DAWN.silhouette}>
+        <path d={`M0 ${hz}V${Y(228)}Q${X(40)} ${Y(222)} ${X(84)} ${Y(229)}Q${X(130)} ${Y(233)} ${X(176)} ${Y(228)}Q${X(230)} ${Y(222)} ${W} ${Y(229)}V${hz}Z`} />
+        <rect x={X(128)} y={Y(224)} width={40 * k} height={11 * k} />
+        <path d={`M${X(128)} ${Y(224)}L${X(148)} ${Y(218)}L${X(168)} ${Y(224)}Z`} />
+        <rect x={X(184)} y={Y(212)} width={5 * k} height={23 * k} />
+        <rect x={X(181)} y={Y(209)} width={11 * k} height={3 * k} />
+        <path d={`M${X(194)} ${hz}V${Y(220)}Q${X(196.5)} ${Y(213)} ${X(199)} ${Y(220)}V${hz}Z`} />
+        <rect x={X(188)} y={Y(218)} width={7 * k} height={2 * k} />
+        <rect x={X(188)} y={Y(227)} width={7 * k} height={2 * k} />
+        <rect x={X(50)} y={Y(220)} width={3 * k} height={15 * k} />
+        <path d={`M${X(44)} ${Y(220)}h${15 * k}l${-3 * k} ${-6 * k}h${-9 * k}z`} />
+      </g>
+      {/* the ground and its road: shoulders, the dashed centre line, two lamps */}
+      <rect y={hz} width={W} height={H - hz} fill={`url(#${uid}-gnd)`} />
+      <rect y={road.top} width={W} height={road.h} fill={DAWN.road} />
+      <path d={`M0 ${road.top}H${W}M0 ${road.top + road.h}H${W}`} stroke={DAWN.roadEdge} strokeOpacity={0.7} strokeWidth={0.8} />
+      <path d={`M0 ${road.top + road.h / 2}H${W}`} stroke={DAWN.roadLine} strokeOpacity={0.55} strokeWidth={1} strokeDasharray={`${9 * q} ${8 * q}`} />
+      {lamp(X(118))}
+      {lamp(X(204))}
+      {/* a few cars, both ways, long gaps between them (CSS: pad-car-*; parked with reduced motion) */}
+      <g style={{ ['--pad-road' as string]: `${W}px` }}>
+        <g className="pad-car pad-car-b">
+          <Car y={road.top - 0.2 * q} k={0.95 * q} flip />
+        </g>
+        <g className="pad-car pad-car-a">
+          <Car y={road.top + 8.6 * q} k={1.15 * q} flip={false} />
+        </g>
+        <g className="pad-car pad-car-c">
+          <Car y={road.top + 8.6 * q} k={1.15 * q} flip={false} />
+        </g>
+      </g>
+      <g data-fitting="">
+        {/* the drum's upper dotted arc */}
+        <path
+          d={`M${wellX + 6} ${rimTop + 18}Q${W / 2} ${rimTop - 14} ${wellX + wellW - 6} ${rimTop + 18}`}
+          stroke="rgba(255,255,255,0.4)"
+          strokeWidth={1.2}
+          strokeDasharray="3 5"
+          fill="none"
+        />
+        {/* the crew walkway, from the right tower to the hatch's side of the nose */}
+        <g stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate}>
+          <rect x={walkX0} y={track.deckY} width={walkX1 - walkX0} height={3.4} />
+          <path d={`M${walkX0 + 4} ${railY}H${walkX1}M${walkX0 + 4} ${railY}V${track.deckY}M${(walkX0 + walkX1) / 2} ${railY}V${track.deckY}`} fill="none" strokeWidth={0.9} />
+        </g>
       </g>
     </svg>
   );
@@ -907,17 +1062,17 @@ function Backdrop({ L, G, track }: { L: BaseLayout; G: Geo; track: CrewTrack }) 
 /**
  * The right tower's ladder reaching up to the text bar's top, and a gangway from the ladder over the
  * bar rocket's nose to its hull (like the base's walkway to a drum rocket). Folded into the tower
- * until the crew go up (`out`): the ladder slides up out of it, then the gangway unfolds; back the
- * other way once they are down.
+ * until the crew go up (`out`): the ladder slides up out of the tower's top (nothing of it shows
+ * below that), then the gangway unfolds; back the other way once they are down.
  */
-function RoofLadder({ L, G, track, noseX, out }: { L: BaseLayout; G: Geo; track: CrewTrack; noseX: number; out: boolean }) {
+function RoofLadder({ L, G, track, noseX, out, uid }: { L: BaseLayout; G: Geo; track: CrewTrack; noseX: number; out: boolean; uid: string }) {
   const roof = track.roof;
   if (!roof) return null;
   const { width: W, height: H } = L;
   const towerTop = L.tower.top + 6;
   const x = track.ladderX;
   const railY = roof.deckY - G.T * 0.55;
-  // from the handrail above the bar's top down into the tower (hidden behind it when folded)
+  // from the handrail above the bar's top down into the tower (clipped at the tower's top)
   const y0 = railY;
   const y1 = towerTop + 10;
   const rungs: number[] = [];
@@ -934,19 +1089,26 @@ function RoofLadder({ L, G, track, noseX, out }: { L: BaseLayout; G: Geo; track:
       className="pointer-events-none absolute inset-0 z-[15]"
       style={{ overflow: 'visible' }}
     >
-      <g className="pad-ext" stroke={C.ink} strokeWidth={1.1} fill="none" style={{ ['--pad-ext' as string]: `${y1 - y0 + 4}px` }}>
-        <path d={`M${x - 4} ${y0}V${y1}M${x + 4} ${y0}V${y1}`} strokeWidth={1.4} />
-        <path d={rungs.map((y) => `M${x - 4} ${y}H${x + 4}`).join('')} />
+      <defs>
+        <clipPath id={`${uid}-ext`}>
+          <rect x={x - 12} y={y0 - 4000} width={24} height={4000 + towerTop + 4 - y0} />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${uid}-ext)`}>
+        <g className="pad-ext" stroke={DAWN.ladder} strokeWidth={0.9} fill="none" style={{ ['--pad-ext' as string]: `${y1 - y0 + 4}px` }}>
+          <path d={`M${x - 4} ${y0}V${y1}M${x + 4} ${y0}V${y1}`} strokeWidth={1.2} />
+          <path d={rungs.map((y) => `M${x - 4} ${y}H${x + 4}`).join('')} />
+        </g>
       </g>
-      <g className="pad-gangway" stroke={C.ink} strokeWidth={1.2} fill={C.hull} style={{ transformOrigin: `${x + 4}px ${roof.deckY}px` }}>
-        <rect x={walkX0} y={roof.deckY} width={x + 4 - walkX0} height={3} />
-        <path d={`M${walkX0 + 4} ${railY}H${x}M${walkX0 + 4} ${railY}V${roof.deckY}M${(walkX0 + x) / 2} ${railY}V${roof.deckY}`} fill="none" />
+      <g className="pad-gangway" stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate} style={{ transformOrigin: `${x + 4}px ${roof.deckY}px` }}>
+        <rect x={walkX0} y={roof.deckY} width={x + 4 - walkX0} height={3.4} />
+        <path d={`M${walkX0 + 4} ${railY}H${x}M${walkX0 + 4} ${railY}V${roof.deckY}M${(walkX0 + x) / 2} ${railY}V${roof.deckY}`} fill="none" strokeWidth={0.9} />
       </g>
     </svg>
   );
 }
 
-/** A lattice tower: frame, X bracing, struts, a platform with a red light on top, its footing. */
+/** A lattice tower's outline path (the launch tower's): frame, X bracing. */
 function towerPath(x: number, w: number, top: number, bottom: number): string {
   const bay = Math.round(w * 1.4);
   let d = `M${x} ${top}V${bottom}M${x + w} ${top}V${bottom}`;
@@ -962,30 +1124,16 @@ function towerPath(x: number, w: number, top: number, bottom: number): string {
   return d;
 }
 
-function Foreground({
-  L,
-  G,
-  track,
-  uid,
-  chains,
-  gears,
-}: {
-  L: BaseLayout;
-  G: Geo;
-  track: CrewTrack;
-  uid: string;
-  chains: React.RefObject<(SVGGElement | null)[]>;
-  gears: React.RefObject<(SVGGElement | null)[]>;
-}) {
+function Foreground({ L, G, track, scene, uid, rails }: { L: BaseLayout; G: Geo; track: CrewTrack; scene: BaseScene; uid: string; rails: React.RefObject<(SVGGElement | null)[]> }) {
   const { width: W, height: H, tower: t } = L;
   const top = t.top + 6;
-  const bottom = H - 6;
-  // the chains run down the towers' inner faces, between two sprockets
-  const chainX = [t.leftX + t.w + 1, t.rightX - 6];
-  const chainTop = top + 10;
-  const chainBottom = bottom - 10;
-  const links: number[] = [];
-  for (let y = chainTop - 18; y < chainBottom + 18; y += 9) links.push(y);
+  const bottom = H;
+  // a slim rail down each tower's inner side, its light marks running while the drum turns
+  const railX = [t.leftX + t.w + 5, t.rightX - 5];
+  const railTop = top + 8;
+  const railBottom = scene.horizon - 2;
+  const marks: number[] = [];
+  for (let y = railTop - SCENE.railPitch; y < railBottom + SCENE.railPitch; y += SCENE.railPitch) marks.push(y);
   const cy = L.centreY;
   // the clamps: two hooks over and under the engine ring (left), a cradle at the antenna (right)
   const ringX = L.rocket.left + G.ring.x + G.ring.w / 2;
@@ -996,88 +1144,60 @@ function Foreground({
   const ladderX = track.ladderX;
   const rungs: number[] = [];
   for (let y = top + 8; y < bottom - 4; y += 7) rungs.push(y);
-  const sprockets = [
-    [chainX[0] + 2.5, chainTop],
-    [chainX[0] + 2.5, chainBottom],
-    [chainX[1] + 2.5, chainTop],
-    [chainX[1] + 2.5, chainBottom],
-  ];
+  const c = scene.console;
   return (
     <svg aria-hidden="true" data-fitting="" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 z-20">
       <defs>
-        {chainX.map((x, i) => (
-          <clipPath key={x} id={`${uid}-chain-${i}`}>
-            <rect x={x - 1} y={chainTop} width={7} height={chainBottom - chainTop} />
-          </clipPath>
-        ))}
+        <clipPath id={`${uid}-rails`}>
+          <rect x={0} y={railTop} width={W} height={railBottom - railTop} />
+        </clipPath>
       </defs>
-      {/* towers */}
-      <g stroke={C.ink} strokeWidth={1.2} fill="none" strokeLinejoin="round">
-        {[t.leftX, t.rightX].map((x) => (
-          <g key={x}>
-            <rect x={x} y={top} width={t.w} height={bottom - top} fill={C.hull} />
-            <path d={towerPath(x, t.w, top, bottom)} />
-            <rect x={x - 3} y={top - 6} width={t.w + 6} height={6} rx={1} fill={C.hull} />
-            <path d={`M${x - 3} ${top - 6}V${top - 11}H${x + t.w + 3}V${top - 6}M${x + t.w / 2} ${top - 11}V${top - 6}`} />
-            <rect x={x - 4} y={bottom - 3} width={t.w + 8} height={6} rx={1} fill={C.shade} />
-          </g>
-        ))}
-        {/* the hose from the left tower down into the base */}
-        <path d={`M${t.leftX + t.w / 2} ${bottom - 3}Q${t.leftX + t.w + 8} ${bottom + 4} ${L.rocket.left + 22} ${bottom - 2}`} />
-      </g>
-      <circle cx={t.leftX + t.w / 2} cy={top - 14} r={2.6} fill={C.red} />
-      <circle cx={t.rightX + t.w / 2} cy={top - 14} r={2.6} fill={C.red} />
-      {/* chains and sprockets */}
-      {chainX.map((x, i) => (
-        <g key={x} clipPath={`url(#${uid}-chain-${i})`}>
+      {/* the towers, in dark steel */}
+      <SteelTower x={t.leftX} w={t.w} top={top} bottom={bottom} />
+      <SteelTower x={t.rightX} w={t.w} top={top} bottom={bottom} />
+      {/* the hose from the left tower down into the base */}
+      <path d={`M${t.leftX + t.w / 2} ${bottom - 7}Q${t.leftX + t.w + 8} ${bottom} ${L.rocket.left + 22} ${bottom - 6}`} fill="none" stroke={DAWN.steel} strokeWidth={1.2} />
+      {/* the rails and their marks */}
+      <path d={railX.map((x) => `M${x} ${railTop}V${railBottom}`).join('')} fill="none" stroke={DAWN.brace} strokeWidth={1.2} />
+      {railX.map((x, i) => (
+        <g key={x} clipPath={`url(#${uid}-rails)`}>
           <g
             ref={(node) => {
-              chains.current[i] = node;
+              rails.current[i] = node;
             }}
-            fill={C.ink}
           >
-            {links.map((y) => (
-              <g key={y}>
-                <rect x={x} y={y} width={5} height={6.4} rx={1.6} />
-                <rect x={x + 1.7} y={y + 6.2} width={1.6} height={3} fill={C.rib} />
-              </g>
-            ))}
+            <path d={marks.map((y) => (i === 0 ? `M${x} ${y}h-4` : `M${x} ${y}h4`)).join('')} fill="none" stroke={DAWN.mark} strokeWidth={1.1} />
           </g>
         </g>
       ))}
-      {sprockets.map(([x, y], i) => (
-        <g
-          key={i}
-          data-cx={x}
-          data-cy={y}
-          ref={(node) => {
-            gears.current[i] = node;
-          }}
-        >
-          <circle cx={x} cy={y} r={5.4} fill="none" stroke={C.ink} strokeWidth={2.6} strokeDasharray="2 1.8" />
-          <circle cx={x} cy={y} r={3.6} fill={C.hull} stroke={C.ink} strokeWidth={1} />
-          <circle cx={x} cy={y} r={1} fill={C.ink} />
-        </g>
-      ))}
-      {/* the ladder on the right tower */}
-      <g stroke={C.ink} strokeWidth={1.1} fill="none">
-        <path d={`M${ladderX - 4} ${top + 2}V${bottom - 2}M${ladderX + 4} ${top + 2}V${bottom - 2}`} strokeWidth={1.4} />
+      {/* the ladder on the right tower (light, to read on the steel) */}
+      <g stroke={DAWN.ladder} strokeWidth={0.9} fill="none">
+        <path d={`M${ladderX - 4} ${top + 2}V${bottom - 2}M${ladderX + 4} ${top + 2}V${bottom - 2}`} strokeWidth={1.2} />
         <path d={rungs.map((y) => `M${ladderX - 4} ${y}H${ladderX + 4}`).join('')} />
       </g>
       {/* the clamps */}
-      <g stroke={C.ink} strokeWidth={1.2} fill={C.hull} strokeLinejoin="round">
+      <g stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate} strokeLinejoin="round">
         <g className="pad-hook-top">
           <path d={`M${leftEdge} ${hullTop - 9}H${ringX + 3}V${hullTop + 1}H${ringX - 3}V${hullTop - 4}H${leftEdge}Z`} />
-          <circle cx={leftEdge + 4} cy={hullTop - 6.5} r={1.1} fill={C.ink} stroke="none" />
+          <circle cx={leftEdge + 4} cy={hullTop - 6.5} r={1.1} fill={DAWN.steel} stroke="none" />
         </g>
         <g className="pad-hook-bottom">
           <path d={`M${leftEdge} ${hullBottom + 9}H${ringX + 3}V${hullBottom - 1}H${ringX - 3}V${hullBottom + 4}H${leftEdge}Z`} />
-          <circle cx={leftEdge + 4} cy={hullBottom + 6.5} r={1.1} fill={C.ink} stroke="none" />
+          <circle cx={leftEdge + 4} cy={hullBottom + 6.5} r={1.1} fill={DAWN.steel} stroke="none" />
         </g>
         <g className="pad-cradle">
           <path d={`M${t.rightX} ${cy - 3}H${noseEnd + 4}V${cy - 7}H${noseEnd - 2}V${cy - 5}M${t.rightX} ${cy + 3}H${noseEnd + 4}V${cy + 7}H${noseEnd - 2}V${cy + 5}`} />
           <rect x={noseEnd + 2} y={cy - 3} width={t.rightX - noseEnd - 2} height={6} />
         </g>
+      </g>
+      {/* the Random console's two brackets to the right tower and its two legs on the ground */}
+      <g fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1.1}>
+        {c.brackets.map((y) => (
+          <rect key={y} x={c.x0} y={y - 1.7} width={c.x1 - c.x0} height={3.4} />
+        ))}
+        {c.legs.map((x) => (
+          <rect key={x} x={x - 1.7} y={c.legTop} width={3.4} height={H - c.legTop + 2} />
+        ))}
       </g>
     </svg>
   );
@@ -1107,7 +1227,11 @@ function Astronaut({ scale, delay }: { scale: number; delay: number }) {
   );
 }
 
-/** The red emergency button: a dome in a striped ring on a bolted plate, the word under it. */
+/**
+ * The red emergency button on its console: the mushroom in its yellow and black hazard ring on a
+ * dark bolted plate (bolted to the right tower and standing on the ground: Foreground draws the
+ * brackets and the legs), the word RANDOM in light letters under it.
+ */
 function RandomButton({ L, onClick }: { L: BaseLayout; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void }) {
   const { x, y, w, h } = L.random;
   return (
@@ -1117,40 +1241,44 @@ function RandomButton({ L, onClick }: { L: BaseLayout; onClick: (e: React.MouseE
       data-fitting=""
       onClick={onClick}
       aria-label="Random: girar la ruleta"
-      className="pad-random absolute z-[35] cursor-pointer rounded-[10px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+      className="pad-random absolute z-[35] cursor-pointer rounded-[8px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
       style={{ left: x, top: y, width: w, height: h }}
     >
       <svg width={w} height={h} viewBox="0 0 64 72" aria-hidden="true" className="absolute inset-0">
-        <rect x={2} y={2} width={60} height={68} rx={8} fill={C.hull} stroke={C.ink} strokeWidth={1.6} />
-        <rect x={5} y={5} width={54} height={62} rx={6} fill="none" stroke={C.shade} strokeWidth={1} />
+        <rect x={1} y={1} width={62} height={70} rx={6} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1.1} />
         {[
-          [8.5, 8.5],
-          [55.5, 8.5],
-          [8.5, 63.5],
-          [55.5, 63.5],
+          [7, 7],
+          [57, 7],
+          [7, 65],
+          [57, 65],
         ].map(([cx, cy]) => (
-          <g key={`${cx}-${cy}`}>
-            <circle cx={cx} cy={cy} r={2} fill={C.shade} stroke={C.ink} strokeWidth={0.8} />
-            <path d={`M${cx - 1.1} ${cy}H${cx + 1.1}`} stroke={C.ink} strokeWidth={0.7} />
-          </g>
+          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={1.1} fill={DAWN.steel} />
         ))}
-        <circle cx={32} cy={29} r={21.5} fill={C.ink} />
-        <circle cx={32} cy={29} r={19} fill="none" stroke="#ffd60a" strokeWidth={4} strokeDasharray="5 5" />
-        <circle cx={32} cy={29} r={15.5} fill={C.ink} />
-        <circle cx={32} cy={31} r={13.5} fill="#a8241c" />
-        <g className="pad-dome">
-          <circle cx={32} cy={27} r={13.5} fill={C.red} stroke={C.ink} strokeWidth={1.4} />
-          <ellipse cx={27} cy={22} rx={5} ry={2.6} fill={C.flameMid} transform="rotate(-28 27 22)" />
+        <g transform="translate(32 28) scale(0.95)">
+          <circle r={22} fill={DAWN.dark} />
+          <circle r={19.5} fill="none" stroke={DAWN.hazard} strokeWidth={4} strokeDasharray="5.1 5.1" />
+          <circle r={16} fill={DAWN.dark} />
+          <circle cy={2} r={13.5} fill="#a8241c" />
+          <g className="pad-dome">
+            <circle cy={-2} r={13.5} fill={C.red} stroke={DAWN.dark} strokeWidth={1.4} />
+            <ellipse cx={-5} cy={-7} rx={5} ry={2.6} fill={C.flameMid} transform="rotate(-28 -5 -7)" />
+          </g>
         </g>
-        <text x={32} y={62} textAnchor="middle" fill={C.ink} style={{ fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--font-display), system-ui, sans-serif' }}>
-          Random
+        <text
+          x={32}
+          y={62}
+          textAnchor="middle"
+          fill={DAWN.label}
+          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.3, fontFamily: 'var(--font-display), system-ui, sans-serif' }}
+        >
+          RANDOM
         </text>
       </svg>
     </button>
   );
 }
 
-/** The launch tower and its pad: off to the left until the launch, when it slides in and docks. */
+/** The launch tower and its pad, in the same dark steel: off to the left until the launch, when it slides in and docks. */
 function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
   const { width: W, height: H, padY } = L;
   const k = Math.min(1, (padY - 10) / L.rocket.length);
@@ -1173,26 +1301,27 @@ function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
       className="pointer-events-none absolute inset-0 z-40"
       style={{ transform: `translateX(${-W}px)`, overflow: 'visible' }}
     >
-      <g stroke={C.ink} strokeWidth={1.3} fill={C.hull} strokeLinejoin="round">
+      <g stroke={DAWN.steel} strokeWidth={1.1} fill={DAWN.plate} strokeLinejoin="round">
         {/* the pad: a deck either side of the flame's opening, on legs */}
         <rect x={tx - 12} y={padY} width={cx - gapHalf - (tx - 12)} height={9} rx={1.5} />
         <rect x={cx + gapHalf} y={padY} width={cx - gapHalf - (tx - 12) - 10} height={9} rx={1.5} />
-        <path d={`M${tx - 4} ${padY + 9}V${padY + 15}M${cx - gapHalf - 6} ${padY + 9}V${padY + 15}M${cx + gapHalf + 6} ${padY + 9}V${padY + 15}`} fill="none" />
-        {/* the tower */}
-        <rect x={tx} y={ttop} width={tw} height={padY - ttop} />
-        <path d={towerPath(tx, tw, ttop, padY)} fill="none" />
-        <rect x={tx - 4} y={ttop - 6} width={tw + 30} height={6} rx={1} />
-        <path d={`M${tx + tw / 2} ${ttop - 6}V${ttop - 18}`} fill="none" />
+        <path d={`M${tx - 4} ${padY + 9}V${padY + 15}M${cx - gapHalf - 6} ${padY + 9}V${padY + 15}M${cx + gapHalf + 6} ${padY + 9}V${padY + 15}`} fill="none" strokeWidth={2} />
+        {/* the tower: a steel lattice, no fill */}
+        <path d={towerPath(tx, tw, ttop, padY)} fill="none" stroke={DAWN.brace} strokeWidth={1} />
+        <path d={`M${tx} ${ttop}V${padY}M${tx + tw} ${ttop}V${padY}`} fill="none" strokeWidth={2.2} />
+        <rect x={tx - 4} y={ttop - 6} width={tw + 30} height={5} rx={1} />
+        <path d={`M${tx + tw / 2} ${ttop - 6}V${ttop - 18}`} fill="none" strokeWidth={1.2} />
         {/* the swing arms, folded until they dock */}
         {arms.map((y) => (
           <g key={y} data-gantry-arm="" style={{ transformOrigin: `${tx + tw}px ${y}px`, transform: 'scaleX(0.12)' }}>
             <rect x={tx + tw} y={y - 3} width={cx - hull / 2 - (tx + tw) + 1} height={6} />
-            <path d={`M${tx + tw + 4} ${y - 3}L${tx + tw + 10} ${y + 3}M${tx + tw + 10} ${y - 3}L${tx + tw + 16} ${y + 3}`} fill="none" strokeWidth={1} />
-            <rect x={cx - hull / 2 - 3} y={y - 6} width={5} height={12} rx={1.5} fill={C.ink} stroke="none" />
+            <path d={`M${tx + tw + 4} ${y - 3}L${tx + tw + 10} ${y + 3}M${tx + tw + 10} ${y - 3}L${tx + tw + 16} ${y + 3}`} fill="none" stroke={DAWN.brace} strokeWidth={1} />
+            <rect x={cx - hull / 2 - 3} y={y - 6} width={5} height={12} rx={1.5} fill={DAWN.steel} stroke="none" />
           </g>
         ))}
       </g>
-      <circle cx={tx + tw / 2} cy={ttop - 20} r={2.8} fill={C.red} />
+      <circle cx={tx + tw / 2} cy={ttop - 20} r={6} fill={C.red} opacity={0.25} />
+      <circle cx={tx + tw / 2} cy={ttop - 20} r={2.4} fill={C.red} />
       {/* smoke at ignition */}
       {[-1, 1, -1, 1, -1, 1].map((dir, i) => (
         <circle
