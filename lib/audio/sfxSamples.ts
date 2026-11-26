@@ -44,6 +44,8 @@ export const SFX_SAMPLES: Partial<Record<SfxName, SfxSample>> = {
   // the crash that ends it. Nothing else sounds then (the music has faded out), so they sit high.
   drumRoll: { file: 'drumRoll.mp3', gain: 0.6, loop: { start: 0.1, end: 10.35 } },
   drumHit: { file: 'drumHit.mp3', gain: 0.8 },
+  // The creator's joke: a low "wrong answer" buzz (no music plays in the creator yet)
+  error: { file: 'error.mp3', gain: 0.5 },
   // beep and beepFinal (3-2-1) stay synthesised.
 };
 

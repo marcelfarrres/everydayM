@@ -27,7 +27,8 @@ export type SfxOneShot =
   | 'pam'
   | 'clack'
   | 'ignite'
-  | 'drumHit';
+  | 'drumHit'
+  | 'error';
 
 export type SfxLoopName = 'slowMo' | 'drumRoll';
 
@@ -252,6 +253,19 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
       // the drum under it
       { kind: 'tone', wave: 'sine', freq: 110, freqEnd: 52, gain: 0.9, env: { attack: 0.002, decay: 0.24 } },
       { kind: 'noise', filter: 'lowpass', freq: 500, gain: 0.5, env: { attack: 0.001, decay: 0.07 } },
+    ],
+  },
+
+  // The creator's joke ("¿Tan poco tiempo tenemos?"): a low, short "wrong answer" buzzer. Square
+  // and saw low down, a semitone apart so they rasp: nothing like the 3-2-1's clean high sine.
+  error: {
+    category: 'ambient',
+    gain: 0.3,
+    maxVoices: 1,
+    minGap: 0.3,
+    layers: [
+      { kind: 'tone', wave: 'square', freq: 140, freqEnd: 120, gain: 0.55, env: { attack: 0.005, hold: 0.16, decay: 0.08 } },
+      { kind: 'tone', wave: 'sawtooth', freq: 148, freqEnd: 127, gain: 0.45, env: { attack: 0.005, hold: 0.16, decay: 0.08 } },
     ],
   },
 };

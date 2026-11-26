@@ -26,6 +26,9 @@ import { HOP, riseKeyframes, waitingEngine } from '@/components/workout/rocketFl
 import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { BAR_TEXT, SHIP, barLines, barThickness } from '@/components/workout/rocketShape';
 import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
+import { creatorJoke, type CreatorSend } from '@/lib/intent/creatorJoke';
+import { CreatorJoke, jokeOrigin, type ActiveJoke } from '@/components/workout/CreatorJoke';
+import { playSfx } from '@/lib/audio/sfx';
 import type {
   Exercise,
   MuscleId,
@@ -235,6 +238,26 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const minutesRef = useRef<HTMLSpanElement>(null);
   const intentRef = useRef<Promise<RoutineIntent> | null>(null);
 
+  // Phone: the creator's joke when the user asks for too little (lib/intent/creatorJoke.ts), at
+  // most once per routine creation (reset when a routine is built).
+  const pageRef = useRef<HTMLDivElement>(null);
+  const jokeFired = useRef(false);
+  const jokeCount = useRef(0);
+  const [joke, setJoke] = useState<ActiveJoke | null>(null);
+  /** True when this send is teased (or the joke is still up) instead of going through. */
+  const tease = (send: CreatorSend, anchor: HTMLElement | null): boolean => {
+    if (joke) return true;
+    const kind = creatorJoke(send, { fired: jokeFired.current, phone: !window.matchMedia('(min-width: 64rem)').matches });
+    if (!kind) return false;
+    jokeFired.current = true;
+    // (inside the tap: it may wake the sound up; a failed sound blocks nothing)
+    playSfx('error', { gesture: true });
+    const focused = document.activeElement;
+    jokeCount.current += 1;
+    setJoke({ id: jokeCount.current, kind, anchor, origin: jokeOrigin(anchor), focus: focused instanceof HTMLElement ? focused : null });
+    return true;
+  };
+
   // Phone: the rocket (CreatorRocket). The bar of the sentence is its body; at each question and
   // at "Empezar" it waits to be tapped. `hop`: how long the next one waits to come up (the last
   // one is still flying out).
@@ -367,6 +390,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const submit = (raw: string, picked?: HTMLElement | null) => {
     const prompt = raw.trim();
     if (!prompt) return;
+    // a sentence the user wrote (not a suggestion) that asks for too little: teased, nothing flies
+    if (!picked && tease({ kind: 'sentence', prompt }, barRef.current)) return;
     // what takes off (phone): the suggestion picked (or "Random", standing), or else the bar with the
     // sentence; the next step is already here
     setHop(
@@ -409,6 +434,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   };
 
   const build = async (extra: Partial<RoutineIntent>) => {
+    jokeFired.current = false; // the next routine created may be teased again
     setBuilt(null);
     setTray(null);
     setStage(0);
@@ -579,7 +605,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   } as CSSProperties;
 
   return (
-    <div className="relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row">
+    <div ref={pageRef} className="relative isolate flex min-h-dvh w-full flex-col bg-paper font-[family-name:var(--font-display)] text-ink selection:bg-ink selection:text-white lg:flex-row">
       <header className="absolute inset-x-0 top-0 z-10 box-content flex h-16 items-center justify-between px-5 pt-[env(safe-area-inset-top)] sm:px-8">
         {view !== 'ask' ? (
           <button
@@ -822,7 +848,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                         key={option.label}
                         text={option.label}
                         minChars={Math.max(...q.options.map((o) => o.label.length))}
-                        onClick={(e) => answer(option.patch, e.currentTarget)}
+                        onClick={(e) => {
+                          const difficulty = q.id === 'intensity' ? option.patch.difficulty : undefined;
+                          if (difficulty !== undefined && tease({ kind: 'intensity', difficulty }, e.currentTarget)) return;
+                          answer(option.patch, e.currentTarget);
+                        }}
                       />
                     ))}
                   </RiseIn>
@@ -855,7 +885,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               ref={waitRef}
               riseDelay={hop}
               label="Seguir"
-              onClick={() => answer({ targetMinutes: draftMinutes })}
+              onClick={() => {
+                if (tease({ kind: 'minutes', minutes: draftMinutes }, waitRef.current)) return;
+                answer({ targetMinutes: draftMinutes });
+              }}
               // the more minutes, the longer its flame and the harder it trembles
               flame={minutesEngine(draftMinutes).flame}
               shake={minutesEngine(draftMinutes).shake}
@@ -1070,6 +1103,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           />
         </div>
       )}
+
+      <CreatorJoke joke={joke} shakeTarget={pageRef} onDone={() => setJoke(null)} />
     </div>
   );
 }

@@ -35,6 +35,7 @@ describe('sound table', () => {
         'clack',
         'drumHit',
         'drumRoll',
+        'error',
         'ignite',
         'land',
         'launch',
@@ -73,6 +74,16 @@ describe('sound table', () => {
     const final = SFX_RECIPES.beepFinal.layers[0];
     expect(final.freq).toBeGreaterThan(beep.freq);
     expect(recipeDuration(SFX_RECIPES.beepFinal)).toBeGreaterThan(recipeDuration(SFX_RECIPES.beep));
+  });
+
+  it("makes the creator's error buzzer low and rough, never like the 3-2-1", () => {
+    const error = SFX_RECIPES.error;
+    for (const layer of error.layers) {
+      expect(layer.kind).toBe('tone');
+      expect(layer.freq).toBeLessThan(SFX_RECIPES.beep.layers[0].freq / 4);
+      if (layer.kind === 'tone') expect(layer.wave).not.toBe('sine');
+    }
+    expect(recipeDuration(error)).toBeLessThan(0.4);
   });
 
   it('synthesises the end drums when their files are missing: a roll that trembles and grows, a hit that rings', () => {
