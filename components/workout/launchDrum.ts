@@ -171,11 +171,25 @@ export const LAUNCH = {
   reducedMs: 260,
 } as const;
 
+/**
+ * The typed sentence's launch (phone): the same launch with the text bar's rocket. The crew may
+ * have further to go (up the ladder to the bar's top) so they get a little longer, the door is the
+ * round window at the nose, and the rocket first comes down from the bar to the pad while the drum
+ * clears away. From the tap to out of sight: at most `maxWalkMs` + 3.08 s = 3.6 s (from their
+ * place on the bar's top they walk ~0.53 s; from further they hurry).
+ */
+export const BAR_LAUNCH = {
+  maxWalkMs: 520,
+  descendMs: 420,
+} as const;
+
 export interface LaunchTimeline {
   doorOpenAt: number;
   hopAt: [number, number];
   doorCloseAt: number;
   fadeAt: number;
+  /** the bar's rocket starts down to the pad (with the fade); the drum's launch has nothing here */
+  descendAt: number;
   turnAt: number;
   towerAt: number;
   dockAt: number;
@@ -185,20 +199,40 @@ export interface LaunchTimeline {
   endAt: number;
 }
 
-/** One thing at a time: the crew boards, the drum goes, the rocket stands up, the tower docks, ignition, lift-off. */
-export function launchTimeline(walkMs: number): LaunchTimeline {
-  const walk = Math.max(0, Math.min(LAUNCH.maxWalkMs, walkMs));
+/**
+ * One thing at a time: the crew boards, the drum goes, the rocket stands up, the tower docks,
+ * ignition, lift-off. `descendMs`: the text bar's rocket comes down to the pad meanwhile the drum
+ * goes (the bar's launch; it stands up once there).
+ */
+export function launchTimeline(walkMs: number, { maxWalkMs = LAUNCH.maxWalkMs, descendMs = 0 }: { maxWalkMs?: number; descendMs?: number } = {}): LaunchTimeline {
+  const walk = Math.max(0, Math.min(maxWalkMs, walkMs));
   const doorOpenAt = walk;
   const b = doorOpenAt + LAUNCH.doorMs;
   const a = b + LAUNCH.hopGapMs;
   const doorCloseAt = a + LAUNCH.hopMs;
   const fadeAt = doorCloseAt + LAUNCH.doorMs;
-  const turnAt = fadeAt + LAUNCH.fadeMs;
+  const descendAt = fadeAt;
+  const turnAt = fadeAt + Math.max(LAUNCH.fadeMs, descendMs);
   const towerAt = turnAt + LAUNCH.turnMs;
   const dockAt = towerAt + LAUNCH.towerMs;
   const igniteAt = dockAt + LAUNCH.dockMs;
   const liftAt = igniteAt + LAUNCH.igniteMs;
-  return { doorOpenAt, hopAt: [b, a], doorCloseAt, fadeAt, turnAt, towerAt, dockAt, igniteAt, liftAt, endAt: liftAt + LAUNCH.liftMs };
+  return { doorOpenAt, hopAt: [b, a], doorCloseAt, fadeAt, descendAt, turnAt, towerAt, dockAt, igniteAt, liftAt, endAt: liftAt + LAUNCH.liftMs };
+}
+
+/** The typed sentence's launch timeline (see BAR_LAUNCH). */
+export function barLaunchTimeline(walkMs: number): LaunchTimeline {
+  return launchTimeline(walkMs, { maxWalkMs: BAR_LAUNCH.maxWalkMs, descendMs: BAR_LAUNCH.descendMs });
+}
+
+/**
+ * The text bar's rocket on the pad: the same length as a drum rocket (so the launch tower, its
+ * arms and the lift-off fit as they are), at this scale of its own size, and its body's
+ * thickness there, px (the tower's arms reach that hull).
+ */
+export function barOnPad(L: BaseLayout, barLength: number, barBody: number): { scale: number; body: number } {
+  const scale = barLength > 0 ? L.rocket.length / barLength : 1;
+  return { scale, body: barBody * scale };
 }
 
 /**

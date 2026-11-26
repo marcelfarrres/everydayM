@@ -33,6 +33,11 @@ export interface PadRocketProps {
   flame?: number;
   /** the crew hatch open (also `data-hatch-open` on any ancestor) */
   hatchOpen?: boolean;
+  /**
+   * the round window is a door the crew can get in by: it swings open (`data-window-open` on any
+   * ancestor) on the dark cabin behind it (the text bar's rocket when it flies from the base)
+   */
+  windowDoor?: boolean;
   parts?: PadRocketParts;
   className?: string;
   style?: CSSProperties;
@@ -40,7 +45,7 @@ export interface PadRocketProps {
 
 const FONT = 'var(--font-display), var(--font-geist-sans), system-ui, sans-serif';
 
-export function PadRocket({ g, label, flame = 0, hatchOpen = false, parts = {}, className = '', style }: PadRocketProps) {
+export function PadRocket({ g, label, flame = 0, hatchOpen = false, windowDoor = false, parts = {}, className = '', style }: PadRocketProps) {
   const { T, Tf, cy, stroke: sw } = g;
   const { x0, x1, top, bottom } = g.body;
   const show = { flame: true, fins: true, hatch: true, window: true, antenna: true, ...parts };
@@ -104,7 +109,17 @@ export function PadRocket({ g, label, flame = 0, hatchOpen = false, parts = {}, 
           </g>
         )}
         <NosePart x1={x1} top={top} bottom={bottom} cy={cy} T={T} Tf={Tf} sw={sw} />
-        {show.window && <WindowPart w={w} sw={sw} />}
+        {show.window &&
+          (windowDoor ? (
+            <g>
+              <circle cx={w.cx} cy={w.cy} r={w.r} fill={C.ink} stroke="none" />
+              <g className="pad-window" style={{ transformOrigin: `${f1(w.cx - w.r)}px ${w.cy}px` }}>
+                <WindowPart w={w} sw={sw} />
+              </g>
+            </g>
+          ) : (
+            <WindowPart w={w} sw={sw} />
+          ))}
         {show.antenna && <AntennaPart x0={g.antenna.x0} x1={g.antenna.x1} light={g.antenna.light} cy={cy} Tf={Tf} sw={sw} />}
       </g>
       {label && label.text && (

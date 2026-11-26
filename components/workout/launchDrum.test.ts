@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BAR_LAUNCH,
   DRUM,
   LAUNCH,
+  barLaunchTimeline,
+  barOnPad,
   baseLayout,
   centreIndex,
   drumSlot,
@@ -132,5 +135,32 @@ describe('the launch', () => {
     expect(usual.liftAt).toBeGreaterThan(2000);
     expect(usual.endAt).toBeGreaterThan(2700);
     expect(usual.endAt).toBeLessThan(3300);
+  });
+
+  it("launches the typed sentence the same way, the bar's rocket first coming down to the pad, in at most 3.8 s", () => {
+    for (const walk of [0, 300, 600, 3000]) {
+      const t = barLaunchTimeline(walk);
+      const order = [t.doorOpenAt, t.hopAt[0], t.hopAt[1], t.doorCloseAt, t.fadeAt, t.turnAt, t.towerAt, t.dockAt, t.igniteAt, t.liftAt, t.endAt];
+      for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+      expect(t.descendAt).toBe(t.fadeAt);
+      expect(t.turnAt - t.descendAt).toBe(BAR_LAUNCH.descendMs);
+      // the round window: open, both in, closed, well under a second
+      expect(t.doorCloseAt + LAUNCH.doorMs - t.doorOpenAt).toBeLessThan(1000);
+      expect(t.endAt).toBeLessThanOrEqual(3800);
+      // from the pad on, exactly the drum's launch
+      const drum = launchTimeline(0);
+      expect(t.endAt - t.turnAt).toBe(drum.endAt - drum.turnAt);
+    }
+    expect(barLaunchTimeline(3000).endAt).toBe(barLaunchTimeline(BAR_LAUNCH.maxWalkMs).endAt);
+    // the drum's own launch is unchanged
+    expect(launchTimeline(150).descendAt).toBe(launchTimeline(150).fadeAt);
+    expect(launchTimeline(150).turnAt - launchTimeline(150).fadeAt).toBe(LAUNCH.fadeMs);
+  });
+
+  it("brings the bar's rocket to the pad at a drum rocket's length", () => {
+    const L = baseLayout(390, 338, 34);
+    const pad = barOnPad(L, 386, 46);
+    expect(pad.scale * 386).toBeCloseTo(L.rocket.length, 6);
+    expect(pad.body).toBeCloseTo(46 * pad.scale, 6);
   });
 });

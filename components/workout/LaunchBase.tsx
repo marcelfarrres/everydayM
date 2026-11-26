@@ -1,15 +1,32 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type Ref,
+  type RefObject,
+} from 'react';
+import { flushSync } from 'react-dom';
 import { useReducedMotion } from 'motion/react';
 import { PadRocket } from '@/components/workout/PadRocket';
-import { PAD_COLORS as C, padRocketGeometry, type LabelFit } from '@/components/workout/padRocketShape';
+import { PAD_COLORS as C, padRocketGeometry, type LabelFit, type PadRocketGeometry } from '@/components/workout/padRocketShape';
 import { useTextMeasure } from '@/components/workout/textMeasure';
 import { fitDrumLabel } from '@/components/workout/drumLabel';
 import { stepsTo, type RandomLanding } from '@/components/workout/drumRandom';
 import {
+  BAR_LAUNCH,
   DRUM,
   LAUNCH,
+  barLaunchTimeline,
+  barOnPad,
   baseLayout,
   centreIndex,
   drumSlot,
@@ -24,8 +41,27 @@ import {
   ticksBetween,
   wrapOffset,
   type BaseLayout,
+  type LaunchTimeline,
 } from '@/components/workout/launchDrum';
-import { CREW, boardingPlan, climbTarget, crewMode, crewMove, crewPoint, stepsCrossed, trackSpans, type CrewTrack } from '@/components/workout/padCrew';
+import {
+  CREW,
+  barRoof,
+  boardingPlan,
+  climbTarget,
+  crewFacing,
+  crewMode,
+  crewMove,
+  crewPoint,
+  onRoof,
+  remapOnTrack,
+  roofSpot,
+  roofStands,
+  stepSoundDue,
+  stepsCrossed,
+  trackPath,
+  trackSpans,
+  type CrewTrack,
+} from '@/components/workout/padCrew';
 import { getAudioContext } from '@/lib/audio';
 import { playSfx } from '@/lib/audio/sfx';
 import { sfxCue } from '@/lib/audio/sfxCue';
@@ -38,6 +74,12 @@ import { sfxCue } from '@/lib/audio/sfxCue';
  * centred one launches it: the two astronauts board through the hatch, the rest of the base goes,
  * the rocket stands up, the launch tower slides in and docks, ignition, lift-off; then `onLaunch`
  * (the creator carries on exactly as when a suggestion was picked).
+ *
+ * The text bar above the base (the sentence's rocket) is part of the show: while its field has
+ * focus (`crewUp`) the right tower's ladder telescopes up to the bar and the crew climb onto the
+ * bar's top to wait there; a typed sentence (`launchBar`, through the ref) takes off with the same
+ * launch: the crew get in through its round window, it comes down to the pad while the drum
+ * clears away, stands up, the tower docks, lift-off.
  *
  * Performance: nothing here re-renders per frame. One requestAnimationFrame loop (running only
  * while something moves) writes transforms and opacity through refs; React state changes only when
@@ -58,6 +100,33 @@ interface LaunchBaseProps {
   onSwap?: (index: number, text: string) => void;
   /** the launched rocket is out of sight: go on with this suggestion */
   onLaunch: (suggestion: string) => void;
+  /** the sentence's field has focus: the crew climb onto the text bar's top and wait there */
+  crewUp?: boolean;
+  /** the text bar (its box), its rocket's geometry, and how far that rocket reaches left of the box, px */
+  barRef?: RefObject<HTMLElement | null>;
+  barG?: PadRocketGeometry;
+  barHang?: number;
+  ref?: Ref<LaunchBaseHandle>;
+}
+
+export interface LaunchBaseHandle {
+  /**
+   * The typed sentence takes off from the base with the text bar's rocket; `onGone` once it is out
+   * of sight. False when it cannot (reduced motion, no base on screen, a launch already going):
+   * the caller then flies it as before.
+   */
+  launchBar: (text: string, onGone: () => void) => boolean;
+}
+
+/** The text bar's rocket while it flies from the base: its drawing, label, start and size on the pad. */
+interface Visitor {
+  g: PadRocketGeometry;
+  label: { text: string; px: number };
+  /** its box's top-left in the base when it starts (the bar's place) */
+  box: { x: number; y: number };
+  from: string;
+  scale: number;
+  body: number;
 }
 
 type Anim = { from: number; to: number; t0: number; dur: number; ease: (p: number) => number };
@@ -70,7 +139,7 @@ const ASTRO_UNIT = 34; // astronaut drawing: body thickness / this = its scale
 // (the labels are measured in the page's font: textMeasure.ts, shared with the creator's bar)
 export { useTextMeasure };
 
-export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap }: LaunchBaseProps) {
+export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap, crewUp = false, barRef, barG, barHang = 0, ref }: LaunchBaseProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -116,6 +185,49 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   }, [L, G]);
   const gap = G ? Math.round(G.T * 0.6) : 20;
 
+  // ── the text bar above the base: where its rocket is, in the base (no transforms: offsets) ──
+  const [barBox, setBarBox] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const bar = barRef?.current;
+    if (!root || !bar || !L) return;
+    const read = () => {
+      let x: number;
+      let y: number;
+      if (bar.offsetParent && bar.offsetParent === root.offsetParent) {
+        x = bar.offsetLeft - root.offsetLeft;
+        y = bar.offsetTop - root.offsetTop;
+      } else {
+        const a = bar.getBoundingClientRect();
+        const b = root.getBoundingClientRect();
+        x = a.left - b.left;
+        y = a.top - b.top;
+      }
+      // (the base draws inside its border: its top border is 2 px)
+      x -= barHang + root.clientLeft;
+      y -= root.clientTop;
+      setBarBox((old) => (old && old.x === x && old.y === y ? old : { x, y }));
+    };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(bar);
+    ro.observe(root);
+    return () => ro.disconnect();
+  }, [L, barRef, barHang, crewUp]);
+  const roof = useMemo(
+    () => (track && barBox && barG ? barRoof(barBox.x, barBox.y, { bodyTop: barG.body.top, stroke: barG.stroke, noseX: barG.body.x1 }, track.ladderTop, gap) : null),
+    [track, barBox, barG, gap],
+  );
+  // the whole track (the base's, and the bar's top once it is measured)
+  const fullTrack: CrewTrack | null = useMemo(() => (track ? { ...track, roof } : null), [track, roof]);
+  const trackRef = useRef<CrewTrack | null>(null);
+  // the ladder's extension and the bar's gangway are out (they telescope up while the crew go there)
+  const [roofOut, setRoofOut] = useState(false);
+  const roofOutRef = useRef(false);
+  const crewUpRef = useRef(crewUp);
+  const [visitor, setVisitor] = useState<Visitor | null>(null);
+  const visitorRef = useRef<HTMLDivElement>(null);
+
   // ── the moving parts, through refs ───────────────────────────────────────────────────────
   const pos = useRef(centre);
   const anim = useRef<Anim | null>(null);
@@ -129,7 +241,8 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const chains = useRef<(SVGGElement | null)[]>([]);
   const gears = useRef<(SVGGElement | null)[]>([]);
   const astros = useRef<(HTMLDivElement | null)[]>([]);
-  const crew = useRef({ a: 0, b: 0, up: true, facingA: -1, facingB: 1, boarding: false });
+  const crew = useRef({ a: 0, b: 0, up: true, facingA: -1 as 1 | -1, facingB: 1 as 1 | -1, boarding: false });
+  const lastStep = useRef(-Infinity);
   const raf = useRef<number | null>(null);
   const frameRef = useRef<((now: number) => void) | null>(null);
   const last = useRef(0);
@@ -173,9 +286,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 
   const paintCrew = useCallback(
     (modeA: string, modeB: string) => {
-      if (!track) return;
+      const T = trackRef.current;
+      if (!T) return;
       const c = crew.current;
-      const pts = [crewPoint(c.a, track), crewPoint(c.b, track)];
+      const pts = [crewPoint(c.a, T), crewPoint(c.b, T)];
       const facing = [c.facingA, c.facingB];
       const modes = [modeA, modeB];
       astros.current.forEach((el, i) => {
@@ -188,7 +302,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
         }
       });
     },
-    [track],
+    [],
   );
 
   const setLive = useCallback(
@@ -233,27 +347,42 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       if (!isMoving && moving.current) settle();
       // the crew
       const c = crew.current;
-      if (track && !c.boarding && !reduced) {
-        const tA = isMoving ? climbTarget(c.up, track) : track.standA;
+      const T = trackRef.current;
+      if (T && !c.boarding && !reduced) {
+        // up on the bar while its field has focus (once the ladder is out); else the drum's way
+        const stands = crewUpRef.current && roofOutRef.current ? roofStands(T, gap) : null;
+        const tA = stands ? stands.a : isMoving ? climbTarget(c.up, T) : Math.max(T.standA, c.b + gap);
         const prevA = c.a;
-        c.a = crewMove(c.a, tA, dt, track);
-        if (isMoving && Math.abs(c.a - tA) < 0.01) c.up = !c.up;
-        const tB = isMoving ? Math.max(0, c.a - gap) : track.standB;
+        c.a = crewMove(c.a, tA, dt, T);
+        if (!stands && isMoving && Math.abs(c.a - tA) < 0.01) c.up = !c.up;
+        const tB = stands ? Math.max(0, Math.min(stands.b, c.a - gap)) : isMoving ? Math.max(0, c.a - gap) : T.standB;
         const prevB = c.b;
-        c.b = crewMove(c.b, tB, dt, track);
-        const { deck } = trackSpans(track);
-        if (c.a !== prevA) c.facingA = c.a > deck ? c.facingA : c.a > prevA ? 1 : -1;
-        if (c.b !== prevB) c.facingB = c.b > deck ? c.facingB : c.b > prevB ? 1 : -1;
-        if (Math.abs(c.a - tA) < 0.01 && !isMoving) c.facingA = -1;
-        if (Math.abs(c.b - tB) < 0.01 && !isMoving) c.facingB = 1;
-        // a footstep per stride on the walkway, a rung per rung on the ladder (the pair: one sound)
-        if (stepsCrossed(prevA, c.a, prevA > deck || c.a > deck ? CREW.rung : CREW.stride) > 0) playSfx(c.a > deck ? 'ladderStep' : 'metalStep');
-        paintCrew(crewMode(c.a, tA, track), crewMode(c.b, tB, track));
+        c.b = crewMove(c.b, tB, dt, T);
+        if (c.a !== prevA) c.facingA = crewFacing(prevA, c.a, T, c.facingA);
+        if (c.b !== prevB) c.facingB = crewFacing(prevB, c.b, T, c.facingB);
+        // waiting: facing each other (on the base A looks left, B right; on the bar the other way round)
+        if (Math.abs(c.a - tA) < 0.01 && !isMoving) c.facingA = onRoof(c.a, T) ? 1 : -1;
+        if (Math.abs(c.b - tB) < 0.01 && !isMoving) c.facingB = onRoof(c.b, T) ? -1 : 1;
+        // a footstep per stride on the walkways, a rung per rung on the ladder (the pair: one sound,
+        // and never a rattle: CREW.soundGapMs between two)
+        const was = crewPoint(prevA, T);
+        const is = crewPoint(c.a, T);
+        if (stepSoundDue(stepsCrossed(prevA, c.a, was.onLadder || is.onLadder ? CREW.rung : CREW.stride), now, lastStep.current)) {
+          lastStep.current = now;
+          playSfx(is.onLadder ? 'ladderStep' : 'metalStep');
+        }
+        paintCrew(crewMode(c.a, tA, T), crewMode(c.b, tB, T));
         if (Math.abs(c.a - tA) > 0.01 || Math.abs(c.b - tB) > 0.01) active = true;
+        // both back below the tower's top and not wanted up there: the ladder folds away
+        const { deck, up } = trackSpans(T);
+        if (!crewUpRef.current && roofOutRef.current && c.a <= deck + up + 0.5 && c.b <= deck + up + 0.5) {
+          roofOutRef.current = false;
+          setRoofOut(false);
+        }
       }
       if (active) raf.current = requestAnimationFrame((t) => frameRef.current?.(t));
     },
-    [paintDrum, paintCrew, settle, track, gap, reduced],
+    [paintDrum, paintCrew, settle, gap, reduced],
   );
 
   useLayoutEffect(() => {
@@ -283,6 +412,28 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     [kick, reduced, startMoving],
   );
 
+  // the track changed (the bar grew a line, the bar was measured): everyone stays where they stand
+  useLayoutEffect(() => {
+    const prev = trackRef.current;
+    trackRef.current = fullTrack;
+    if (!fullTrack || !prev) return;
+    const c = crew.current;
+    c.a = remapOnTrack(c.a, prev, fullTrack);
+    c.b = remapOnTrack(c.b, prev, fullTrack);
+    if (!c.boarding) paintCrew('stand', 'stand');
+    kick();
+  }, [fullTrack, paintCrew, kick]);
+
+  // the field took or lost focus: the ladder telescopes up at once (it folds once they are down)
+  useEffect(() => {
+    crewUpRef.current = crewUp;
+    if (crewUp && roof && !roofOutRef.current) {
+      roofOutRef.current = true;
+      setRoofOut(true);
+    }
+    kick();
+  }, [crewUp, roof, kick]);
+
   // first paint, and again whenever the layout changes (resize, fonts)
   useLayoutEffect(() => {
     if (!L || !track) return;
@@ -296,7 +447,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   useEffect(
     () => () => {
       if (raf.current !== null) cancelAnimationFrame(raf.current);
+      // (cleared, or a later kick would think a frame is still coming: React's dev double mount)
+      raf.current = null;
       pending.current.forEach((fn) => fn());
+      pending.current = [];
     },
     [],
   );
@@ -414,92 +568,31 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   };
 
   // ── the launch ───────────────────────────────────────────────────────────────────────────
-  const launch = (index: number) => {
+  /** A step of the launch `ms` from now (cancelled if the base goes). */
+  const later = (ms: number, fn: () => void) => {
+    const t = setTimeout(fn, ms);
+    pending.current.push(() => clearTimeout(t));
+  };
+
+  /**
+   * From the pad on, the same for every launch: the rocket `el` stands up (from `onPad` to
+   * `upright`), the launch tower slides in from the left and its arms dock, ignition, lift-off
+   * out of the top of the screen. `body`: the hull's thickness on the pad, px.
+   */
+  const padSequence = (el: HTMLElement, tl: LaunchTimeline, onPad: () => string, upright: string, liftTo: (out: number) => string, standY: number, k: number, body: number) => {
     const root = rootRef.current;
-    const el = rockets.current[index];
-    if (!root || !el || !L || !G || !track) return;
-    busy.current = true;
-    wake();
-    callbacks.current.onLaunchStart?.();
-    const text = suggestions[index];
-    const later = (ms: number, fn: () => void) => {
-      const t = setTimeout(fn, ms);
-      pending.current.push(() => clearTimeout(t));
-    };
-    const finish = () => callbacks.current.onLaunch(text);
-
-    if (reduced) {
-      root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAUNCH.reducedMs, fill: 'forwards' });
-      later(LAUNCH.reducedMs, finish);
-      return;
-    }
-
-    const c = crew.current;
-    c.boarding = true;
-    const plan = boardingPlan(c.a, c.b, track, LAUNCH.maxWalkMs);
-    const tl = launchTimeline(plan.walkMs);
-    const t0 = clockNow();
+    if (!root || !L) return;
     const cues = [
-      sfxCue(t0 + tl.dockAt + LAUNCH.dockMs * 0.8, () => playSfx('towerDock')),
-      sfxCue(t0 + tl.igniteAt, () => playSfx('ignite')),
-      sfxCue(t0 + tl.liftAt, () => playSfx('launch')),
+      sfxCue(clockNow() + tl.dockAt + LAUNCH.dockMs * 0.8, () => playSfx('towerDock')),
+      sfxCue(clockNow() + tl.igniteAt, () => playSfx('ignite')),
+      sfxCue(clockNow() + tl.liftAt, () => playSfx('launch')),
     ];
     pending.current.push(() => cues.forEach((cue) => cue?.cancel()));
 
-    // 1. the crew walks to the hatch (down the ladder first, if that is where they are)…
-    const { deck } = trackSpans(track);
-    const hatchTop = crewPoint(0, track);
-    const walkTo = (s: number) => {
-      const from = crewPoint(s, track);
-      const frames: Keyframe[] = [{ transform: `translate3d(${from.x}px, ${from.y}px, 0)` }];
-      if (s > deck) frames.push({ transform: `translate3d(${track.ladderX}px, ${track.deckY}px, 0)`, offset: (s - deck) / s });
-      frames.push({ transform: `translate3d(${hatchTop.x}px, ${hatchTop.y}px, 0)` });
-      return frames;
-    };
-    const hop: Keyframe[] = [
-      { transform: `translate3d(${hatchTop.x}px, ${hatchTop.y}px, 0) scale(1)`, opacity: 1 },
-      { transform: `translate3d(${hatchTop.x}px, ${hatchTop.y - G.T * 0.22}px, 0) scale(0.95)`, opacity: 1, offset: 0.35 },
-      { transform: `translate3d(${hatchTop.x}px, ${L.centreY + (G.hatch?.h ?? 20) * 0.3}px, 0) scale(0.7)`, opacity: 0 },
-    ];
-    [c.b, c.a].forEach((s, i) => {
-      const node = astros.current[i === 0 ? 1 : 0];
-      const fig = node?.firstElementChild as HTMLElement | null;
-      if (!node) return;
-      if (plan.walkMs > 0 && s > 0.5) {
-        if (fig) {
-          fig.dataset.mode = 'walk';
-          fig.style.transform = 'scaleX(-1)';
-        }
-        node.animate(walkTo(s), { duration: plan.walkMs, fill: 'forwards' });
-      }
-      later(plan.walkMs, () => {
-        if (fig) fig.dataset.mode = 'stand';
-      });
-      // 2. …the door opens, they step in one after the other, it closes
-      later(tl.hopAt[i], () => {
-        playSfx('metalStep');
-        node.animate(hop, { duration: LAUNCH.hopMs, easing: 'ease-in', fill: 'forwards' });
-      });
-    });
-    later(tl.doorOpenAt, () => el.setAttribute('data-hatch-open', ''));
-    later(tl.doorCloseAt, () => el.removeAttribute('data-hatch-open'));
-
-    // 3. the other rockets and the drum's fittings go
-    later(tl.fadeAt, () => {
-      const fade = { duration: LAUNCH.fadeMs, fill: 'forwards' as const };
-      root.querySelectorAll<HTMLElement | SVGElement>('[data-fitting]').forEach((node) => node.animate([{ opacity: 1 }, { opacity: 0 }], fade));
-      rockets.current.forEach((r, i) => {
-        if (r && i !== index) r.animate([{ opacity: r.style.opacity || '1' }, { opacity: 0 }], fade);
-      });
-    });
-
     // 4. the rocket stands up over the pad
-    const k = Math.min(1, (L.padY - 10) / L.rocket.length);
-    const standY = L.padY - (L.rocket.length * k) / 2 - L.centreY;
-    const upright = `translate3d(0, ${standY}px, 0) rotate(-90deg) scale(${k})`;
     later(tl.turnAt, () => {
       el.removeAttribute('data-live');
-      el.animate([{ transform: el.style.transform || 'none' }, { transform: upright }], { duration: LAUNCH.turnMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
+      el.animate([{ transform: onPad() }, { transform: upright }], { duration: LAUNCH.turnMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
     });
 
     // 5. the launch tower slides in from the left, 6. its arms dock
@@ -529,15 +622,165 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
         arm.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0.12)' }], { duration: 140, fill: 'forwards' }),
       );
       const top = root.getBoundingClientRect().top;
-      const out = standY - (top + L.centreY + standY + (L.rocket.length * k) / 2 + 2 * G.T + 40);
-      el.animate([{ transform: upright }, { transform: `translate3d(0, ${out}px, 0) rotate(-90deg) scale(${k})` }], {
+      const out = standY - (top + L.centreY + standY + (L.rocket.length * k) / 2 + 2 * body + 40);
+      el.animate([{ transform: upright }, { transform: liftTo(out) }], {
         duration: LAUNCH.liftMs,
         easing: 'cubic-bezier(0.55, 0, 0.85, 0.35)',
         fill: 'forwards',
       });
     });
+  };
+
+  /** The rocket's upright place over the pad: how much it shrinks (k) and how far down it stands. */
+  const padPlace = (Lb: BaseLayout) => {
+    const k = Math.min(1, (Lb.padY - 10) / Lb.rocket.length);
+    return { k, standY: Lb.padY - (Lb.rocket.length * k) / 2 - Lb.centreY };
+  };
+
+  /**
+   * The crew walk along the track to the door at `to` (s) and hop in one after the other through
+   * it, at `door` (in the base): `walkMs` long (both arrive by then), hops at `hopAt`.
+   */
+  const boardCrew = (T: CrewTrack, to: number, walkMs: number, hopAt: [number, number], door: { x: number; y: number }, gtT: number) => {
+    const c = crew.current;
+    const top = crewPoint(to, T);
+    const hop: Keyframe[] = [
+      { transform: `translate3d(${top.x}px, ${top.y}px, 0) scale(1)`, opacity: 1 },
+      { transform: `translate3d(${top.x}px, ${top.y - gtT * 0.22}px, 0) scale(0.95)`, opacity: 1, offset: 0.35 },
+      { transform: `translate3d(${door.x}px, ${door.y}px, 0) scale(0.7)`, opacity: 0 },
+    ];
+    [c.b, c.a].forEach((s, i) => {
+      const node = astros.current[i === 0 ? 1 : 0];
+      const fig = node?.firstElementChild as HTMLElement | null;
+      if (!node) return;
+      if (walkMs > 0 && Math.abs(s - to) > 0.5) {
+        if (fig) {
+          fig.dataset.mode = 'walk';
+          fig.style.transform = `scaleX(${top.x >= crewPoint(s, T).x ? 1 : -1})`;
+        }
+        node.animate(
+          trackPath(s, to, T).map((p) => ({ transform: `translate3d(${p.x}px, ${p.y}px, 0)`, offset: p.offset })),
+          { duration: walkMs, fill: 'forwards' },
+        );
+      }
+      later(walkMs, () => {
+        if (fig) fig.dataset.mode = 'stand';
+      });
+      // the door opens, they step in one after the other, it closes
+      later(hopAt[i], () => {
+        playSfx('metalStep');
+        node.animate(hop, { duration: LAUNCH.hopMs, easing: 'ease-in', fill: 'forwards' });
+      });
+    });
+  };
+
+  /** The other rockets and the drum's fittings go (all the rockets but `keep`). */
+  const clearDrum = (keep: number | null) => {
+    const root = rootRef.current;
+    if (!root) return;
+    const fade = { duration: LAUNCH.fadeMs, fill: 'forwards' as const };
+    root.querySelectorAll<HTMLElement | SVGElement>('[data-fitting]').forEach((node) => node.animate([{ opacity: 1 }, { opacity: 0 }], fade));
+    rockets.current.forEach((r, i) => {
+      if (r && i !== keep) r.animate([{ opacity: r.style.opacity || '1' }, { opacity: 0 }], fade);
+    });
+  };
+
+  const launch = (index: number) => {
+    const root = rootRef.current;
+    const el = rockets.current[index];
+    const T = trackRef.current;
+    if (!root || !el || !L || !G || !T) return;
+    busy.current = true;
+    wake();
+    callbacks.current.onLaunchStart?.();
+    const text = suggestions[index];
+    const finish = () => callbacks.current.onLaunch(text);
+
+    if (reduced) {
+      root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAUNCH.reducedMs, fill: 'forwards' });
+      later(LAUNCH.reducedMs, finish);
+      return;
+    }
+
+    const c = crew.current;
+    c.boarding = true;
+    const plan = boardingPlan(c.a, c.b, T, LAUNCH.maxWalkMs);
+    const tl = launchTimeline(plan.walkMs);
+
+    // 1. the crew walks to the hatch (down from the ladder or the bar first, if that is where they are)…
+    // 2. …the door opens, they step in one after the other, it closes
+    boardCrew(T, 0, plan.walkMs, tl.hopAt, { x: crewPoint(0, T).x, y: L.centreY + (G.hatch?.h ?? 20) * 0.3 }, G.T);
+    later(tl.doorOpenAt, () => el.setAttribute('data-hatch-open', ''));
+    later(tl.doorCloseAt, () => el.removeAttribute('data-hatch-open'));
+
+    // 3. the other rockets and the drum's fittings go
+    later(tl.fadeAt, () => clearDrum(index));
+
+    // 4–8. it stands up, the tower docks, ignition, lift-off
+    const { k, standY } = padPlace(L);
+    const upright = `translate3d(0, ${standY}px, 0) rotate(-90deg) scale(${k})`;
+    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate3d(0, ${out}px, 0) rotate(-90deg) scale(${k})`, standY, k, G.T);
     later(tl.endAt, finish);
   };
+
+  /** The typed sentence's launch (see LaunchBaseHandle): the text bar's rocket flies from the base. */
+  const launchBar = (text: string, onGone: () => void): boolean => {
+    const root = rootRef.current;
+    const T = trackRef.current;
+    if (reduced || busy.current || !root || !L || !G || !T || !barG || !barBox || !T.roof) return false;
+    busy.current = true;
+    wake();
+    // whatever the drum was doing, it stops: it is about to clear away
+    anim.current = null;
+    drag.current = null;
+    rolling.current = false;
+    // the ladder is out (the crew may still be on their way up)
+    roofOutRef.current = true;
+    const room = barG.label.x1 - barG.label.x0;
+    const fit = fitDrumLabel(text, room, { max: Math.round(barG.Tf * 0.52), min: LABEL_MIN }, measure);
+    const pad = barOnPad(L, barG.W, barG.T);
+    const box = { ...barBox };
+    const dx = box.x + barG.W / 2 - L.rocket.cx;
+    const dy = box.y + barG.H / 2 - L.centreY;
+    const at = (x: number, y: number, rz: number, s: number) => `translate3d(${x}px, ${y}px, 0) rotate(${rz}deg) scale(${s})`;
+    const v: Visitor = { g: barG, label: { text: fit.text, px: fit.px }, box, from: at(dx, dy, 0, 1), scale: pad.scale, body: pad.body };
+    // (drawn now, in the bar's place, before the screen paints: the bar under it can go)
+    flushSync(() => {
+      setRoofOut(true);
+      setVisitor(v);
+    });
+    const el = visitorRef.current;
+    if (!el) return true;
+
+    const c = crew.current;
+    c.boarding = true;
+    const door = roofSpot(box.x + barG.window.cx, T);
+    const plan = boardingPlan(c.a, c.b, T, BAR_LAUNCH.maxWalkMs, door);
+    const tl = barLaunchTimeline(plan.walkMs);
+
+    // 1. the crew walk (or hurry) over the bar's top to its round window, 2. it opens, they get in, it closes
+    boardCrew(T, door, plan.walkMs, tl.hopAt, { x: box.x + barG.window.cx, y: box.y + barG.window.cy }, G.T);
+    later(tl.doorOpenAt, () => el.setAttribute('data-window-open', ''));
+    later(tl.doorCloseAt, () => el.removeAttribute('data-window-open'));
+
+    // 3. the drum clears away (all its rockets: this one takes the centre) and it comes down to the pad
+    const onPad = at(0, 0, 0, pad.scale);
+    later(tl.fadeAt, () => clearDrum(null));
+    later(tl.descendAt, () => {
+      el.animate([{ transform: v.from }, { transform: onPad }], { duration: BAR_LAUNCH.descendMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
+    });
+
+    // 4–8. as every launch
+    const { k, standY } = padPlace(L);
+    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body);
+    later(tl.endAt, onGone);
+    return true;
+  };
+  const launchBarRef = useRef(launchBar);
+  useLayoutEffect(() => {
+    launchBarRef.current = launchBar;
+  });
+  useImperativeHandle(ref, () => ({ launchBar: (text, onGone) => launchBarRef.current(text, onGone) }), []);
 
   const onRocket = (index: number) => {
     if (suppressClick.current || busy.current || rolling.current) return;
@@ -553,7 +796,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      className="relative z-20 h-[clamp(236px,40dvh,380px)] w-full touch-none select-none rounded-t-[24px] border-t-2 border-ink bg-[#f4f3f0] text-ink"
+      className="relative z-20 h-[clamp(236px,calc(var(--pad-dvh,1dvh)*40),380px)] w-full touch-none select-none rounded-t-[24px] border-t-2 border-ink bg-[#f4f3f0] text-ink"
     >
       <div data-safe-probe="" aria-hidden="true" className="pointer-events-none invisible absolute h-0 w-0 pb-[env(safe-area-inset-bottom)]" />
       {L && G && track && (
@@ -584,7 +827,23 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
               ))}
             </ul>
           </div>
+          {fullTrack?.roof && barBox && barG && (
+            <RoofLadder L={L} G={G} track={fullTrack} noseX={barBox.x + barG.body.x1} out={roofOut} />
+          )}
           <Foreground L={L} G={G} track={track} uid={uid} chains={chains} gears={gears} />
+          {/* the text bar's rocket, flying from the base (the typed sentence's launch) */}
+          {visitor && (
+            <div
+              ref={visitorRef}
+              aria-hidden="true"
+              className="pad-visitor pointer-events-none absolute z-[25] [transform-origin:50%_50%]"
+              style={{ left: L.rocket.cx - visitor.g.W / 2, top: L.centreY - visitor.g.H / 2, width: visitor.g.W, height: visitor.g.H, transform: visitor.from }}
+            >
+              <span className="pad-shake pointer-events-none absolute inset-0">
+                <PadRocket g={visitor.g} label={visitor.label} flame={0.3} parts={{ hatch: false }} windowDoor />
+              </span>
+            </div>
+          )}
           {/* the crew: one pair, living in the base */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-30" data-crew="">
             {[0, 1].map((i) => (
@@ -600,7 +859,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
             ))}
           </div>
           <RandomButton L={L} onClick={random} />
-          <Gantry L={L} G={G} />
+          <Gantry L={L} G={G} body={visitor?.body} />
           <p id={`${uid}-hint`} className="sr-only">
             Desliza arriba o abajo, o usa las flechas, para girar el tambor. Toca el cohete del centro para despegar.
           </p>
@@ -640,6 +899,48 @@ function Backdrop({ L, G, track }: { L: BaseLayout; G: Geo; track: CrewTrack }) 
       <g stroke={C.ink} strokeWidth={1.2} fill={C.hull}>
         <rect x={walkX0} y={track.deckY} width={walkX1 - walkX0} height={3} />
         <path d={`M${walkX0 + 4} ${railY}H${walkX1}M${walkX0 + 4} ${railY}V${track.deckY}M${(walkX0 + walkX1) / 2} ${railY}V${track.deckY}`} fill="none" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * The right tower's ladder reaching up to the text bar's top, and a gangway from the ladder over the
+ * bar rocket's nose to its hull (like the base's walkway to a drum rocket). Folded into the tower
+ * until the crew go up (`out`): the ladder slides up out of it, then the gangway unfolds; back the
+ * other way once they are down.
+ */
+function RoofLadder({ L, G, track, noseX, out }: { L: BaseLayout; G: Geo; track: CrewTrack; noseX: number; out: boolean }) {
+  const roof = track.roof;
+  if (!roof) return null;
+  const { width: W, height: H } = L;
+  const towerTop = L.tower.top + 6;
+  const x = track.ladderX;
+  const railY = roof.deckY - G.T * 0.55;
+  // from the handrail above the bar's top down into the tower (hidden behind it when folded)
+  const y0 = railY;
+  const y1 = towerTop + 10;
+  const rungs: number[] = [];
+  for (let y = towerTop + 1; y > roof.deckY + 1; y -= 7) rungs.push(y);
+  const walkX0 = Math.min(noseX, x - 8);
+  return (
+    <svg
+      aria-hidden="true"
+      data-fitting=""
+      data-roof-out={out ? '' : undefined}
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      className="pointer-events-none absolute inset-0 z-[15]"
+      style={{ overflow: 'visible' }}
+    >
+      <g className="pad-ext" stroke={C.ink} strokeWidth={1.1} fill="none" style={{ ['--pad-ext' as string]: `${y1 - y0 + 4}px` }}>
+        <path d={`M${x - 4} ${y0}V${y1}M${x + 4} ${y0}V${y1}`} strokeWidth={1.4} />
+        <path d={rungs.map((y) => `M${x - 4} ${y}H${x + 4}`).join('')} />
+      </g>
+      <g className="pad-gangway" stroke={C.ink} strokeWidth={1.2} fill={C.hull} style={{ transformOrigin: `${x + 4}px ${roof.deckY}px` }}>
+        <rect x={walkX0} y={roof.deckY} width={x + 4 - walkX0} height={3} />
+        <path d={`M${walkX0 + 4} ${railY}H${x}M${walkX0 + 4} ${railY}V${roof.deckY}M${(walkX0 + x) / 2} ${railY}V${roof.deckY}`} fill="none" />
       </g>
     </svg>
   );
@@ -850,10 +1151,11 @@ function RandomButton({ L, onClick }: { L: BaseLayout; onClick: (e: React.MouseE
 }
 
 /** The launch tower and its pad: off to the left until the launch, when it slides in and docks. */
-function Gantry({ L, G }: { L: BaseLayout; G: Geo }) {
+function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
   const { width: W, height: H, padY } = L;
   const k = Math.min(1, (padY - 10) / L.rocket.length);
-  const hull = G.T * k;
+  // (the hull on the pad: a drum rocket's, or the text bar's rocket brought down to that length)
+  const hull = (body ?? G.T) * k;
   const rocketTop = padY - L.rocket.length * k;
   const tw = Math.max(18, Math.round(L.tower.w * 1.15));
   const cx = L.rocket.cx;

@@ -27,7 +27,7 @@ import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { barLines } from '@/components/workout/rocketShape';
 import { PadRocket } from '@/components/workout/PadRocket';
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
-import { LaunchBase, useTextMeasure } from '@/components/workout/LaunchBase';
+import { LaunchBase, useTextMeasure, type LaunchBaseHandle } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
@@ -306,13 +306,22 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     () => fitLabel(PHONE_PLACEHOLDER, bar.textWidth - 2, { max: PAD_BAR.TEXT_PX, min: PAD_BAR.PLACEHOLDER_MIN }, measureText).px,
     [bar.textWidth, measureText],
   );
-  // ...the keyboard is up while the field has focus (the base hides; a short grace on blur, so a
-  // tap on the microphone or "send" lands before anything moves)
+  // ...the keyboard is up while the field has focus: the base stays where it is and the crew climb
+  // onto the bar's top to wait (a short grace on blur, so a tap on the microphone or "send" lands
+  // before anything moves)
   const [typing, setTyping] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (blurTimer.current) clearTimeout(blurTimer.current);
   }, []);
+  // ...and the page keeps its height meanwhile. Some Android browsers shrink the layout viewport
+  // (and so `dvh`) under the keyboard, which would squeeze the porthole, lift the base and drop the
+  // bar; so on focus the form's height is held in px, and the base reads its 40dvh from that
+  // (--pad-dvh) until the field is left. (Not testable without a real phone keyboard.)
+  const formRef = useRef<HTMLFormElement>(null);
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  // ...the rocket base: the typed sentence takes off from it (LaunchBase's launchBar)
+  const baseRef = useRef<LaunchBaseHandle>(null);
   // ...the drum of suggestions: which one is centred (kept across "Cambiar"), and its stand-in clip
   const [drumCentre, setDrumCentre] = useState(0);
   const launching = useRef(false);
@@ -453,6 +462,20 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     launching.current = false;
     // a sentence the user wrote (not a suggestion) that asks for too little: teased, nothing flies
     if (!picked && !launched && tease({ kind: 'sentence', prompt }, barRef.current)) return;
+    // phone: the typed sentence takes off from the rocket base with the same launch as a
+    // suggestion's (the crew board the bar's rocket, it comes down to the pad, lift-off); the next
+    // step comes once it is out of sight
+    if (!picked && !launched && baseRef.current?.launchBar(prompt, () => goOn(prompt, true))) {
+      launching.current = true;
+      if (blurTimer.current) clearTimeout(blurTimer.current);
+      // the keyboard closes (the field keeps "typing" meanwhile: the crew are boarding)
+      const field = document.getElementById('routine-prompt');
+      if (field instanceof HTMLElement) field.blur();
+      // the bar's rocket is the one flying now (drawn by the base, in the bar's place)
+      if (barRef.current) barRef.current.style.visibility = 'hidden';
+      understand(prompt);
+      return;
+    }
     // what takes off (phone): the suggestion picked, or else the bar with the sentence; the next
     // step is already here
     setHop(
@@ -462,15 +485,30 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           ? launchRocket(picked, { ms: HOP.launchMs, tilt: picked.dataset.upright ? -90 : 0 })
           : launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }),
     );
+    understand(prompt);
+    goOn(prompt, false);
+  };
+
+  /** The sentence is read: Gemini starts at the tap (while the rocket flies and the user answers), so nobody waits for it. */
+  const understand = (prompt: string) => {
     recognitionRef.current?.stop();
     setError('');
     setText(prompt);
-    // Gemini reads the sentence while the user answers, so nobody waits for it.
     intentRef.current = resolveIntent(prompt).then((parsed) => ({
       ...parsed,
       rounds: parseRounds(prompt) ?? parsed.rounds ?? null,
       exercisesPerRound: parseExercisesPerRound(prompt) ?? parsed.exercisesPerRound ?? null,
     }));
+  };
+
+  /** On to the questions, or straight to the build. `fromBase`: the bar's own launch from the base has just ended. */
+  const goOn = (prompt: string, fromBase: boolean) => {
+    if (fromBase) {
+      launching.current = false;
+      setHop(0);
+      setTyping(false);
+      setHeldHeight(null);
+    }
     const pending = questionsFor(prompt);
     if (pending.length > 0) {
       setQuestions(pending);
@@ -752,13 +790,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
       {view === 'ask' ? (
         <form
+          ref={formRef}
           onSubmit={(e) => {
             e.preventDefault();
             submit(text);
           }}
-          className={`mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))] ${
-            typing ? 'max-lg:pb-[max(0.75rem,env(safe-area-inset-bottom))]' : 'max-lg:pb-0'
-          }`}
+          // (phone, while typing: its height held in px, and the base's 40dvh with it)
+          style={heldHeight !== null && !desktop ? ({ height: `${heldHeight}px`, '--pad-dvh': `${heldHeight / 100}px` } as CSSProperties) : undefined}
+          className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pb-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))]"
         >
           <motion.h1
             initial={reducedMotion ? false : { opacity: 0, y: 16 }}
@@ -818,10 +857,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               onFocus={() => {
                 if (blurTimer.current) clearTimeout(blurTimer.current);
                 setTyping(true);
+                // (phone: hold the page's height before the keyboard can squeeze it)
+                const form = formRef.current;
+                if (form && !window.matchMedia(DESKTOP).matches) setHeldHeight((held) => held ?? form.offsetHeight);
               }}
               onBlur={() => {
                 if (blurTimer.current) clearTimeout(blurTimer.current);
-                blurTimer.current = setTimeout(() => setTyping(false), 250);
+                if (launching.current) return; // sent: the crew are boarding, nothing comes down
+                blurTimer.current = setTimeout(() => {
+                  setTyping(false);
+                  setHeldHeight(null);
+                }, 250);
               }}
               placeholder={desktop ? 'Hombros, 20 minutos' : PHONE_PLACEHOLDER}
               className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-hidden max-lg:overflow-y-auto max-lg:rounded-lg max-lg:py-[10px] max-lg:leading-6 max-lg:caret-heat max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:placeholder:text-[length:var(--ph-px)] max-lg:placeholder:text-[#888780] max-lg:focus-visible:bg-ink/[0.04]"
@@ -873,10 +919,15 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             </p>
           )}
 
-          {/* phone: the rocket base, the suggestions on its drum and the red "Random" button; hidden
-              while the keyboard is up */}
-          <div className={`-mx-5 shrink-0 sm:-mx-8 lg:hidden ${typing ? 'hidden' : ''}`}>
+          {/* phone: the rocket base, the suggestions on its drum and the red "Random" button; it stays
+              while the keyboard is up (the crew then wait on the bar's top) */}
+          <div className="-mx-5 shrink-0 sm:-mx-8 lg:hidden">
             <LaunchBase
+              ref={baseRef}
+              crewUp={typing || joke !== null}
+              barRef={barRef}
+              barG={bar.g}
+              barHang={bar.hangLeft}
               suggestions={drum}
               initialIndex={drumCentre}
               onCentre={setDrumCentre}
