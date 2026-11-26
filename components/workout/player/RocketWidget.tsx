@@ -398,7 +398,8 @@ export function RocketWidget({
       onKeyDownCapture={bump}
       className="pointer-events-none fixed bottom-[max(6px,env(safe-area-inset-bottom))] left-[max(6px,env(safe-area-inset-left))] right-[max(6px,env(safe-area-inset-right))] z-[61] font-[family-name:var(--font-display)] text-ink"
     >
-      <div className="relative mx-auto" style={{ width: L.B, height: L.box }}>
+      {/* (its height rounded up: it hangs from the screen's bottom, so the rocket lands on whole pixels) */}
+      <div className="relative mx-auto" style={{ width: L.B, height: Math.ceil(L.box) }}>
         {/* the list, above the panels */}
         <AnimatePresence initial={false}>
           {open && (
@@ -542,7 +543,8 @@ export function RocketWidget({
           {/* the rocket: its frame stands where the whole rocket stands */}
           <div className="absolute" style={{ left: L.ship.left, top: L.ship.top, width: g.W, height: g.H }}>
             {/* (at its real length what is left of it stands centred: its drawing moves by the missing half) */}
-            <div ref={shipEl} data-rw="ship" className="absolute inset-0" style={{ transform: `translateX(${shift}px)` }}>
+            {/* (no transform at all when it needs none: parked, it is drawn crisp, like its panels) */}
+            <div ref={shipEl} data-rw="ship" className="absolute inset-0" style={shift ? { transform: `translateX(${shift}px)` } : undefined}>
               {/* the lift: on the stands of a rest (and its jolts) */}
               <div ref={liftEl} data-rw="lift" className="absolute inset-0" style={{ transformOrigin: `${(g.x0 + g.tip) / 2}px ${SHIP.F + SHIP.T}px` }}>
                 <div className="absolute inset-0">
@@ -670,6 +672,9 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
     const anims: Animation[] = [];
     const run = (node: Element, part: LookPart) => {
       const a = node.animate([{ transform: lookTransform(pair, to, from, part) }, { transform: lookTransform(pair, to, to, part) }], timing);
+      // (it ends where the parts' own style has them: once there, nothing is held on them, so the
+      // parked rocket carries no leftover transform and is drawn crisp)
+      a.onfinish = () => a.cancel();
       // (anchored to the clock, like the flight; its last second runs on the routine's)
       if (!dock.pausable) a.startTime = now;
       else if (pausedNow.current) a.pause();
@@ -694,7 +699,8 @@ function useLook(dock: Dock, pair: LookPair, shipEl: RefObject<HTMLDivElement | 
     const l = look.current;
     if (!l?.dock.pausable) return;
     l.anims.forEach((a) => {
-      if (a.playState === 'finished') return;
+      // (finished, or released once finished: never played again)
+      if (a.playState === 'finished' || a.playState === 'idle') return;
       if (paused) a.pause();
       else a.play();
     });
@@ -1206,7 +1212,16 @@ function playFlight(
   // shown again, which would push the whole flight late. With its start time set, it is wherever
   // it should be by now the moment the page is seen.
   const run = (node: HTMLElement, keys: Keyframe[], options: KeyframeAnimationOptions) => {
-    node.animate(keys, options).startTime = now;
+    const a = node.animate(keys, options);
+    a.startTime = now;
+    return a;
+  };
+  // Landed: the flight's animations let go of the rocket. They end exactly in its parked place
+  // (PARKED_POSE, or none), which is where it stands with no transform at all; held, the pose's
+  // perspective would keep the rocket a 3D layer, drawn as a resampled texture (blurry next to its
+  // panels). A new flight starts from that same place.
+  const releaseOnLanding = (landing: Animation) => {
+    landing.onfinish = () => el.flight.getAnimations().forEach((a) => a.playState === 'finished' && a.cancel());
   };
   const podIn = () => holdPanelsIn(el.pod, now);
   // the panels slide into the hull before the rocket moves (see launchLeadMs), unless they already have
@@ -1263,11 +1278,11 @@ function playFlight(
   const at = delay(f.returnAt);
   const parkedAt = at + FLIGHT.returnMs;
   if (reduced) {
-    run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill });
+    releaseOnLanding(run(el.flight, [{ transform: 'none', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 250, delay: at, fill }));
     run(el.pod, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: parkedAt + DOCK.outAtMs, fill });
     return;
   }
-  run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill });
+  releaseOnLanding(run(el.flight, RETURN_KEYFRAMES, { duration: FLIGHT.returnMs, delay: at, fill }));
   // the flame burns on the way in and dies as it settles
   run(
     el.flame,
