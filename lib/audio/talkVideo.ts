@@ -16,6 +16,7 @@ import { TALK_IDLE, talkAudioReducer, talkDucksMusic, type TalkAudioEvent, type 
 let video: HTMLVideoElement | null = null;
 let talkState: TalkAudioState = TALK_IDLE;
 let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+let fadeFrame = 0;
 
 const PARKED = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
 // Between two talks of the same rest the element stops for a moment while the next one loads:
@@ -82,6 +83,7 @@ export function primeTalkVideo(src?: string) {
 export function attachTalkVideo(host: HTMLElement, className: string): HTMLVideoElement | null {
   const el = getTalkVideo();
   if (!el) return null;
+  stopFade(el);
   el.style.cssText = '';
   el.className = className;
   el.removeAttribute('aria-hidden');
@@ -100,10 +102,41 @@ export function setTalkSource(el: HTMLVideoElement, src: string, poster: string 
 export function releaseTalkVideo(host?: HTMLElement) {
   const el = video;
   if (!el || (host && el.parentNode !== host)) return;
+  stopFade(el);
   el.pause();
   el.removeAttribute('src');
   el.removeAttribute('poster');
   el.load();
   report({ type: 'stopped' }, true); // the rest is over: music back at once
   park(el);
+}
+
+/** Back to full voice (a fade may have left it low). */
+function stopFade(el: HTMLVideoElement) {
+  if (fadeFrame) cancelAnimationFrame(fadeFrame);
+  fadeFrame = 0;
+  if (el.volume !== 1) el.volume = 1;
+}
+
+/**
+ * The talk's voice goes with its picture: down to nothing over `ms`, then the talk stops. (Its
+ * host fades the picture.) As the volume reaches 0 the music comes back up by itself (the
+ * ducking follows the element). iPhone ignores `volume`: there the voice simply stops at the end.
+ */
+export function fadeOutTalk(ms: number) {
+  const el = video;
+  if (!el) return;
+  if (fadeFrame) cancelAnimationFrame(fadeFrame);
+  const from = el.volume;
+  const start = performance.now();
+  const step = (now: number) => {
+    const p = Math.min(1, (now - start) / ms);
+    el.volume = Math.max(0, from * (1 - p));
+    if (p < 1) fadeFrame = requestAnimationFrame(step);
+    else {
+      fadeFrame = 0;
+      el.pause();
+    }
+  };
+  fadeFrame = requestAnimationFrame(step);
 }
