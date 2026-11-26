@@ -20,25 +20,23 @@ export type CreatorSend =
   | { kind: 'sentence'; prompt: string };
 
 /** Fewer minutes than this is "too little time". */
-export const JOKE_MINUTES_BELOW = 30;
-/** A difficulty up to this one (media) is "too soft". */
-export const JOKE_SOFT_UP_TO = 6;
+export const JOKE_MINUTES_BELOW = 25;
+/** A difficulty up to this one (suave) is "too soft". */
+export const JOKE_SOFT_UP_TO = 4;
 
 // The difficulty the keyword parser gives when the sentence says nothing about it.
 const UNSAID_DIFFICULTY = parseIntentKeywords('').difficulty;
-// Medium said in words the parser leaves at its default ("intensidad media", "nivel 5").
-const SAYS_MEDIUM = /\bintensidad\s+media\b|\b(?:nivel|intensidad|dificultad)\s*(?:de\s*)?5\b|\b5\s*\/\s*10\b/i;
 
 /** The sentence's minutes, if it states any (local keyword parser: instant, no network). */
 function sentenceMinutes(prompt: string): number | null {
   return parseIntentKeywords(prompt).targetMinutes;
 }
 
-/** Whether the sentence states a low or medium intensity (saying nothing is not soft). */
+/** Whether the sentence states a low intensity (saying nothing is not soft). */
 function sentenceIsSoft(prompt: string): boolean {
   const difficulty = parseIntentKeywords(prompt).difficulty;
   if (difficulty > JOKE_SOFT_UP_TO) return false;
-  return difficulty !== UNSAID_DIFFICULTY || SAYS_MEDIUM.test(prompt);
+  return difficulty !== UNSAID_DIFFICULTY;
 }
 
 /**

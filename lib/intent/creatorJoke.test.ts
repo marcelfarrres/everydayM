@@ -6,17 +6,17 @@ const joke = (send: CreatorSend) => creatorJoke(send, phone);
 const sentence = (prompt: string) => joke({ kind: 'sentence', prompt });
 
 describe('creator jokes', () => {
-  it('teases minutes under 30, and accepts 30 or more', () => {
+  it('teases minutes under 25, and accepts 25 or more', () => {
     expect(joke({ kind: 'minutes', minutes: 20 })).toBe('time');
-    expect(joke({ kind: 'minutes', minutes: 25 })).toBe('time');
-    expect(joke({ kind: 'minutes', minutes: 29 })).toBe('time');
+    expect(joke({ kind: 'minutes', minutes: 24 })).toBe('time');
+    expect(joke({ kind: 'minutes', minutes: 25 })).toBeNull();
     expect(joke({ kind: 'minutes', minutes: 30 })).toBeNull();
     expect(joke({ kind: 'minutes', minutes: 40 })).toBeNull();
   });
 
-  it('teases Suave and Media, and accepts Alta', () => {
+  it('teases Suave only, and accepts Media and Alta', () => {
     expect(joke({ kind: 'intensity', difficulty: 4 })).toBe('intensity');
-    expect(joke({ kind: 'intensity', difficulty: 6 })).toBe('intensity');
+    expect(joke({ kind: 'intensity', difficulty: 6 })).toBeNull();
     expect(joke({ kind: 'intensity', difficulty: 8 })).toBeNull();
   });
 
@@ -36,17 +36,21 @@ describe('creator jokes', () => {
 
   it('reads the time from a written sentence first', () => {
     expect(sentence('Hombros, 20 minutos')).toBe('time');
-    expect(sentence('Piernas suave, 25 minutos')).toBe('time');
     expect(sentence('un cuarto de hora de core')).toBe('time');
     expect(sentence('Full body intenso, 20 minutos')).toBe('time');
+    // 25 is enough time: then the soft intensity
+    expect(sentence('Piernas suave, 25 minutos')).toBe('intensity');
   });
 
-  it('then a soft or medium intensity, when the time is enough or not said', () => {
+  it('then a soft intensity, when the time is enough or not said', () => {
     expect(sentence('Piernas suave')).toBe('intensity');
     expect(sentence('Pecho tranquilo, 40 minutos')).toBe('intensity');
-    expect(sentence('Espalda a intensidad media')).toBe('intensity');
     expect(sentence('Brazos nivel 3')).toBe('intensity');
-    expect(sentence('Core moderado, 30 minutos')).toBe('intensity');
+  });
+
+  it('lets a medium intensity through', () => {
+    expect(sentence('Espalda a intensidad media')).toBeNull();
+    expect(sentence('Hombros, 25 minutos')).toBeNull();
   });
 
   it('fires nothing for a sentence that says nothing weak (the questions come later)', () => {
