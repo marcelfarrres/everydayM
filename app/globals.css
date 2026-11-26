@@ -673,7 +673,7 @@ body {
   transition: transform var(--pad-day-ms, 0ms) ease-in-out;
 }
 
-/* The creator's assembly (phone, AssemblyScene) and its finale (LaunchFinale). Transform and
+/* The creator's assembly (phone, AssemblyScene). Transform and
    opacity only. */
 /* the engine: out until ignition (the flame scales from the nozzle), then the whole rocket trembles */
 .asm-flame {
@@ -769,53 +769,6 @@ body {
     transform: rotate(-16deg);
   }
 }
-/* «Cambiar»: a soft blinking halo; at lift-off it breaks in two and a few shards fly */
-.asm-halo {
-  animation: asm-halo 1.4s ease-in-out infinite;
-}
-@keyframes asm-halo {
-  0%,
-  100% {
-    opacity: 0.2;
-    transform: scale(0.96);
-  }
-  50% {
-    opacity: 0.7;
-    transform: scale(1.05);
-  }
-}
-.asm-break-l {
-  animation: asm-break-l 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
-}
-.asm-break-r {
-  animation: asm-break-r 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
-}
-.asm-shard {
-  opacity: 0;
-  animation: asm-shard 0.55s ease-out forwards;
-}
-@keyframes asm-break-l {
-  to {
-    transform: translate(-26px, 14px) rotate(-18deg);
-    opacity: 0;
-  }
-}
-@keyframes asm-break-r {
-  to {
-    transform: translate(28px, 16px) rotate(16deg);
-    opacity: 0;
-  }
-}
-@keyframes asm-shard {
-  0% {
-    opacity: 1;
-    transform: translate(-50%, -50%) rotate(45deg);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(calc(-50% + (var(--shard) - 1.5) * 18px), calc(-50% - 22px + var(--shard) * 9px)) rotate(200deg);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .asm-flame,
   .asm-pp-door,
@@ -826,8 +779,7 @@ body {
   [data-bolting] .asm-mech [data-part$='-arm'],
   .asm-pp-leg,
   .asm-pp-breathe,
-  .asm-pp-cheer,
-  .asm-halo {
+  .asm-pp-cheer {
     animation: none !important;
   }
 }

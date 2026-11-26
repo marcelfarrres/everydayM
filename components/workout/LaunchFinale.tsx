@@ -6,10 +6,8 @@ import { FINALE } from '@/components/workout/assembly';
 
 /*
  * The creator's automatic finale (phone), over the assembly scene or the start screen's base:
- * the routine's sentence in the sky (`sentence`, when the page itself does not write it), a small
- * «Cambiar» at the bottom that blinks softly (the last chance: it opens the ready view), and at
- * lift-off the button breaks and the rocket's white smoke grows from its pad until it covers the
- * whole screen. The white text that follows is whiteVeil.ts. Transforms and opacity only.
+ * the routine's sentence in the sky (`sentence`, when the page itself does not write it), and at
+ * lift-off the rocket's white smoke grows from its pad until it covers the whole screen. The white text that follows is whiteVeil.ts. Transforms and opacity only.
  */
 
 export type FinalePhase = 'wait' | 'read' | 'launch' | 'smoke' | 'white';
@@ -33,7 +31,6 @@ export function LaunchFinale({
   phase,
   sentence,
   smokeFrom,
-  onCambiar,
   reduced,
 }: {
   phase: FinalePhase;
@@ -41,11 +38,8 @@ export function LaunchFinale({
   sentence: string | null;
   /** the pad, on the screen, where the smoke grows from */
   smokeFrom: { x: number; y: number } | null;
-  onCambiar: () => void;
   reduced: boolean;
 }) {
-  const showButton = phase === 'read' || phase === 'launch';
-  const broken = phase === 'smoke' || phase === 'white';
   const smokeRef = useRef<HTMLDivElement>(null);
 
   // the smoke: puffs growing from the pad, then the white closing over everything
@@ -89,35 +83,6 @@ export function LaunchFinale({
           {sentence}
         </motion.p>
       )}
-
-      {/* «Cambiar»: the last chance, blinking; it breaks at lift-off */}
-      <div className="absolute inset-x-0 bottom-[calc(14px+env(safe-area-inset-bottom))] flex h-11 justify-center">
-        {showButton && (
-          <div className="relative">
-            {!reduced && <span aria-hidden="true" className="asm-halo absolute -inset-[7px] rounded-full bg-[#ffd23f]" />}
-            <button
-              type="button"
-              onClick={onCambiar}
-              className="pointer-events-auto relative flex h-11 items-center rounded-full border-[1.5px] border-[#f4f3f0] bg-[#2b2a28] px-6 text-[15px] font-semibold text-[#f4f3f0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-            >
-              Cambiar
-            </button>
-          </div>
-        )}
-        {broken && !reduced && (
-          <div aria-hidden="true" className="relative h-11 w-[118px]">
-            <span className="asm-break-l absolute left-0 top-0 flex h-11 w-[60px] items-center justify-end rounded-l-full border-[1.5px] border-r-0 border-[#f4f3f0] bg-[#2b2a28] pr-0.5 text-[15px] font-semibold text-[#f4f3f0]">
-              Cam
-            </span>
-            <span className="asm-break-r absolute right-0 top-0 flex h-11 w-[58px] items-center justify-start rounded-r-full border-[1.5px] border-l-0 border-[#f4f3f0] bg-[#2b2a28] pl-0.5 text-[15px] font-semibold text-[#f4f3f0]">
-              biar
-            </span>
-            {[0, 1, 2, 3].map((i) => (
-              <span key={i} className="asm-shard absolute left-1/2 top-1/2 h-2 w-2 rotate-45 bg-[#f4f3f0]" style={{ ['--shard' as string]: i }} />
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* the smoke, then the white */}
       {(phase === 'smoke' || phase === 'white') && (

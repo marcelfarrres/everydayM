@@ -627,6 +627,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       setView('questions');
       return;
     }
+    // (phone: never the ready view; whatever got here without its finale goes into one now)
+    if (isPhone()) {
+      updateFinale({ path: 'C', phase: 'wait', startedAt: clockNow(), shownAt: null, smokeFrom: null, viaBase: false });
+      void build({}, false);
+      return;
+    }
     void build({});
   };
 
@@ -719,22 +725,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     setSkipped(false);
     setAssembled(false);
     setView('ask');
-  };
-
-  /**
-   * Phone, «Cambiar» in the finale (before lift-off): no take-off; the ready view straight away
-   * (the sentence to retouch and the «Empezar» rocket), without the build-up.
-   */
-  const cambiarFinale = () => {
-    const f = finaleRef.current;
-    if (!f || f.phase === 'smoke' || f.phase === 'white' || !built) return;
-    gateRef.current = null;
-    updateFinale(null);
-    launching.current = false;
-    setTray(null);
-    setClipDone(true);
-    setStage(4);
-    setView('result');
   };
 
   /** Phone, the finale's end: the workout starts (with the warm-up), under the white that then dissolves. */
@@ -1626,7 +1616,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           phase={finale.phase}
           sentence={finale.path === 'C' ? finaleText : null}
           smokeFrom={finale.smokeFrom}
-          onCambiar={cambiarFinale}
           reduced={Boolean(reducedMotion)}
         />
       )}
