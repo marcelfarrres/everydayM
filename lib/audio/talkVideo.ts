@@ -130,8 +130,10 @@ export function fadeOutTalk(ms: number) {
   const from = el.volume;
   const start = performance.now();
   const step = (now: number) => {
-    const p = Math.min(1, (now - start) / ms);
-    el.volume = Math.max(0, from * (1 - p));
+    // A frame's timestamp can be earlier than `start` (it is the time the frame began), so p is
+    // clamped at both ends: `volume` throws outside [0, 1].
+    const p = ms > 0 ? Math.min(1, Math.max(0, (now - start) / ms)) : 1;
+    el.volume = Math.min(1, Math.max(0, from * (1 - p)));
     if (p < 1) fadeFrame = requestAnimationFrame(step);
     else {
       fadeFrame = 0;
