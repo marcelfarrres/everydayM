@@ -5,7 +5,7 @@ Sobre el `AudioContext` compartido (`lib/audio.ts`). Nunca bajan la música.
 ## Grabaciones reales y sintetizados
 - **Grabaciones** (`public/sfx/<nombre>.mp3`, servidas por la propia app en `/sfx/`): `launch`, `slowMo`, `boost`, `land`, `separate`, `pam`, `banner`, `clack`, `ignite`, `drumRoll`, `drumHit`, `error`. Origen y licencias (dominio público / CC0): `public/sfx/CREDITS.md`.
 - **Pantalla final (móvil)**: `drumRoll` es un redoble de caja real (bucle, 10,5 s sin repetirse; el crescendo es su intensidad, de 0,3 a 1) y `drumHit` el platillo que lo cierra. Sus recetas de reserva: ruido que tiembla 16–19 veces por segundo (el redoble) y un crash de ruido agudo sobre un golpe grave.
-- **Sintetizados** (`sfxRecipes.ts`): `beep` y `beepFinal`. (`engineRumble` y los sonidos de la reparación, `hammer`, `ratchet` y `puff`, se quitaron: el golpe agudo del martillo se confundía con el 3-2-1 y no aportaban nada sobre la música; los mecánicos trabajan en silencio.)
+- **Sintetizados** (`sfxRecipes.ts`): `beep` y `beepFinal`, y los de la base de cohetes de la primera pantalla (`drumClick`, `metalStep`, `ladderStep`, `buttonThunk`, `towerDock`; aún sin grabación). (`engineRumble` y los sonidos de la reparación, `hammer`, `ratchet` y `puff`, se quitaron: el golpe agudo del martillo se confundía con el 3-2-1 y no aportaban nada sobre la música; los mecánicos trabajan en silencio.)
 - Cada grabación se descarga y decodifica una sola vez (`fetch` + `decodeAudioData`) y se guarda. Empiezan a cargar en el toque de «Empezar» (`unlockPlayerAudio` → `preloadSfx()`) y, si no, con el primer efecto.
 - Si un archivo falta, no se puede decodificar o aún no ha llegado, suena su receta sintetizada, sin avisar.
 - **Cambiar un sonido**: sustituir su mp3 por otro con el mismo nombre. Para añadir o quitar uno, su línea en `sfxSamples.ts`.
@@ -16,7 +16,7 @@ Sobre el `AudioContext` compartido (`lib/audio.ts`). Nunca bajan la música.
 - Música: por defecto al 0,4 (`DEFAULT_MUSIC_SETTINGS` en `mix.ts`, antes 0,8). La preferencia se guarda en `everydaym.music.v2`; la v1 se borra (conservando solo el silencio), así todos empiezan una vez al nuevo nivel. Los efectos van con el mismo volumen, así que la proporción efectos/música no cambia al moverlo.
 - Nadie los ha escuchado aún.
 
-Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`.
+Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`. Los de la base: ninguno es un seno limpio en la zona del 3-2-1, y todos van por debajo del zumbido de las bromas.
 
 ## API
 - `playSfx(name, { gain?, gesture? })`: un golpe. `gesture: true` solo si se llama dentro de un toque (puede despertar el contexto).
@@ -47,6 +47,11 @@ Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`.
 | `ignite` | ambiente | En el toque de un cohete-botón, con `{ gesture: true }`. |
 | `drumRoll` | bucle | Pantalla final (móvil): desde que la música se ha ido hasta el golpe final, creciendo; se para al instante con el golpe, al ocultarse la página y al salir. |
 | `error` | ambiente | Creador (móvil): al saltar una broma («¿Tan poco tiempo tenemos?», «¿Tan poco hemos dormido hoy?»), dentro del toque, con `{ gesture: true }`. Grave y áspero (cuadrada y sierra hacia 120–150 Hz en la receta), para que no se confunda con el 3-2-1. Si la grabación aún no ha cargado (la primera vez, antes de cualquier cohete), suena la receta. |
+| `drumClick` | ambiente | Primera pantalla (móvil): un clic de carraca por cada cohete que pasa por el centro del tambor (`minGap` 0,08 s: una ruleta rápida no ametralla). Muy bajo. |
+| `metalStep` | ambiente | Un paso de los astronautas por la pasarela (uno cada 8 px; también al entrar por la escotilla). Muy bajo. |
+| `ladderStep` | ambiente | Un peldaño de los astronautas en la escalera de la torre. Muy bajo. |
+| `buttonThunk` | ambiente | Al pulsar «Random», dentro del toque, con `{ gesture: true }`: golpe grave y acolchado. |
+| `towerDock` | ambiente | Despegue desde la base: cuando los brazos de la torre de lanzamiento se cierran sobre el cohete. Después, `ignite` (ignición) y `launch` (despegue). |
 | `drumHit` | ambiente | Pantalla final: cuando la última pieza encaja en el cohete (con movimiento reducido, al abrirse la pantalla). Las piezas de antes encajan con `pam` (la etapa que ya traía el cohete, con `clack`). |
 
 ## Notas

@@ -19,6 +19,7 @@ Recortados, en mono, normalizados a un nivel común y codificados en mp3 con FFm
 | `error.mp3` | Zumbido grave y corto de «respuesta incorrecta» (`error_005`), desde los 0,015 s y apagado en 0,285 s. Suena en las bromas del creador (móvil). | [Kenney · Interface Sounds](https://kenney.nl/assets/interface-sounds) | Kenney | CC0 |
 
 `beep` y `beepFinal` (3-2-1) no tienen archivo: siguen sintetizados (`lib/audio/sfxRecipes.ts`).
+Tampoco tienen archivo, de momento, los de la base de cohetes de la primera pantalla (`drumClick`, `metalStep`, `ladderStep`, `buttonThunk`, `towerDock`): suenan sus recetas sintetizadas. Si se graban, irán aquí con su fuente (Kenney, CC0, o Wikimedia Commons / NASA, dominio público).
 
 ## Cambiar un sonido
 Deja aquí un mp3 nuevo con el mismo nombre (p. ej. `launch.mp3`), corto, en mono y sin silencio al principio; si suena fuerte o flojo, ajusta su `gain` en `lib/audio/sfxSamples.ts` (para `slowMo`, también su tramo de bucle, `loop`).

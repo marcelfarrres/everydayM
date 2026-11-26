@@ -28,7 +28,12 @@ export type SfxOneShot =
   | 'clack'
   | 'ignite'
   | 'drumHit'
-  | 'error';
+  | 'error'
+  | 'drumClick'
+  | 'metalStep'
+  | 'ladderStep'
+  | 'buttonThunk'
+  | 'towerDock';
 
 export type SfxLoopName = 'slowMo' | 'drumRoll';
 
@@ -268,7 +273,75 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
       { kind: 'tone', wave: 'sawtooth', freq: 148, freqEnd: 127, gain: 0.45, env: { attack: 0.005, hold: 0.16, decay: 0.08 } },
     ],
   },
+
+  // The first screen's rocket base (phone): ambience, quiet. Only synthesised for now (no recording
+  // downloaded yet). None is a clean sine up high, so none can pass for the 3-2-1.
+
+  // The drum's ratchet: a dry metallic tick per rocket passing the centre. `minGap` keeps a fast
+  // roulette from machine-gunning (at most ~12 a second).
+  drumClick: {
+    category: 'ambient',
+    gain: 0.12,
+    maxVoices: 2,
+    minGap: 0.08,
+    vary: { pitch: 1.5, gain: 0.25 },
+    layers: [
+      { kind: 'noise', filter: 'bandpass', freq: 2600, q: 7, gain: 0.9, env: { attack: 0.001, decay: 0.018 } },
+      { kind: 'noise', filter: 'bandpass', freq: 900, q: 3, at: 0.004, gain: 0.45, env: { attack: 0.001, decay: 0.03 } },
+      { kind: 'tone', wave: 'triangle', freq: 240, freqEnd: 200, gain: 0.3, env: { attack: 0.001, decay: 0.03 } },
+    ],
+  },
+  // A boot on a metal grating: a soft thud and a little ring of the plate.
+  metalStep: {
+    category: 'ambient',
+    gain: 0.07,
+    maxVoices: 2,
+    minGap: 0.11,
+    vary: { pitch: 2, gain: 0.3 },
+    layers: [
+      { kind: 'noise', filter: 'lowpass', freq: 700, gain: 0.9, env: { attack: 0.002, decay: 0.05 } },
+      { kind: 'noise', filter: 'bandpass', freq: 1900, q: 6, at: 0.006, gain: 0.35, env: { attack: 0.001, decay: 0.06 } },
+    ],
+  },
+  // A rung of the ladder: a hollow knock on a tube.
+  ladderStep: {
+    category: 'ambient',
+    gain: 0.07,
+    maxVoices: 2,
+    minGap: 0.12,
+    vary: { pitch: 2, gain: 0.3 },
+    layers: [
+      { kind: 'noise', filter: 'bandpass', freq: 1250, q: 5, gain: 0.8, env: { attack: 0.001, decay: 0.05 } },
+      { kind: 'tone', wave: 'triangle', freq: 360, freqEnd: 330, gain: 0.35, env: { attack: 0.001, decay: 0.07 } },
+    ],
+  },
+  // The red button pushed home: a low, padded thunk.
+  buttonThunk: {
+    category: 'ambient',
+    gain: 0.3,
+    maxVoices: 1,
+    minGap: 0.15,
+    layers: [
+      { kind: 'tone', wave: 'sine', freq: 150, freqEnd: 62, gain: 0.9, env: { attack: 0.002, decay: 0.13 } },
+      { kind: 'noise', filter: 'lowpass', freq: 520, gain: 0.6, env: { attack: 0.001, decay: 0.05 } },
+      { kind: 'noise', filter: 'highpass', freq: 2800, gain: 0.15, env: { attack: 0.001, decay: 0.008 } },
+    ],
+  },
+  // The launch tower's arms close on the rocket: a heavy clank, inharmonic, with a low knock.
+  towerDock: {
+    category: 'ambient',
+    gain: 0.26,
+    maxVoices: 1,
+    minGap: 0.2,
+    layers: [
+      { kind: 'tone', wave: 'triangle', freq: 310, gain: 0.55, env: { attack: 0.002, decay: 0.24 } },
+      { kind: 'tone', wave: 'triangle', freq: 787, gain: 0.3, env: { attack: 0.002, decay: 0.14 } },
+      { kind: 'noise', filter: 'bandpass', freq: 1500, q: 2, gain: 0.6, env: { attack: 0.001, decay: 0.04 } },
+      { kind: 'tone', wave: 'sine', freq: 95, freqEnd: 60, gain: 0.7, env: { attack: 0.002, decay: 0.14 } },
+    ],
+  },
 };
+
 
 export const SFX_LOOPS: Record<SfxLoopName, LoopRecipe> = {
   // Distant, slowed-down engine while climbing through the clouds.
