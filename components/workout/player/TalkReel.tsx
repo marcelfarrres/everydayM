@@ -3,13 +3,15 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import { playbackUrl } from '@/lib/media';
-import { attachTalkVideo, getTalkVideo, releaseTalkVideo, setTalkSource } from '@/lib/audio/talkVideo';
+import { attachTalkVideo, fadeOutTalk, getTalkVideo, releaseTalkVideo, setTalkSource } from '@/lib/audio/talkVideo';
 import { unlockPlayerAudio } from '@/lib/audio/unlock';
 import type { ExerciseTalk } from '@/types/workout';
 
 /*
- * The talks of a long rest (Marcel to camera, with voice), full screen, one after another.
- * They start `delayMs` after mounting: when the clouds open, not underneath them.
+ * The talk of a long rest (Marcel to camera, with voice), full screen: one per rest (a routine
+ * saved before 26-11-2026 may carry two: the player passes the first). It starts `delayMs` after
+ * mounting: when the clouds open, not underneath them. `fadeOut`: its picture is fading (its host
+ * fades it) and its voice fades with it, then it stops.
  *
  * The picture is the app's one shared talk element (lib/audio/talkVideo), unlocked in the
  * "Empezar" tap: this component only lends it a place on screen and changes its src. A new
@@ -19,23 +21,27 @@ import type { ExerciseTalk } from '@/types/workout';
  */
 
 const FILL = 'absolute inset-0 h-full w-full object-cover';
+/** The voice's fade, as long as the picture's crossfade (Stage). */
+export const FADE_OUT_MS = 500;
 
 export function TalkReel({
-  talks,
+  talk,
   delayMs,
   paused,
   onFinished,
+  fadeOut = false,
 }: {
-  talks: ExerciseTalk[];
+  talk: ExerciseTalk | undefined;
   delayMs: number;
   paused: boolean;
   onFinished: () => void;
+  fadeOut?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState(0);
   const [started, setStarted] = useState(delayMs <= 0);
   const [muted, setMuted] = useState(false);
-  const talk = talks[index];
+  // Once it has ended it stays on its last frame (under the crossfade): never started again.
+  const [finished, setFinished] = useState(false);
 
   // Borrow the shared element for as long as this rest shows talks.
   useLayoutEffect(() => {
@@ -52,8 +58,8 @@ export function TalkReel({
   }, [started, delayMs]);
 
   const next = useEffectEvent(() => {
-    if (index + 1 < talks.length) setIndex(index + 1);
-    else onFinished();
+    setFinished(true);
+    onFinished();
   });
 
   // The element is shared, so its end and errors are listened to only while this reel holds it.
@@ -74,7 +80,7 @@ export function TalkReel({
     const el = getTalkVideo();
     if (!el || !talk) return;
     setTalkSource(el, playbackUrl(talk), talk.poster_url);
-    if (!started) return;
+    if (!started || fadeOut || finished) return;
     if (paused) {
       el.pause();
       return;
@@ -96,7 +102,12 @@ export function TalkReel({
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [started, paused, talk, muted]);
+  }, [started, paused, talk, muted, fadeOut, finished]);
+
+  // Its picture is going (the host fades it): the voice goes with it.
+  useEffect(() => {
+    if (fadeOut) fadeOutTalk(FADE_OUT_MS);
+  }, [fadeOut]);
 
   const unmute = () => {
     unlockPlayerAudio({ startMusic: false }); // this tap also wakes the music if it was refused

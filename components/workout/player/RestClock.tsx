@@ -14,10 +14,14 @@ import { layoutSpot } from './ui';
  *            rocket stands on the left), in ink: the rest is already counting
  *   center   as the clouds open it slides from there to its place in the middle, giant, white on
  *            the dark veil over the next exercise, with "Empiezas en" above it
- *   hidden   a long rest (its talks, or the rest video) and the rocket's panels are not out yet:
- *            it fades out as the clouds open...
+ *   hidden   a long rest's talk and the rocket's panels are not out yet: it fades out as the
+ *            clouds open...
  *   side     ...and comes back with the panels, as part of them: in the first one, where its time
- *            would be, in ink (the panel then leaves that place to it), until the rest ends
+ *            would be, in ink (the panel then leaves that place to it), while the talk lasts
+ *   big      a long rest once its talk is done (or from the clouds, with none): from where it stood
+ *            to the middle, white, as big as the 3, 2, 1 and in its very place (no "Empiezas en":
+ *            "Descansando…" is at the top). At 3 it hands over to that 3, 2, 1 (FinalCount, with
+ *            its beeps), so the two never show at once and read as one count.
  *
  * The slide is a transform from where it stands in the middle (measured once per change, without
  * transforms) to the column of the clouds or the side; the colour changes as a cross-fade of two copies, so
@@ -30,7 +34,12 @@ export const CLOUD_CLOCK_PX = 84;
 // where its column starts: under the kicker of the words (CloudTransition's .cl-words)
 const COLUMN = { phone: 40, wide: 56, belowTop: 20, lift: 4 } as const;
 
-export type RestClockPhase = 'clouds' | 'side' | 'center' | 'hidden';
+export type RestClockPhase = 'clouds' | 'side' | 'center' | 'big' | 'hidden';
+
+/** The size of the 3, 2, 1 of a long rest (FinalCount in RestCues), px, on a `vw`-wide screen: min(48vw, 15rem). */
+export function finalCountPx(vw: number, remPx: number): number {
+  return Math.min(0.48 * vw, 15 * remPx);
+}
 
 /** Its size at the side, px: in the rocket's first panel, as big as the panel's own time. */
 export const SIDE_CLOCK_PX = 28;
@@ -58,16 +67,25 @@ export function RestClock({
   useLayoutEffect(() => {
     const el = number.current;
     if (!el) return;
-    const moves = (p: RestClockPhase | null) => p === 'clouds' || p === 'side' || p === 'center';
+    const moves = (p: RestClockPhase | null) => p === 'clouds' || p === 'side' || p === 'center' || p === 'big';
     const slide = was.current !== phase && moves(was.current) && moves(phase) && !reduced;
     was.current = phase;
     el.style.transition = slide ? 'transform 1s cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
-    if (phase !== 'clouds' && phase !== 'side') {
+    if (phase !== 'clouds' && phase !== 'side' && phase !== 'big') {
       el.style.transform = 'none';
       return;
     }
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    if (phase === 'big') {
+      // where FinalCount draws its 3, 2, 1: centred above an 8 % (of the width) bottom padding
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const k = finalCountPx(vw, rem) / (parseFloat(getComputedStyle(el).fontSize) || el.offsetHeight);
+      const left = vw / 2 - (el.offsetWidth * k) / 2;
+      const top = (vh - 0.08 * vw) / 2 - (el.offsetHeight * k) / 2;
+      el.style.transform = `translate(${Math.round(left - el.offsetLeft)}px, ${Math.round(top - el.offsetTop)}px) scale(${k.toFixed(4)})`;
+      return;
+    }
     let left: number;
     let top: number;
     let k: number;
@@ -96,6 +114,8 @@ export function RestClock({
 
   const inClouds = phase === 'clouds';
   const side = phase === 'side';
+  // (big: from 3 the 3, 2, 1 stands in its place)
+  const handed = phase === 'big' && value <= 3;
   // (in ink in the clouds and in the panel, white on the veil)
   const ink = inClouds || side;
   const fade = reduced ? 'none' : 'opacity 0.6s ease';
@@ -122,7 +142,7 @@ export function RestClock({
         role="timer"
         data-rw="rest-clock"
         className="relative text-[min(40vw,12rem)] font-bold leading-none tracking-[-0.05em] tabular-nums"
-        style={{ transformOrigin: '0 0' } as CSSProperties}
+        style={{ transformOrigin: '0 0', opacity: handed ? 0 : 1 } as CSSProperties}
       >
         {/* white on the veil; a copy in ink over it while it stands in the clouds */}
         <span

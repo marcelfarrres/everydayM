@@ -179,10 +179,19 @@ export function WorkoutPlayer({
   const cloudsStarting = useBusyAfter(cloudKey, clouds.openingMs, showsClouds);
   const cloudsClosed = useCloudMoment((m) => (m.key === cloudKey ? m.t !== null && m.t < cloudsOpenAt(extra) : null));
   const inClouds = showsClouds && (cloudsClosed ?? cloudsStarting);
-  // With talks it stands in the rocket's first panel while they play (it fades out as the clouds
-  // open and comes back as the panels slide out); then the middle.
+  // A long rest's talk: it stands in the rocket's first panel while he speaks (it fades out as the
+  // clouds open and comes back as the panels slide out). Once he is done (or with no talk), and in
+  // the last seconds: big in the middle, where the 3, 2, 1 then takes over.
   const bannerPending = useBusyAfter(cloudKey, PARKED_AFTER_CLOUDS_MS + extra + DOCK.outAtMs, !reduced);
-  const clockPhase: RestClockPhase = inClouds ? 'clouds' : currentRest === 'countdown' ? 'center' : bannerPending ? 'hidden' : 'side';
+  const clockPhase: RestClockPhase = inClouds
+    ? 'clouds'
+    : currentRest === 'countdown'
+      ? 'center'
+      : currentRest === 'resting' || currentRest === 'ready'
+        ? 'big'
+        : bannerPending
+          ? 'hidden'
+          : 'side';
   const [listKey, setListKey] = useState<number | null>(null);
   const listOpen = listKey === cloudKey && !clouding;
   const setListOpen = useCallback(
@@ -265,7 +274,7 @@ export function WorkoutPlayer({
                 onExit={onExit}
                 onTap={() => setListOpen(false)}
                 phone={!desktop}
-                miniNext={shownRest === 'talks' || shownRest === 'resting'}
+                miniNext={shownRest === 'talks' || shownRest === 'resting' || shownRest === 'ready'}
               />
               <CheerHits
                 queue={queue}
@@ -352,8 +361,9 @@ export function WorkoutPlayer({
           onNext={handleNext}
           listOpen={listOpen}
           onListOpenChange={setListOpen}
-          restCountdown={currentRest === 'countdown'}
-          clockTab={currentRest === 'talks' || currentRest === 'resting'}
+          // (the countdown is big on the video once the talk is done: the panel says only "Descanso")
+          restCountdown={currentRest === 'countdown' || currentRest === 'resting' || currentRest === 'ready'}
+          clockTab={currentRest === 'talks'}
           cloudTop={cloudTop}
           reduced={reduced}
         />
@@ -370,11 +380,11 @@ export function WorkoutPlayer({
           className="pointer-events-none absolute h-px w-px opacity-0"
         />
       )}
-      {/* Phone: "Descansando…" at the top of every rest once the clouds open (not while a talk speaks),
-          and the big 3, 2, 1 over the stage at the end of a long rest */}
+      {/* Phone: "Descansando…" at the top of every rest once the clouds open (not while a talk speaks;
+          "Prepárate" in a long rest's last seconds), and the big 3, 2, 1 over the stage at the end of a long rest */}
       {!desktop && (
         <>
-          <RestingLabel show={displayItem?.kind === 'rest' && !inClouds && shownRest !== 'talks'} reduced={reduced} />
+          <RestingLabel show={displayItem?.kind === 'rest' && !inClouds && shownRest !== 'talks'} ready={shownRest === 'ready'} reduced={reduced} />
           <FinalCount value={displayIndex === currentIndex ? finalCount(currentRest, timeLeft) : null} reduced={reduced} />
         </>
       )}

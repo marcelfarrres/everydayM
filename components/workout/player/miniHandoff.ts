@@ -1,11 +1,12 @@
 import { panelLayout, type WidgetLayout } from '@/components/workout/rocketShape';
 
 /*
- * Phone, a long rest (its talks, or the rest video): the next exercise plays in a small window over the rocket's first
- * panel; it slides up out of the rocket just after the panels (from behind the first one). In the talk's
- * last seconds the window swells a little, calmly, and waits. When the talk ends it fades to black
- * (the picture only), and then that same video simply grows to the whole screen and the exercise
- * starts ("Saltar": a shorter fade, no swell). Pure geometry and keyframes; Stage plays them.
+ * Phone, a long rest (its talk, or the rest video): the next exercise plays in a small window over the rocket's first
+ * panel; it slides up out of the rocket just after the panels (from behind the first one). In the
+ * rest's last seconds (LONG_REST_READY_SECONDS) that same video grows to the whole screen and goes
+ * on looping behind a light veil while the countdown ends; then the veil lifts and the exercise
+ * starts from its first frame. ("Saltar" before then: the rest fades to black, and the window grows
+ * at once.) Pure geometry and keyframes; Stage plays them.
  *
  * The window is the full-screen picture mapped onto a small rectangle with two transforms: the
  * outer layer scales the screen onto the window (each axis on its own) and clips it; the inner one
@@ -23,14 +24,16 @@ export const MINI = {
   INSET: 10,
   /** the widget's gap above the bottom of the screen (RocketWidget) */
   BOTTOM: 6,
-  /** the swell of the last seconds: this much bigger, over this long, from this many seconds left */
-  SWELL: 1.25,
-  SWELL_MS: 1800,
-  SWELL_S: 2,
-  /** the talk fades to black (after a swell; after "Saltar"), then the window fills the screen */
-  FADE_MS: 400,
-  FADE_SKIP_MS: 250,
+  /** "Saltar": the rest fades to black, then the window fills the screen */
+  FADE_MS: 250,
   GROW_MS: 400,
+  /** the last seconds: the window grows to the whole screen over this long, behind a veil this dark */
+  READY_GROW_MS: 600,
+  VEIL: 0.45,
+  /** every change of picture in a long rest: talk → rest video → the next exercise (and the voice with it) */
+  CROSSFADE_MS: 500,
+  /** the window moves when the panel under it changes height: this slowly */
+  GLIDE_MS: 600,
   /** keyframes sampled along the way (so the video is never stretched in between) */
   STEPS: 12,
   /** seconds before the rest ends when the window stops on its first frame (so growing doesn't jump) */
@@ -84,13 +87,6 @@ export function miniOutKeyframes(vw: number, vh: number, L: Layout, rise = 0): K
 
 const r = (n: number, d = 4) => Number(n.toFixed(d));
 
-/** The window swollen (`MINI.SWELL`), about the middle of its bottom edge (it stays over its panel). */
-export function swollenRect(rect: MiniRect, k: number = MINI.SWELL): MiniRect {
-  const width = rect.width * k;
-  const height = rect.height * k;
-  return { left: rect.left + (rect.width - width) / 2, top: rect.top + rect.height - height, width, height };
-}
-
 /** The two layers' transforms (and the outer's corners) at a point `e` (0: the window, 1: the whole screen). */
 export function miniPose(rect: MiniRect, vw: number, vh: number, e: number) {
   const sx = rect.width / vw;
@@ -113,7 +109,7 @@ export function miniPose(rect: MiniRect, vw: number, vh: number, e: number) {
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
-/** Window (`from`: as it stands, swollen or not) → whole screen, sampled (play them linearly: the curve is in the samples). */
+/** Window (`from`) → whole screen, sampled (play them linearly: the curve is in the samples). */
 export function growKeyframes(from: MiniRect, vw: number, vh: number) {
   return Array.from({ length: MINI.STEPS + 1 }, (_, i) => {
     const t = i / MINI.STEPS;
@@ -122,8 +118,5 @@ export function growKeyframes(from: MiniRect, vw: number, vh: number) {
   });
 }
 
-/** The talk's end, to the exercise: how long the fade to black lasts, then the growth. */
-export const handoffTimes = (swollen: boolean) => {
-  const fade = swollen ? MINI.FADE_MS : MINI.FADE_SKIP_MS;
-  return { fade, grow: MINI.GROW_MS, total: fade + MINI.GROW_MS };
-};
+/** "Saltar" from the window to the exercise: how long the fade to black lasts, then the growth. */
+export const HANDOFF = { fade: MINI.FADE_MS, grow: MINI.GROW_MS, total: MINI.FADE_MS + MINI.GROW_MS } as const;

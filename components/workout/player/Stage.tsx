@@ -14,9 +14,9 @@ import { PhoneEndScreen } from './PhoneEndScreen';
 import { RestCountdown } from './RestCountdown';
 import { TalkReel } from './TalkReel';
 import { useRocketWidth, useWindowHeight } from './hooks';
-import { MINI, growKeyframes, handoffTimes, miniClipY, miniOutKeyframes, miniPose, miniRect, swollenRect } from './miniHandoff';
+import { HANDOFF, MINI, growKeyframes, miniClipY, miniOutKeyframes, miniPose, miniRect } from './miniHandoff';
 import { usePanelRise } from './panelRise';
-import { isExercise, type RestScreen } from './model';
+import { isExercise, type RestItem, type RestScreen } from './model';
 
 /*
  * The full-screen picture. It shows `displayIndex`, which follows the routine but changes behind
@@ -24,18 +24,24 @@ import { isExercise, type RestScreen } from './model';
  *   serie / warm-up   the clip, untouched (it drives the clock)
  *   short rest        the next exercise, looping, muted, behind a dark veil with the giant
  *                     countdown (RestCountdown)
- *   long rest         its talks with sound, one after another, from when the clouds open;
- *                     then (or with no talks) on a phone the rest video (Marcel resting, looped,
- *                     muted: RestLoop), on a computer like a short rest
+ *   long rest         computer: its talk with sound from when the clouds open, then like a short rest.
+ *                     Phone (LongRestLayer, 26-11-2026): its one talk; then the rest video (Marcel
+ *                     resting, looped, muted); in the last seconds the next exercise. Each change is
+ *                     a crossfade (MINI.CROSSFADE_MS), the talk's voice going with its picture.
  *   end               EndScreen (computer), PhoneEndScreen (phone)
- * Which of the two a rest shows (`restScreen`) is decided by the player, so the bar agrees.
+ * Which of these a rest shows (`restScreen`) is decided by the player, so the bar agrees.
  *
- * Phone, a long rest (talks or the rest video): the next exercise plays in a small window over the rocket's
- * first panel, slid up out of the rocket like its panels. It is already that exercise's own <video>: in
- * the last seconds it swells a little and waits; when the rest ends the talk fades to black and
- * then the same element grows to the whole screen (transforms only, see miniHandoff) and goes on
- * as the clip. Two videos at most: the talk (or the rest video) and that one.
+ * Phone, a long rest: the next exercise plays in a small window over the rocket's first panel, slid
+ * up out of the rocket like its panels. It is already that exercise's own <video>: in the rest's
+ * last seconds ('ready') it grows to the whole screen and loops behind a light veil; when the rest
+ * ends the veil lifts and the same element goes on as the clip, from its first frame (transforms
+ * only, see miniHandoff). Two videos at most, but for the crossfades: the talk or the rest video,
+ * and that one.
  */
+
+/** The next exercise's picture: the small window, the whole screen behind a veil (the rest's last seconds), or the clip itself. */
+type ClipMode = 'window' | 'full' | 'clip';
+
 export function Stage({
   queue,
   displayIndex,
@@ -70,7 +76,7 @@ export function Stage({
   onRepeat?: () => void;
   onExit: () => void;
   onTap: () => void;
-  /** phone: the small window of the next exercise during a long rest's talks, which then fills the screen */
+  /** phone: the small window of the next exercise during a long rest, which then fills the screen */
   phone?: boolean;
   miniNext?: boolean;
 }) {
@@ -83,22 +89,22 @@ export function Stage({
     ? {}
     : { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.25, ease: 'easeOut' as const } };
 
-  // The window of the next exercise (phone, a long rest: its talks or the rest video)...
+  // The next exercise (phone, a long rest): the window, or in the last seconds the whole screen...
   const next = queue[displayIndex + 1];
-  const windowed = phone && item?.kind === 'rest' && (restScreen === 'talks' || restScreen === 'resting') && miniNext && isExercise(next);
-  // ...and, when that rest gives way to its exercise, the rest that fades out under it for a moment.
-  // (in its last seconds the window swells a little and waits)
-  const swell = windowed && live && timeLeft <= MINI.SWELL_S && !reduced;
-  const [seen, setSeen] = useState({ index: displayIndex, windowed, swell, screen: restScreen });
-  // (`talk`: what fades out is a talk; otherwise the rest video)
-  const [fading, setFading] = useState<{ index: number; fade: number; total: number; talk: boolean } | null>(null);
-  if (seen.index !== displayIndex || seen.windowed !== windowed || seen.swell !== swell || seen.screen !== restScreen) {
-    setSeen({ index: displayIndex, windowed, swell, screen: restScreen });
+  const previewing =
+    phone && item?.kind === 'rest' && (restScreen === 'talks' || restScreen === 'resting' || restScreen === 'ready') && miniNext && isExercise(next);
+  const preview: ClipMode | null = previewing ? (restScreen === 'ready' ? 'full' : 'window') : null;
+  // ...and, when "Saltar" ends the rest while it is still the window, the rest that fades out under
+  // it for a moment (in the last seconds the rest has already gone under the grown window).
+  const [seen, setSeen] = useState({ index: displayIndex, preview, screen: restScreen });
+  const [fading, setFading] = useState<{ index: number; fade: number; total: number; screen: RestScreen } | null>(null);
+  if (seen.index !== displayIndex || seen.preview !== preview || seen.screen !== restScreen) {
+    setSeen({ index: displayIndex, preview, screen: restScreen });
     if (seen.index !== displayIndex) {
-      // the rest fades to black, longer after the swell than after "Saltar"; then the window grows
-      const times = handoffTimes(seen.swell);
       setFading(
-        seen.windowed && displayIndex === seen.index + 1 && isExercise(item) && !reduced ? { index: seen.index, ...times, talk: seen.screen === 'talks' } : null,
+        seen.preview === 'window' && seen.screen !== null && displayIndex === seen.index + 1 && isExercise(item) && !reduced
+          ? { index: seen.index, ...HANDOFF, screen: seen.screen }
+          : null,
       );
     }
   }
@@ -108,20 +114,19 @@ export function Stage({
     return () => clearTimeout(t);
   }, [fading]);
 
-  /** One exercise's clip: the whole screen (it drives the clock when live) or the window (`small`). */
-  const clip = (index: number, exercise: Exercise, small: boolean, isLive: boolean) => (
+  /** One exercise's clip: the whole screen (it drives the clock when live), or the next one (`mode`: the window or its last seconds). */
+  const clip = (index: number, exercise: Exercise, mode: ClipMode, isLive: boolean) => (
     <ClipLayer
       key={`clip-${index}`}
-      small={small}
-      swell={small && swell}
+      mode={mode}
       growAfterMs={fading?.fade ?? 0}
       stack={stack}
       reduced={reduced}
       fadeIn={phone}
       // the window slides out of the rocket just after its panels (it mounts as the clouds cover the screen)
-      popInMs={small ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS + cloudExtraMs(item) - CLOUDS.coveredMs) : null}
-      // in its last moment it waits on its first frame, so growing into the exercise doesn't jump
-      hold={small && live && timeLeft <= MINI.HOLD_S}
+      popInMs={mode === 'window' ? Math.max(0, PREVIEW_OUT_AFTER_REST_MS + cloudExtraMs(item) - CLOUDS.coveredMs) : null}
+      // in its last moment it waits on its first frame, so starting the exercise doesn't jump
+      hold={mode !== 'clip' && live && timeLeft <= MINI.HOLD_S}
     >
       <video
         ref={(el) => {
@@ -134,11 +139,11 @@ export function Stage({
         src={playbackUrl(exercise)}
         poster={exercise.poster_url ?? undefined}
         autoPlay
-        loop={small}
+        loop={mode !== 'clip'}
         playsInline
         muted
         onTimeUpdate={(e) => {
-          if (small) return; // the window just loops
+          if (mode !== 'clip') return; // the preview just loops
           // a clip that is no longer the current moment (held under the clouds) stays still
           if (!isLive || e.currentTarget.paused) {
             e.currentTarget.pause();
@@ -148,38 +153,47 @@ export function Stage({
         }}
         onLoadedMetadata={isLive ? onVideoTimeUpdate : undefined}
         onEnded={() => {
-          if (isLive && !small) onClipEnded();
+          if (isLive && mode === 'clip') onClipEnded();
         }}
         // A clip that can't load would stop the clock (it follows the video): try the original,
         // and if that fails too, go on to what comes next.
         onError={(e) => {
-          if (!retryWithOriginal(e.currentTarget, exercise) && isLive && !small) onClipEnded();
+          if (!retryWithOriginal(e.currentTarget, exercise) && isLive && mode === 'clip') onClipEnded();
         }}
         className="h-full w-full object-cover"
       />
     </ClipLayer>
   );
 
-  /** A rest's picture; `leaving`: it has just ended under the growing window, and fades out silent. */
-  const restLayer = (index: number, rest: Extract<RoutineItem, { kind: 'rest' }>, leaving: boolean) => (
+  /** A rest's picture; `leaving`: it has just ended ("Saltar") under the growing window, and fades out. */
+  const restLayer = (index: number, rest: RestItem, leaving: boolean) => (
     <div
       key={`rest-${index}`}
       className="absolute inset-0"
       // (fading to black: the stage is black under it)
       style={leaving ? { opacity: 0, transition: `opacity ${fading?.fade ?? MINI.FADE_MS}ms ease-in-out` } : undefined}
     >
-      {/* (leaving: whichever it was, a talk or the rest video) */}
-      {(leaving ? !fading?.talk : restScreen === 'resting') ? (
-        <RestLoop clip={restClipOf(queue, rest)} paused={isPaused || leaving} />
-      ) : restScreen === 'talks' || leaving ? (
-        <TalkReel
-          talks={rest.talks}
+      {phone && rest.restKind === 'long' ? (
+        <LongRestLayer
+          rest={rest}
+          clip={restClipOf(queue, rest)}
+          // (leaving: whatever it showed as it ended)
+          screen={leaving ? (fading?.screen ?? 'resting') : (restScreen ?? 'resting')}
+          leaving={leaving}
+          paused={isPaused}
           // mounted once the clouds cover the screen; it speaks when they open
           delayMs={reduced ? 0 : CLOUDS.openingMs + cloudExtraMs(rest) - CLOUDS.coveredMs}
-          paused={isPaused || leaving}
-          onFinished={() => {
+          onTalkDone={() => {
             if (!leaving) onTalksDone(rest);
           }}
+        />
+      ) : restScreen === 'talks' ? (
+        <TalkReel
+          // (one talk a rest: a routine saved with two plays the first)
+          talk={rest.talks[0]}
+          delayMs={reduced ? 0 : CLOUDS.openingMs + cloudExtraMs(rest) - CLOUDS.coveredMs}
+          paused={isPaused}
+          onFinished={() => onTalksDone(rest)}
         />
       ) : (
         <>
@@ -199,14 +213,14 @@ export function Stage({
   if (isExercise(item)) {
     const faded = fading !== null ? queue[fading.index] : undefined;
     content = phone ? (
-      [faded?.kind === 'rest' && restLayer(fading?.index ?? -1, faded, true), clip(displayIndex, item.exercise, false, live)]
+      [faded?.kind === 'rest' && restLayer(fading?.index ?? -1, faded, true), clip(displayIndex, item.exercise, 'clip', live)]
     ) : (
       <motion.div key={`clip-${displayIndex}`} {...fadeIn} className="absolute inset-0">
-        {clip(displayIndex, item.exercise, false, live)}
+        {clip(displayIndex, item.exercise, 'clip', live)}
       </motion.div>
     );
   } else if (item?.kind === 'rest') {
-    content = [restLayer(displayIndex, item, false), windowed && isExercise(next) && clip(displayIndex + 1, next.exercise, true, false)];
+    content = [restLayer(displayIndex, item, false), preview !== null && isExercise(next) && clip(displayIndex + 1, next.exercise, preview, false)];
   } else if (item?.kind === 'outro') {
     // (a phone celebrates: the drums, the list crossed off, the rocket put back together)
     content = (
@@ -231,11 +245,80 @@ export function Stage({
   );
 }
 
+/** A rest video that hasn't started playing by then fades in anyway (its poster, or black). */
+const REST_IN_FALLBACK_MS = 1500;
+
+/**
+ * Phone, a long rest's picture under the window of the next exercise:
+ *   talks     its talk (one: the first, for a routine saved with two)
+ *   resting   the rest video, which fades in over the talk's last frame once it plays; the talk
+ *             goes when it is in
+ *   ready     all of it fades out (the talk's voice too) under the window growing to the screen,
+ *             and then goes (the window covers the screen)
+ * A talk that leaves no time for the rest video goes straight to 'ready': the rest video never mounts.
+ */
+function LongRestLayer({
+  rest,
+  clip,
+  screen,
+  leaving,
+  paused,
+  delayMs,
+  onTalkDone,
+}: {
+  rest: RestItem;
+  clip: RestClip;
+  screen: RestScreen;
+  leaving: boolean;
+  paused: boolean;
+  delayMs: number;
+  onTalkDone: () => void;
+}) {
+  const talk = rest.talks[0];
+  const ready = screen === 'ready';
+  const [hadRest, setHadRest] = useState(screen === 'resting');
+  if (screen === 'resting' && !hadRest) setHadRest(true);
+  // the rest video is in (playing, faded in over the talk); then the talk goes; in the last seconds, all
+  const [restIn, setRestIn] = useState(false);
+  const [talkGone, setTalkGone] = useState(!talk);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (!hadRest || restIn) return;
+    const t = setTimeout(() => setRestIn(true), REST_IN_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, [hadRest, restIn]);
+  useEffect(() => {
+    if (!restIn || talkGone) return;
+    const t = setTimeout(() => setTalkGone(true), MINI.CROSSFADE_MS + 100);
+    return () => clearTimeout(t);
+  }, [restIn, talkGone]);
+  useEffect(() => {
+    if (!ready || gone) return;
+    const t = setTimeout(() => setGone(true), MINI.CROSSFADE_MS + 100);
+    return () => clearTimeout(t);
+  }, [ready, gone]);
+
+  if (gone) return null;
+  const crossfade = `opacity ${MINI.CROSSFADE_MS}ms ease-in-out`;
+  return (
+    <div className="absolute inset-0" data-rw="long-rest" style={{ opacity: ready ? 0 : 1, transition: crossfade }}>
+      {talk && !talkGone && (
+        <TalkReel talk={talk} delayMs={delayMs} paused={paused} fadeOut={ready || leaving} onFinished={onTalkDone} />
+      )}
+      {hadRest && (
+        <div className="absolute inset-0" style={{ opacity: restIn ? 1 : 0, transition: crossfade }}>
+          <RestLoop clip={clip} paused={paused || leaving} onPlaying={() => setRestIn(true)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Phone, a long rest with no talk speaking: the rest video (Marcel resting on camera), full screen,
  * looping, muted, paused with the routine.
  */
-function RestLoop({ clip, paused }: { clip: RestClip; paused: boolean }) {
+function RestLoop({ clip, paused, onPlaying }: { clip: RestClip; paused: boolean; onPlaying?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -255,6 +338,7 @@ function RestLoop({ clip, paused }: { clip: RestClip; paused: boolean }) {
       muted
       playsInline
       aria-hidden="true"
+      onPlaying={onPlaying}
       onError={(e) => retryWithOriginal(e.currentTarget, clip)}
       className="absolute inset-0 h-full w-full object-cover"
     />
@@ -280,12 +364,12 @@ function LoopingExercise({ exercise }: { exercise: Exercise }) {
 }
 
 /**
- * One exercise's picture: the whole screen, or (`small`) the window of the next exercise above
- * the rocket's first panel. From small to whole it grows: the same element and video, nothing reloads.
+ * One exercise's picture: the whole screen; or, while a long rest lasts, the window of the next
+ * exercise above the rocket's first panel (`window`), which in the rest's last seconds grows to the
+ * whole screen behind a veil (`full`). The same element and video all the way: nothing reloads.
  */
 function ClipLayer({
-  small,
-  swell,
+  mode,
   growAfterMs,
   stack,
   reduced,
@@ -294,10 +378,8 @@ function ClipLayer({
   hold,
   children,
 }: {
-  small: boolean;
-  /** the window: swollen a little (the talk's last seconds) */
-  swell: boolean;
-  /** from the window to the whole screen: it waits this long first (the talk fading to black) */
+  mode: ClipMode;
+  /** "Saltar", from the window to the whole screen: it waits this long first (the rest fading to black) */
   growAfterMs: number;
   /** the rocket below (where the window comes out of) */
   stack: Stack;
@@ -305,10 +387,11 @@ function ClipLayer({
   fadeIn: boolean;
   /** the window: ms until it slides out (from behind the rocket's first panel, like the panels from the hull) */
   popInMs: number | null;
-  /** the window: wait on the first frame */
+  /** the preview: wait on the first frame */
   hold: boolean;
   children: React.ReactNode;
 }) {
+  const small = mode === 'window';
   const pop = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -317,25 +400,20 @@ function ClipLayer({
   const vw = width + 12;
   // (the window stays where it stood, over the rocket it stood on, as it grows)
   const [held, setHeld] = useState<Stack>(stack);
-  if (small && held !== stack) setHeld(stack);
+  if (mode !== 'clip' && held !== stack) setHeld(stack);
   const L = useMemo(() => widgetLayout(width, held), [width, held]);
   // (a name on two lines makes the rocket's panels taller: the window stands that much higher)
   const rise = usePanelRise();
   const rect = miniRect(vw, vh, L, rise);
   // nothing of the window shows below the top of the rocket's first panel (it comes out from behind it)
   const clipY = miniClipY(vw, vh, L, rise);
-  const pose = small ? miniPose(swell ? swollenRect(rect) : rect, vw, vh, 0) : null;
-  const was = useRef<boolean | null>(null);
-  // (whether it was swollen as it stopped being the window)
-  const swollen = useRef(false);
+  const pose = small ? miniPose(rect, vw, vh, 0) : null;
+  const was = useRef<ClipMode | null>(null);
   const ring = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (small) swollen.current = swell;
-  });
 
   useLayoutEffect(() => {
     const before = was.current;
-    was.current = small;
+    was.current = mode;
     const o = outer.current;
     const i = inner.current;
     if (!o || !i || !pop.current) return;
@@ -350,16 +428,42 @@ function ClipLayer({
       }
       return;
     }
-    if (!(before && !small)) return;
-    // the window becomes the exercise: once the talk has faded to black it fills the screen, and
-    // the clip starts from its first frame and runs once
-    const wait = reduced ? 0 : growAfterMs;
+    if (before === mode) return;
     const video = o.querySelector('video');
+
+    // The rest's last seconds: the window grows to the whole screen and goes on looping behind its
+    // veil (reduced motion: it simply fades in over the rest).
+    if (before === 'window' && mode === 'full') {
+      if (reduced) {
+        const f = o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MINI.CROSSFADE_MS, easing: 'ease-in-out' });
+        return () => f.cancel();
+      }
+      const keys = growKeyframes(rect, vw, vh);
+      const timing: KeyframeAnimationOptions = { duration: MINI.READY_GROW_MS, easing: 'linear' };
+      const a = o.animate(keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })), timing);
+      const b = i.animate(keys.map((k) => ({ offset: k.offset, transform: k.inner })), timing);
+      const f = ring.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200 });
+      return () => {
+        a.cancel();
+        b.cancel();
+        f?.cancel();
+      };
+    }
+    if (mode !== 'clip') return;
+
+    // The exercise starts: from its first frame, once.
     if (video) {
       video.loop = false;
       video.pause();
       video.currentTime = 0;
     }
+    // from the whole screen: the veil lifts (its own transition) and it plays at once
+    if (before === 'full') {
+      void video?.play().catch(() => {});
+      return;
+    }
+    // "Saltar" from the window: once the rest has faded to black it fills the screen
+    const wait = reduced ? 0 : growAfterMs;
     const go = setTimeout(() => void video?.play().catch(() => {}), wait);
     if (reduced) {
       const fade = o.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 200 });
@@ -368,19 +472,17 @@ function ClipLayer({
         fade.cancel();
       };
     }
-    const from = swollen.current ? swollenRect(rect) : rect;
-    const keys = growKeyframes(from, vw, vh);
+    const keys = growKeyframes(rect, vw, vh);
     const timing: KeyframeAnimationOptions = { duration: MINI.GROW_MS, delay: wait, easing: 'linear', fill: 'backwards' };
     const a = o.animate(keys.map((k) => ({ offset: k.offset, transform: k.outer, borderRadius: k.radius })), timing);
     const b = i.animate(keys.map((k) => ({ offset: k.offset, transform: k.inner })), timing);
-    // its frame stays while the talk fades, and goes as it grows
+    // its frame stays while the rest fades, and goes as it grows
     const stay = wait / (wait + 120);
-    const scale = swollen.current ? `scale(${MINI.SWELL})` : 'none';
     const f = ring.current?.animate(
       [
-        { opacity: 1, transform: scale },
-        { opacity: 1, transform: scale, offset: stay },
-        { opacity: 0, transform: scale },
+        { opacity: 1 },
+        { opacity: 1, offset: stay },
+        { opacity: 0 },
       ],
       { duration: wait + 120 },
     );
@@ -390,21 +492,25 @@ function ClipLayer({
       b.cancel();
       f?.cancel();
     };
-    // (only when it appears, and when it goes from the window to the whole screen)
+    // (only when it appears, and when it changes mode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [small]);
+  }, [mode]);
 
   useEffect(() => {
     const video = outer.current?.querySelector('video');
-    if (!small || !hold || !video) return;
+    if (mode === 'clip' || !hold || !video) return;
     video.pause();
     video.currentTime = 0;
-  }, [small, hold]);
+  }, [mode, hold]);
 
   return (
     // (the window slides up out of the rocket, from behind its first panel: clipped at the panel's
     // top while it is the window; nothing is clipped once it grows to the whole screen)
-    <div className={`absolute inset-0 ${small ? 'z-[1]' : ''}`} data-rw={small ? 'mini' : undefined} style={{ clipPath: small ? `inset(0 0 ${vh - clipY}px 0)` : 'none' }}>
+    <div
+      className={`absolute inset-0 ${mode !== 'clip' ? 'z-[1]' : ''}`}
+      data-rw={small ? 'mini' : mode === 'full' ? 'ready-preview' : undefined}
+      style={{ clipPath: small ? `inset(0 0 ${vh - clipY}px 0)` : 'none' }}
+    >
     <div ref={pop} className="absolute inset-0">
       <div
         ref={outer}
@@ -413,28 +519,32 @@ function ClipLayer({
           transformOrigin: '0 0',
           transform: pose?.outer ?? 'none',
           borderRadius: pose?.radius ?? 0,
-          // (the swell: slow and calm)
-          transition: small && !reduced ? `transform ${MINI.SWELL_MS}ms ease-in-out, border-radius ${MINI.SWELL_MS}ms ease-in-out` : 'none',
+          // (it glides when the panel under it changes height)
+          transition: small && !reduced ? `transform ${MINI.GLIDE_MS}ms ease-in-out, border-radius ${MINI.GLIDE_MS}ms ease-in-out` : 'none',
         }}
       >
         <div ref={inner} className="absolute inset-0" style={{ transform: pose?.inner ?? 'none' }}>
           {children}
         </div>
+        {/* the last seconds: a light veil, so it reads as "luego"; it lifts as the exercise starts */}
+        <div
+          aria-hidden="true"
+          data-rw="ready-veil"
+          className="pointer-events-none absolute inset-0 bg-black"
+          style={{ opacity: mode === 'full' ? MINI.VEIL : 0, transition: `opacity ${mode === 'full' ? MINI.READY_GROW_MS : MINI.CROSSFADE_MS}ms ease-in-out` }}
+        />
       </div>
       {/* the window's frame (apart, so the window's own scaling doesn't thin it) */}
       <div
         ref={ring}
         aria-hidden="true"
-        className="pointer-events-none absolute rounded-[12px] ring-2 ring-white"
+        className="pointer-events-none absolute left-0 top-0 rounded-[12px] ring-2 ring-white"
         style={{
-          left: rect.left,
-          top: rect.top,
           width: rect.width,
           height: rect.height,
           opacity: small ? 1 : 0,
-          transformOrigin: '50% 100%',
-          transform: small && swell ? `scale(${MINI.SWELL})` : 'none',
-          transition: small && !reduced ? `transform ${MINI.SWELL_MS}ms ease-in-out` : 'none',
+          transform: `translate(${rect.left}px, ${rect.top}px)`,
+          transition: small && !reduced ? `transform ${MINI.GLIDE_MS}ms ease-in-out` : 'none',
         }}
       />
     </div>
