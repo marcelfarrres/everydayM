@@ -4,9 +4,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { PAD_COLORS as C } from '@/components/workout/padRocketShape';
 import { DAWN } from '@/components/workout/dawnScene';
 import {
-  CREST,
   HINT_MS,
-  SLOSH,
+  LEVEL_MARKS,
   STILL,
   TANK,
   dragMinutes,
@@ -14,6 +13,7 @@ import {
   hintOffset,
   isStill,
   keyMinutes,
+  levelMarks,
   levelY,
   magnet,
   pxPerMinute,
@@ -113,11 +113,11 @@ function TankSvg({
       {/* the level: its line and two chevrons, on the mean level */}
       <g ref={lineRef} style={{ transform: `translateY(${y}px)` }}>
         <path d={`M${f.x0 + 4} 0H${f.x1 - 4}`} stroke={C.ink} strokeWidth={2.4} />
-        <path className="tank-chev-up" d={`M${cx - 6} -9L${cx} -15L${cx + 6} -9`} stroke={C.ink} strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        <path className="tank-chev-down" d={`M${cx - 6} 9L${cx} 15L${cx + 6} 9`} stroke="#ffffff" strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path className="tank-chev-up" d={`M${cx - LEVEL_MARKS.half} ${-LEVEL_MARKS.foot}L${cx} ${-LEVEL_MARKS.tip}L${cx + LEVEL_MARKS.half} ${-LEVEL_MARKS.foot}`} stroke={C.ink} strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path className="tank-chev-down" d={`M${cx - LEVEL_MARKS.half} ${LEVEL_MARKS.foot}L${cx} ${LEVEL_MARKS.tip}L${cx + LEVEL_MARKS.half} ${LEVEL_MARKS.foot}`} stroke="#ffffff" strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </g>
-      {/* the value, just above the level (clear of any crest) */}
-      <g ref={valueRef} style={{ transform: `translateY(${y - CREST - SLOSH.textClear}px)` }}>
+      {/* the value, above the level's ▲ (clear of it and of any crest: levelMarks) */}
+      <g ref={valueRef} style={{ transform: `translateY(${y + levelMarks(cx).baseline}px)` }}>
         <text x={cx + 10} y={0} textAnchor="end" fill={C.ink} style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>
           {minutes}
         </text>
@@ -202,6 +202,7 @@ export function MinutesTank({
   const f = frame(tankW, tankH);
   const ppm = pxPerMinute(f.top, f.bottom);
   const ringY = levelY(30, f.top, f.bottom);
+  const textAbove = levelMarks(f.x0 + tankW * 0.42).baseline;
 
   const tankRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -225,9 +226,9 @@ export function MinutesTank({
     (y: number, s: Slosh) => {
       fuelRef.current?.setAttribute('d', fuelPath(f.x0, f.x1, y, f.bottom, s));
       if (lineRef.current) lineRef.current.style.transform = `translateY(${y.toFixed(1)}px)`;
-      if (valueRef.current) valueRef.current.style.transform = `translateY(${(y - CREST - SLOSH.textClear).toFixed(1)}px)`;
+      if (valueRef.current) valueRef.current.style.transform = `translateY(${(y + textAbove).toFixed(1)}px)`;
     },
-    [f.x0, f.x1, f.bottom],
+    [f.x0, f.x1, f.bottom, textAbove],
   );
 
   const frameFn = useCallback(

@@ -365,6 +365,20 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     hookAnims.current.push(...anims);
     return anims;
   };
+  /** The hook (its trolley and wire) set at `p` as it is, no animation: a resting pose that holds even if no animation ever runs. */
+  const placeHook = (p: { x: number; y: number }) => {
+    const Lx = layoutRef.current;
+    const hook = hookRef.current;
+    const trolley = trolleyRef.current;
+    const wire = wireRef.current;
+    if (!Lx || !hook || !trolley || !wire) return;
+    hookAnims.current.forEach((a) => a.cancel());
+    hookAnims.current = [];
+    const g = hookGeometry(Lx);
+    hook.style.transform = `translate(${(p.x - g.w / 2).toFixed(1)}px, ${(p.y - g.h).toFixed(1)}px)`;
+    trolley.style.transform = `translateX(${(p.x - g.trolleyW / 2).toFixed(1)}px)`;
+    wire.style.transform = `translateX(${p.x.toFixed(1)}px) scaleY(${Math.max(0.01, p.y - g.h * 0.6 - g.wireTop).toFixed(1)})`;
+  };
   const stopHook = () => {
     const at = hookNow();
     hookAnims.current.forEach((a) => a.cancel());
@@ -380,14 +394,25 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     if (!root || !column) return;
     let k = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // the minutes: the hook simply hangs in the button's ring (its resting pose, set directly; kept
+    // there if the column moves)
+    if (picking === 'minutes') {
+      const hang = () => {
+        const ring = column.querySelector<HTMLElement>('[data-hook-ring]');
+        if (ring) {
+          const box = root.getBoundingClientRect();
+          const r = ring.getBoundingClientRect();
+          placeHook({ x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height * 0.72 });
+        }
+        timer = setTimeout(hang, 400);
+      };
+      hang();
+      return () => {
+        if (timer) clearTimeout(timer);
+      };
+    }
     const spots = () => {
       const box = root.getBoundingClientRect();
-      // (the minutes: the hook hangs in the button's ring, its tip a little under the middle)
-      const ring = picking === 'minutes' ? column.querySelector<HTMLElement>('[data-hook-ring]') : null;
-      if (ring) {
-        const r = ring.getBoundingClientRect();
-        return [{ x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height * 0.72 }];
-      }
       return Array.from(column.querySelectorAll<HTMLElement>(`[data-loose="${picking}"]`))
         .filter((el) => !(el as HTMLButtonElement).disabled)
         .map((el) => {
@@ -1273,7 +1298,8 @@ function PickHook({
   const g = hookGeometry(L);
   const park = { x: L.pick.loadX, y: L.pick.parkY };
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[22]" style={{ opacity: shown ? 1 : 0, transition: 'opacity 300ms ease' }}>
+    // (shown at once, resting where it hangs: no entrance that must run first; it fades when it goes)
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[22]" style={{ opacity: shown ? 1 : 0, transition: shown ? 'none' : 'opacity 300ms ease' }}>
       <div
         ref={trolleyRef}
         className="absolute left-0"

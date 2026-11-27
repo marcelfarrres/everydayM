@@ -18,7 +18,7 @@ export const TANK = {
   /** how strongly, there (0: not at all, 1: stuck on it) */
   pull: 0.75,
   /** px between the tank's ends and the 40 mark (room for the value written above the level) and the 20 mark */
-  padTop: 44,
+  padTop: 52,
   padBottom: 22,
 } as const;
 
@@ -89,8 +89,6 @@ export const SLOSH = {
     { length: 1.15, speed: 0.011, share: 0.65 },
     { length: 0.55, speed: -0.017, share: 0.35 },
   ],
-  /** the value written in the tank sits this far above the mean level, px (clear of any crest) */
-  textClear: 6,
 } as const;
 
 export interface Slosh {
@@ -168,3 +166,40 @@ export function hintOffset(t: number): number {
 
 /** How long the hint lasts, ms. */
 export const HINT_MS = (HINT.ms + HINT.gapMs) * HINT.times;
+
+// ---------------------------------------------------------------------------------------------
+// What sits on the level: its two chevrons, and the value written above it
+
+/** A box, px (x to the right, y down). */
+export interface Box {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+export const boxesMeet = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** The chevrons (▲ above the line, ▼ under it: their tips this far from it, half this wide) and the value's type. */
+export const LEVEL_MARKS = { tip: 15, foot: 9, half: 6, stroke: 2.2, numberPx: 26, unitPx: 10.5, gap: 2 } as const;
+/** A line of type's box around its baseline, in ems (as the browser measures it: ascent and descent). */
+const ASCENT = 0.95;
+const DESCENT = 0.27;
+
+/**
+ * Around the level line (y 0, the chevrons centred at `cx`): the chevrons' boxes, and the value
+ * written above them («30» ending at `cx + 10`, «min» after it), its baseline high enough to clear
+ * the ▲ and any crest of the liquid. All relative to the level, px.
+ */
+export function levelMarks(cx: number): { baseline: number; number: Box; unit: Box; up: Box; down: Box } {
+  const m = LEVEL_MARKS;
+  const s = m.stroke / 2;
+  const up: Box = { x0: cx - m.half - s, x1: cx + m.half + s, y0: -m.tip - s, y1: -m.foot + s };
+  const down: Box = { x0: cx - m.half - s, x1: cx + m.half + s, y0: m.foot - s, y1: m.tip + s };
+  // (the number's whole box, descent included, clears the ▲ and any crest)
+  const baseline = -(Math.max(-up.y0, CREST) + DESCENT * m.numberPx + m.gap);
+  // (two digits of a bold 26 px number at most ~0.66 em each)
+  const number: Box = { x0: cx + 10 - 2 * 0.66 * m.numberPx, x1: cx + 10, y0: baseline - ASCENT * m.numberPx, y1: baseline + DESCENT * m.numberPx };
+  const unit: Box = { x0: cx + 13, x1: cx + 13 + 3 * 0.62 * m.unitPx, y0: baseline - ASCENT * m.unitPx, y1: baseline + DESCENT * m.unitPx };
+  return { baseline, number, unit, up, down };
+}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CREST,
+  boxesMeet,
+  levelMarks,
   HINT_MS,
   SLOSH,
   STILL,
@@ -27,8 +29,8 @@ describe('the minutes tank', () => {
     expect(levelY(30, top, bottom)).toBe((top + TANK.padTop + bottom - TANK.padBottom) / 2);
     expect(levelY(99, top, bottom)).toBe(top + TANK.padTop);
     expect(pxPerMinute(top, bottom)).toBe((400 - TANK.padTop - TANK.padBottom) / 20);
-    // the value written above the level at 40 still fits in the tank, over any crest
-    expect(TANK.padTop - CREST - SLOSH.textClear).toBeGreaterThanOrEqual(26);
+    // the value written above the level at 40 still fits in the tank, over the chevron and any crest
+    expect(TANK.padTop + levelMarks(40).number.y0).toBeGreaterThanOrEqual(2);
   });
 
   it('moves the level half of what the finger travels, up for more', () => {
@@ -125,6 +127,27 @@ describe('the fuel, a liquid', () => {
     for (let i = 0; i < 200; i++) {
       s = sloshStep(s, i % 50 < 25 ? 3 : -3, 16);
       for (let x = 0; x <= 80; x += 4) expect(200 - surfaceY(x, 0, 80, 200, s)).toBeLessThanOrEqual(CREST + 1e-6);
+    }
+  });
+});
+
+describe('the value and the chevrons on the level', () => {
+  it('never overlap, at any value and on a narrow tank', () => {
+    for (const w of [62, 72, 84]) {
+      const cx = 30 + w * 0.42;
+      const m = levelMarks(cx);
+      for (const text of [m.number, m.unit]) {
+        expect(boxesMeet(text, m.up)).toBe(false);
+        expect(boxesMeet(text, m.down)).toBe(false);
+      }
+      // the text stays inside the tank (its sides) and over any crest of the liquid
+      expect(m.number.x0).toBeGreaterThan(30);
+      expect(m.unit.x1).toBeLessThan(30 + w);
+      expect(-m.number.y1).toBeGreaterThan(CREST);
+      for (let minutes = 20; minutes <= 40; minutes += 5) {
+        const y = levelY(minutes, 8, 400);
+        expect(y + m.number.y0).toBeGreaterThanOrEqual(8);
+      }
     }
   });
 });
