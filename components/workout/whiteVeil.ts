@@ -1,26 +1,34 @@
 import { FINALE } from '@/components/workout/assembly';
+import { TRAIL, VEIL_WORDS, trailProgressAt, trailPuffs, trailShape } from '@/components/workout/veilTrail';
 
 /*
  * The white the rocket's smoke leaves (creator → player, phone): «A ponerse como un cohete» (and,
  * with a warm-up, «pero antes toca calentar.») big on the smoke: soft puffs with a light grey shade
  * along their edges, a faint exhaust trail rising through the middle to a small rocket far up near
- * the top (nothing behind the words: a white glow keeps them clear). It is held until the words
- * have been read, then the smoke LEAVES DOWNWARDS: it sinks out through the bottom edge, uncovering
- * the workout (already on screen under it) from the top down, while the words fade.
+ * the top (nothing behind the words: a white glow keeps them clear). The words are held 2 s once
+ * they are in (the page times it: veilHandOffMs), then the smoke leaves like a rocket's trail
+ * fading from the launch pad up: it clears from the bottom first, the cleared edge rises, what is
+ * left narrows into a trail of soft uneven puffs tapering up to the rocket, and the last of it
+ * fades at the top (veilTrail.ts: one mask on the smoke). The words fade before the edge reaches
+ * them. The workout is already on screen under it, so it shows from the bottom up.
  *
  * It lives in <body>, outside React, so it survives the creator going away (React would take it
- * with it, and the old page would flash). Reduced motion: no puffs moving, a plain cross-fade.
+ * with it, and the old page would flash). Reduced motion: nothing moving, a plain cross-fade.
  */
 
 const TEXT = 'text-[clamp(2.4rem,12.6vw,3.7rem)] font-semibold leading-[1] tracking-[-0.035em]';
 const SUB = 'mt-5 text-[clamp(1.35rem,6.4vw,2rem)] font-semibold leading-[1.12] tracking-[-0.02em] text-ink/70';
 /** A puff: white, its edge shaded light grey. */
 const PUFF = 'radial-gradient(circle at 42% 38%, #ffffff 56%, #f1f0ec 76%, #e2e0da 100%)';
+/** A puff of the leaving mask: fully there within 60 % of its radius, fading to nothing at its edge. */
+const MASK_PUFF = 'radial-gradient(closest-side, #000 60%, transparent 100%)';
+/** The leaving smoke's frames (the easing is in trailShape: the frames are linear between). */
+const FRAMES = 24;
 
 /**
  * The puffs, as [x share of the width, y share of the height, radius in px]. The first ones sit on
- * the smoke's top edge (seen as it sinks: a soft scalloped edge); the rest frame the screen's lower
- * corners and sides, well away from the words in the middle.
+ * the smoke's top edge (a soft scalloped edge); the rest frame the screen's lower corners and
+ * sides, well away from the words in the middle.
  */
 const PUFFS: [number, number, number][] = [
   [0.02, 0, 80],
@@ -36,11 +44,11 @@ const PUFFS: [number, number, number][] = [
 ];
 
 export interface Veil {
-  /** the workout is on screen: the smoke sinks away (a plain cross-fade with reduced motion) and goes */
+  /** the workout is on screen: the smoke clears away (a plain cross-fade with reduced motion) and goes */
   release: () => void;
 }
 
-/** How long the smoke takes to sink away and uncover the workout, ms (also FINALE.veilFadeMs). */
+/** How long the smoke takes to clear and uncover the workout, ms (also FINALE.veilFadeMs). */
 export const VEIL_LEAVE_MS = FINALE.veilFadeMs;
 
 function el(tag: string, className: string, style: Partial<CSSStyleDeclaration> = {}): HTMLElement {
@@ -50,21 +58,30 @@ function el(tag: string, className: string, style: Partial<CSSStyleDeclaration> 
   return node;
 }
 
+/** The leaving mask at `p` on a `W`×`H` screen: its images, sizes and positions (one layer per puff, and the solid middle). */
+function maskAt(p: number, W: number, H: number) {
+  const { puffs, core } = trailPuffs(p, W, H);
+  const px = (v: number) => `${v.toFixed(1)}px`;
+  return {
+    image: ['linear-gradient(#000, #000)', ...puffs.map(() => MASK_PUFF)].join(', '),
+    size: [`${px(core.w)} ${px(core.h)}`, ...puffs.map((q) => `${px(2 * q.r)} ${px(2 * q.r)}`)].join(', '),
+    position: [`${px(core.x)} ${px(core.y)}`, ...puffs.map((q) => `${px(q.x - q.r)} ${px(q.y - q.r)}`)].join(', '),
+  };
+}
+
 /** Covers the screen in the rocket's smoke with the sentence (`warmup`: and that the warm-up comes first). */
 export function openVeil({ warmup, reduced }: { warmup: boolean; reduced: boolean }): Veil {
   if (typeof document === 'undefined') return { release: () => {} };
   const veil = el('div', 'pointer-events-none fixed inset-0 z-[90] overflow-hidden font-[family-name:var(--font-display)] text-ink');
   veil.setAttribute('role', 'status');
 
-  // the smoke: all white, its puffs (it sinks away as one piece)
+  // the smoke: all white, its puffs, the exhaust trail up the middle to a small rocket near the
+  // top (faint); it leaves as one piece
   const smoke = el('div', 'absolute inset-0 bg-white');
+  smoke.setAttribute('data-veil-smoke', '');
   for (const [x, y, r] of PUFFS) {
     smoke.append(el('span', 'absolute rounded-full', { left: `calc(${x * 100}% - ${r}px)`, top: `calc(${y * 100}% - ${r}px)`, width: `${2 * r}px`, height: `${2 * r}px`, background: PUFF }));
   }
-  veil.append(smoke);
-
-  // the exhaust trail up the middle to a small rocket near the top (faint), and the words
-  const air = el('div', 'absolute inset-0');
   const ns = 'http://www.w3.org/2000/svg';
   const trail = document.createElementNS(ns, 'svg');
   trail.setAttribute('viewBox', '0 0 100 100');
@@ -79,7 +96,7 @@ export function openVeil({ warmup, reduced }: { warmup: boolean; reduced: boolea
   path.setAttribute('stroke-linecap', 'round');
   path.setAttribute('vector-effect', 'non-scaling-stroke');
   trail.append(path);
-  air.append(trail);
+  smoke.append(trail);
   const rocket = document.createElementNS(ns, 'svg');
   rocket.setAttribute('viewBox', '-10 -20 20 40');
   rocket.setAttribute('aria-hidden', 'true');
@@ -89,10 +106,12 @@ export function openVeil({ warmup, reduced }: { warmup: boolean; reduced: boolea
   body.setAttribute('fill', '#131313');
   body.setAttribute('opacity', '0.22');
   rocket.append(body);
-  air.append(rocket);
+  smoke.append(rocket);
+  veil.append(smoke);
 
   // the words, on a soft white glow (the trail never shows behind them)
   const words = el('div', 'absolute inset-0 flex flex-col items-center justify-center px-6 text-center');
+  words.setAttribute('data-veil-words', '');
   const block = el('div', 'relative px-8 py-12', { background: 'radial-gradient(closest-side, #ffffff 64%, rgba(255,255,255,0) 100%)' });
   const line = el('p', TEXT);
   line.append('A ponerse', document.createElement('br'), 'como un', document.createElement('br'));
@@ -106,13 +125,17 @@ export function openVeil({ warmup, reduced }: { warmup: boolean; reduced: boolea
     block.append(sub);
   }
   words.append(block);
-  air.append(words);
-  veil.append(air);
+  veil.append(words);
   document.body.append(veil);
 
   if (!reduced) {
     Array.from(block.children).forEach((child, i) =>
-      child.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 460, delay: 80 + i * 180, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' }),
+      child.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {
+        duration: VEIL_WORDS.inMs,
+        delay: VEIL_WORDS.delayMs + i * VEIL_WORDS.staggerMs,
+        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        fill: 'backwards',
+      }),
     );
   }
 
@@ -126,12 +149,33 @@ export function openVeil({ warmup, reduced }: { warmup: boolean; reduced: boolea
         if (reduced) {
           veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: VEIL_LEAVE_MS, easing: 'ease-in-out', fill: 'forwards' });
         } else {
-          // the smoke sinks out through the bottom edge (its scalloped top edge last), the words fade
-          smoke.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(calc(100% + 120px))' }], { duration: VEIL_LEAVE_MS, easing: 'cubic-bezier(0.55, 0, 0.7, 0.4)', fill: 'forwards' });
-          air.animate([{ opacity: 1 }, { opacity: 0 }], { duration: Math.round(VEIL_LEAVE_MS * 0.45), easing: 'ease-out', fill: 'forwards' });
+          const W = veil.clientWidth || window.innerWidth;
+          const H = veil.clientHeight || window.innerHeight;
+          // (unprefixed masks where they exist, else the -webkit- ones)
+          const plain = typeof CSS !== 'undefined' && CSS.supports('mask-image', 'linear-gradient(#000, #000)');
+          const size = plain ? 'maskSize' : 'webkitMaskSize';
+          const position = plain ? 'maskPosition' : 'webkitMaskPosition';
+          const first = maskAt(0, W, H);
+          // (its first frame, set as it is: all white, whether or not the animation runs)
+          const s = smoke.style;
+          s.setProperty(plain ? 'mask-image' : '-webkit-mask-image', first.image);
+          s.setProperty(plain ? 'mask-repeat' : '-webkit-mask-repeat', 'no-repeat');
+          s.setProperty(plain ? 'mask-size' : '-webkit-mask-size', first.size);
+          s.setProperty(plain ? 'mask-position' : '-webkit-mask-position', first.position);
+          const frames: Keyframe[] = [];
+          for (let k = 0; k <= FRAMES; k++) {
+            const p = k / FRAMES;
+            const m = maskAt(p, W, H);
+            frames.push({ offset: p, [size]: m.size, [position]: m.position, opacity: trailShape(p).opacity });
+          }
+          smoke.animate(frames, { duration: VEIL_LEAVE_MS, easing: 'linear', fill: 'forwards' });
+          // the words are gone before the rising edge reaches them (read once, before it moves)
+          const bottom = block.getBoundingClientRect().bottom / H;
+          const goneBy = Math.max(0.12, trailProgressAt(Math.min(TRAIL.startEdge, bottom + 0.04)));
+          words.animate([{ opacity: 1 }, { opacity: 0 }], { duration: Math.round(VEIL_LEAVE_MS * goneBy), easing: 'ease-out', fill: 'forwards' });
         }
         setTimeout(() => veil.remove(), VEIL_LEAVE_MS + 60);
-      }, 60);
+      }, VEIL_WORDS.leaveDelayMs);
     },
   };
 }

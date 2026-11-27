@@ -42,6 +42,7 @@ import { AssemblyScene, type Take } from '@/components/workout/AssemblyScene';
 import { LoosePiece } from '@/components/workout/AssemblyRocket';
 import { FINALE_SENTENCE, LaunchFinale, type FinaleDress, type FinalePhase } from '@/components/workout/LaunchFinale';
 import { openVeil, type Veil } from '@/components/workout/whiteVeil';
+import { veilHandOffMs } from '@/components/workout/veilTrail';
 import { LAUNCH } from '@/components/workout/launchDrum';
 import type { Outfit } from '@/components/workout/PortholePerson';
 import {
@@ -848,8 +849,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       at(FINALE.smokeMs, () => updateFinale({ phase: 'white' }));
     } else if (finale.phase === 'white') {
       if (!veilRef.current) creatorSfx('veil');
-      veilRef.current ??= openVeil({ warmup: Boolean(built?.queue.some((item) => item.kind === 'warmup')), reduced: Boolean(reducedMotion) });
-      at(FINALE.whiteMs, handOff);
+      const warmup = Boolean(built?.queue.some((item) => item.kind === 'warmup'));
+      veilRef.current ??= openVeil({ warmup, reduced: Boolean(reducedMotion) });
+      // (the words held 2 s once they are all in)
+      at(veilHandOffMs(warmup ? 2 : 1, Boolean(reducedMotion)), handOff);
     }
     return () => timers.forEach(clearTimeout);
   }, [finale, built, reducedMotion, updateFinale, handOff]);

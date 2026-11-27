@@ -503,12 +503,13 @@ export function fitMs(mode: FitMode): number {
 /**
  * The finale: the sentence and «Cambiar» are read for `readMs` (never before the routine is
  * built), then the take-off; the smoke covers the screen in `smokeMs`; «A ponerse como un cohete»
- * on the white for `whiteMs` (its words come in over ~0.7 s, then 2.4 s to read them; the same
- * with reduced motion); the smoke sinks away uncovering the player in `veilFadeMs`. With no
+ * on the white until its words have been in for 2 s (`veilHandOffMs` in veilTrail.ts, the same
+ * with reduced motion); the smoke clears like a rocket's trail fading from the pad up, uncovering
+ * the player from the bottom, in `veilFadeMs`. With no
  * questions (the start screen's own launch), the sentence comes `cSentenceMs` after the tap at the
  * soonest and the sky turns to day over `cSkyMs`.
  */
-export const FINALE = { readMs: 3500, smokeMs: 1100, whiteMs: 3150, veilFadeMs: 900, cSentenceMs: 1300, cSkyMs: 2600 } as const;
+export const FINALE = { readMs: 3500, smokeMs: 1100, veilFadeMs: 1000, cSentenceMs: 1300, cSkyMs: 2600 } as const;
 
 /** The assembly scene's take-off: ignition this long before lift-off, and the climb out of the top, ms (the rest: portholeTimeline). */
 export const TAKEOFF = { igniteLeadMs: 500, liftMs: 1500 } as const;
