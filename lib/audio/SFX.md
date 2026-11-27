@@ -49,10 +49,10 @@ Reglas puras probadas en `sfxRecipes.test.ts` y `sfxSamples.test.ts`. Los de la 
 | `drumRoll` | bucle | Pantalla final (móvil): desde que la música se ha ido hasta el golpe final, creciendo; se para al instante con el golpe, al ocultarse la página y al salir. |
 | `error` | ambiente | Creador (móvil): al saltar una broma («¿Tan poco tiempo tenemos?», «¿Tan poco hemos dormido hoy?»), dentro del toque, con `{ gesture: true }`. Grave y áspero (cuadrada y sierra hacia 120–150 Hz en la receta), para que no se confunda con el 3-2-1. Si la grabación aún no ha cargado (la primera vez, antes de cualquier cohete), suena la receta. |
 | `drumClick` | ambiente | Primera pantalla (móvil): un clic de carraca por cada cohete que pasa por el centro del tambor (`minGap` 0,08 s: una ruleta rápida no ametralla). Muy bajo. |
-| `metalStep` | ambiente | Un paso de los astronautas por la pasarela (uno cada 8 px; también al entrar por la escotilla). Muy bajo. |
+| `metalStep` | ambiente | Un paso de los astronautas por la pasarela (uno cada 8 px; también al entrar por la escotilla y al aterrizar sobre el cohete cuando la rueda se para). Muy bajo. |
 | `ladderStep` | ambiente | Un peldaño de los astronautas en la escalera de la torre. Muy bajo. |
 | `buttonThunk` | ambiente | Al pulsar «Random», dentro del toque, con `{ gesture: true }`: golpe grave y acolchado. |
-| `towerDock` | ambiente | Despegue desde la base: cuando los brazos de la torre de lanzamiento se cierran sobre el cohete. Después, `ignite` (ignición) y `launch` (despegue). |
+| `towerDock` | ambiente | Primera pantalla (móvil): cuando la rueda se para y las garras se cierran de golpe sobre el cohete elegido; y en el despegue desde la base, cuando los brazos de la torre de lanzamiento se cierran sobre el cohete. Después, `ignite` (ignición) y `launch` (despegue). |
 | `drumHit` | ambiente | Pantalla final: cuando la última pieza encaja en el cohete (con movimiento reducido, al abrirse la pantalla). Las piezas de antes encajan con `pam` (la etapa que ya traía el cohete, con `clack`). |
 
 ## Notas
