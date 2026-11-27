@@ -1,0 +1,170 @@
+/*
+ * The minutes question's tank (phone), as pure numbers: an upright white fuel tank whose red level
+ * is the minutes (20 to 40, marks every 5). You drag the level anywhere on the tank: it is a bit
+ * heavy (it moves half of what the finger travels) and it is drawn to each mark (a click as it
+ * lands on one); let go and it settles on the nearest. The fuel is a liquid: its surface sloshes
+ * with the level's speed, leaning against the way it moves, and dies down smoothly once it stops.
+ * MinutesTank.tsx draws and moves it with these, frame by frame, through refs.
+ */
+
+export const TANK = {
+  min: 20,
+  max: 40,
+  step: 5,
+  /** the level moves this share of the finger's travel */
+  drag: 0.5,
+  /** within this many minutes of a mark the level is drawn onto it */
+  magnet: 1.3,
+  /** how strongly, there (0: not at all, 1: stuck on it) */
+  pull: 0.75,
+  /** px between the tank's ends and the 40 mark (room for the value written above the level) and the 20 mark */
+  padTop: 44,
+  padBottom: 22,
+} as const;
+
+/** The level's height (y, px, down) for `minutes` in a tank from `top` to `bottom`. */
+export function levelY(minutes: number, top: number, bottom: number): number {
+  const span = bottom - top - TANK.padTop - TANK.padBottom;
+  const m = Math.max(TANK.min, Math.min(TANK.max, minutes));
+  return bottom - TANK.padBottom - ((m - TANK.min) / (TANK.max - TANK.min)) * span;
+}
+
+/** Px per minute of the level, in a tank from `top` to `bottom`. */
+export const pxPerMinute = (top: number, bottom: number) => (bottom - top - TANK.padTop - TANK.padBottom) / (TANK.max - TANK.min);
+
+/** The nearest mark to `minutes` (20, 25, … 40). */
+export function snapMinutes(minutes: number): number {
+  const m = Math.round(minutes / TANK.step) * TANK.step;
+  return Math.max(TANK.min, Math.min(TANK.max, m));
+}
+
+/**
+ * A drag: the finger went `dy` px (down: positive) from where it pressed the tank, which then
+ * showed `start` minutes: the minutes the level is at now (continuous, within 20–40), moving half
+ * of the finger's travel.
+ */
+export function dragMinutes(start: number, dy: number, ppm: number): number {
+  const m = start - (dy * TANK.drag) / Math.max(1e-6, ppm);
+  return Math.max(TANK.min, Math.min(TANK.max, m));
+}
+
+/** Where the level is drawn for `minutes` mid-drag: pulled onto a mark when near one (it "lands" on each). */
+export function magnet(minutes: number): number {
+  const mark = snapMinutes(minutes);
+  const d = minutes - mark;
+  if (Math.abs(d) >= TANK.magnet) return minutes;
+  // eased: fully pulled at the mark, letting go smoothly at the zone's edge
+  const t = Math.abs(d) / TANK.magnet;
+  const keep = 1 - TANK.pull * (1 - t) * (1 - t);
+  return mark + d * keep;
+}
+
+/** Arrow keys: one mark up or down (Home and End: the ends). */
+export function keyMinutes(minutes: number, key: string): number | null {
+  const m = snapMinutes(minutes);
+  if (key === 'ArrowUp' || key === 'ArrowRight' || key === 'PageUp') return Math.min(TANK.max, m + TANK.step);
+  if (key === 'ArrowDown' || key === 'ArrowLeft' || key === 'PageDown') return Math.max(TANK.min, m - TANK.step);
+  if (key === 'Home') return TANK.min;
+  if (key === 'End') return TANK.max;
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The liquid: two damped waves of different length, and a lean
+
+export const SLOSH = {
+  /** amplitude, px, per px/ms of the level's speed; never more than `maxAmp` */
+  gain: 9,
+  maxAmp: 5,
+  /** the surface leans against the movement: px of tilt (end to end, half each side) per px/ms */
+  leanGain: 7,
+  maxLean: 3.5,
+  /** how fast the waves build up while it moves, and how long they take to die down once it stops (time constants, ms) */
+  riseMs: 70,
+  decayMs: 280,
+  /** below this (px) the surface is flat and the loop stops */
+  still: 0.12,
+  /** the two waves: lengths as shares of the tank's width, and their speeds, radians per ms */
+  waves: [
+    { length: 1.15, speed: 0.011, share: 0.65 },
+    { length: 0.55, speed: -0.017, share: 0.35 },
+  ],
+  /** the value written in the tank sits this far above the mean level, px (clear of any crest) */
+  textClear: 6,
+} as const;
+
+export interface Slosh {
+  amp: number;
+  lean: number;
+  /** ms of wave time (the phases move with it) */
+  t: number;
+}
+
+export const STILL: Slosh = { amp: 0, lean: 0, t: 0 };
+
+/**
+ * One frame of the liquid: the level moving at `v` px per ms (down: positive), `dtMs` long. The
+ * waves build up with the speed and die down (exponentially, ~1.2 s to flat) once it stops; the
+ * surface leans against the movement (moving up, the liquid lags: higher behind... a tilt, small).
+ */
+export function sloshStep(s: Slosh, v: number, dtMs: number): Slosh {
+  const dt = Math.max(0, dtMs);
+  const speed = Math.abs(v);
+  const wantAmp = Math.min(SLOSH.maxAmp, speed * SLOSH.gain);
+  const wantLean = Math.max(-SLOSH.maxLean, Math.min(SLOSH.maxLean, -v * SLOSH.leanGain));
+  const toward = (x: number, want: number) => {
+    const tau = Math.abs(want) > Math.abs(x) ? SLOSH.riseMs : SLOSH.decayMs;
+    return want + (x - want) * Math.exp(-dt / tau);
+  };
+  const amp = toward(s.amp, wantAmp);
+  const lean = toward(s.lean, wantLean);
+  const quiet = amp < SLOSH.still && Math.abs(lean) < SLOSH.still;
+  return quiet ? { amp: 0, lean: 0, t: 0 } : { amp, lean, t: s.t + dt };
+}
+
+/** True when the liquid is at rest (nothing to draw per frame). */
+export const isStill = (s: Slosh) => s.amp === 0 && s.lean === 0;
+
+/** The surface's height at `x` across a tank from `x0` to `x1`, around the mean level `y`. */
+export function surfaceY(x: number, x0: number, x1: number, y: number, s: Slosh): number {
+  if (isStill(s)) return y;
+  const w = Math.max(1, x1 - x0);
+  const u = (x - x0) / w;
+  let wave = 0;
+  for (const k of SLOSH.waves) wave += k.share * Math.sin(((2 * Math.PI) / k.length) * u + k.speed * s.t);
+  return y + s.lean * (u - 0.5) * 2 + s.amp * wave;
+}
+
+/**
+ * The fuel's outline: the surface across the tank (`steps` segments) then down to `bottom` and
+ * back: an SVG path. Flat at rest.
+ */
+export function fuelPath(x0: number, x1: number, y: number, bottom: number, s: Slosh, steps = 16): string {
+  const pts: string[] = [];
+  const n = isStill(s) ? 1 : steps;
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + ((x1 - x0) * i) / n;
+    pts.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${surfaceY(x, x0, x1, y, s).toFixed(1)}`);
+  }
+  return `${pts.join('')}L${x1.toFixed(1)} ${bottom.toFixed(1)}L${x0.toFixed(1)} ${bottom.toFixed(1)}Z`;
+}
+
+/** The highest any crest can reach above the mean level, px (the value's text stays above it). */
+export const CREST = SLOSH.maxAmp + SLOSH.maxLean;
+
+// ---------------------------------------------------------------------------------------------
+// "It slides": the level shows it by itself on entering
+
+/** Twice: up `rise` px and back, `ms` each; then it rests. The level's offset (up: negative) at `t` ms. */
+export const HINT = { rise: 18, ms: 900, gapMs: 150, times: 2 } as const;
+
+export function hintOffset(t: number): number {
+  const one = HINT.ms + HINT.gapMs;
+  if (t < 0 || t >= one * HINT.times) return 0;
+  const p = (t % one) / HINT.ms;
+  if (p >= 1) return 0;
+  return -HINT.rise * Math.sin(Math.PI * p) ** 2;
+}
+
+/** How long the hint lasts, ms. */
+export const HINT_MS = (HINT.ms + HINT.gapMs) * HINT.times;

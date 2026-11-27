@@ -30,6 +30,7 @@ import { NoseCarry, NoseCrane, type NoseSpot } from '@/components/workout/NoseCa
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
 import { LaunchBase, useTextMeasure, type LaunchHold } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
+import { MinutesTank } from '@/components/workout/MinutesTank';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
 import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
@@ -561,7 +562,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       if (field instanceof HTMLElement) field.blur();
       setTyping(false);
       setHeldHeight(null);
-      const nose = barRef.current?.querySelector<SVGSVGElement>('svg[data-nose-bar]');
+      const nose = barRef.current?.querySelector<SVGSVGElement>('svg.nose-bar');
       if (nose && !reducedMotion) {
         const r = nose.getBoundingClientRect();
         setCarry({ from: { left: r.left, top: r.top }, text: prompt });
@@ -680,7 +681,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
    * the rocket (AssemblyScene takes it from its place); the next question comes once it is bolted
    * (pieceFitted). With reduced motion it simply appears in place and the next question follows.
    */
-  const answerWith = (patch: Partial<RoutineIntent>, piece: PieceId, el: HTMLElement, label: string) => {
+  const answerWith = (patch: Partial<RoutineIntent>, piece: PieceId, el: HTMLElement, label: string, tank = false) => {
     if (pending) return;
     const last = asked + 1 >= questions.length;
     if (last) lastTap();
@@ -689,7 +690,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     if (reducedMotion) setAsked(asked + 1);
     else {
       const box = (el.querySelector('svg[data-piece]') ?? el).getBoundingClientRect();
-      setPending({ piece, rect: { left: box.left, top: box.top }, label, taken: false });
+      // (the minutes' tank: the crane takes the whole tank, which becomes the piece on its way)
+      setPending({ piece, rect: { left: box.left, top: box.top }, label, taken: false, ...(tank ? { tank: { w: box.width, h: box.height, minutes: patch.targetMinutes ?? draftMinutes } } : {}) });
     }
     if (last) void build(next, false);
   };
@@ -1140,7 +1142,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               clip={standIn}
               neutral={typing || text.trim() !== ''}
               // (a little up and never down to the crane's arm over the bar: its visible part stays above it)
-              className="absolute left-1/2 top-[calc(50%-2.5rem)] aspect-square h-[min(calc(100%+5rem),88vw,calc(125%+25px))] -translate-x-1/2 -translate-y-1/2"
+              className="absolute left-1/2 top-[calc(50%-3.25rem)] aspect-square h-[min(calc(100%+5rem),88vw,calc(111%+53px))] -translate-x-1/2 -translate-y-1/2"
             />
           </div>
 
@@ -1155,7 +1157,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             <PadRocket
               g={bar.g}
               parts={{ flame: false, fins: false, hatch: false, tail: false }}
-              className="pointer-events-none absolute left-[var(--fig-l)] top-0 lg:hidden"
+              className="nose-bar pointer-events-none absolute left-[var(--fig-l)] top-0 lg:hidden"
             />
             <label htmlFor="routine-prompt" className="sr-only">
               Describe tu rutina
@@ -1294,7 +1296,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           onTaken={pieceTaken}
           onFitted={pieceFitted}
           // (blocks, intensity: the crane's hook drifts over the loose answers until one is tapped)
-          picking={!pending && !finale && questions[asked] && questions[asked].id !== 'minutes' ? (questions[asked].id === 'intensity' ? 'engine' : 'blocks') : null}
+          picking={!pending && !finale && questions[asked] ? (questions[asked].id === 'intensity' ? 'engine' : questions[asked].id === 'minutes' ? 'minutes' : 'blocks') : null}
         >
           {(L, ink) =>
             finale?.path === 'B' && finaleText ? (
@@ -1331,33 +1333,29 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                           >
                             {q.title}
                           </h1>
-                          {/* what to do: the pieces are the answers */}
-                          <p className={`mt-2.5 text-[15px] font-medium transition-colors duration-[1200ms] ${ink ? 'text-ink/65' : 'text-white/80'}`}>
-                            {q.id === 'minutes' ? 'Elige y toca la pieza' : 'Toca una pieza'}
-                          </p>
+                          {/* what to do: the pieces are the answers (the minutes' tank shows it by itself) */}
+                          {q.id !== 'minutes' && (
+                            <p className={`mt-2.5 text-[15px] font-medium transition-colors duration-[1200ms] ${ink ? 'text-ink/65' : 'text-white/80'}`}>Toca una pieza</p>
+                          )}
                         </motion.div>
                       ))}
                   </AnimatePresence>
                 </div>
                 {questions[asked]?.id === 'minutes' ? (
-                  <>
-                    <div className={`rounded-3xl bg-white p-4 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.5)] transition-opacity duration-300 ${pending ? 'opacity-0' : ''}`}>
-                      <MinutesSlider wrap value={draftMinutes} onChange={setDraftMinutes} preview={shapeFor(draftMinutes)} />
-                    </div>
-                    {/* the minutes' piece itself: its words follow the slider; a tap fits it */}
-                    <LoosePiece
-                      piece="minutes"
-                      L={L}
-                      label={`${draftMinutes} min`}
-                      measure={measureText}
-                      index={0}
-                      hidden={pending?.piece === 'minutes' && pending.taken}
-                      onClick={(e) => {
-                        if (pending || tease({ kind: 'minutes', minutes: draftMinutes }, e.currentTarget)) return;
-                        answerWith({ targetMinutes: draftMinutes }, 'minutes', e.currentTarget, `${draftMinutes} min`);
-                      }}
-                    />
-                  </>
+                  // the minutes: the tank you slide; the crane's hook is the button
+                  <MinutesTank
+                    value={draftMinutes}
+                    onChange={setDraftMinutes}
+                    width={L.column.right - L.column.left}
+                    height={Math.min(440, L.cambiarTop + 44 - 16 - (L.column.top + L.column.titleMin + 20))}
+                    light={!ink}
+                    reduced={Boolean(reducedMotion)}
+                    hidden={pending?.piece === 'minutes' && pending.taken}
+                    onHook={(tank, button) => {
+                      if (pending || tease({ kind: 'minutes', minutes: draftMinutes }, button)) return;
+                      answerWith({ targetMinutes: draftMinutes }, 'minutes', tank, `${draftMinutes} min`, true);
+                    }}
+                  />
                 ) : questions[asked] ? (
                   <div key={questions[asked].id} className="flex flex-col items-start gap-3">
                     {questions[asked].options.map((option, i) => {

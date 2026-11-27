@@ -621,7 +621,10 @@ export interface PickTimeline {
   endAt: number;
 }
 
-export function pickTimeline(p: typeof PICK = PICK): PickTimeline {
+/** A pick's durations, ms (PICK, or a variant of it: TANK_PICK). */
+export type PickTiming = { readonly [K in keyof typeof PICK]: number };
+
+export function pickTimeline(p: PickTiming = PICK): PickTimeline {
   const go: [number, number] = [0, p.goMs];
   const grab: [number, number] = [go[1], go[1] + p.grabMs];
   const swing: [number, number] = [grab[1], grab[1] + p.swingMs];
@@ -696,6 +699,57 @@ export function pickPoses(
   poses.push({ t: t.hookUp[1], piece: { x: onLift.x + ((cx - loadX) * (t.hookUp[1] - t.drive[0])) / (t.drive[1] - t.drive[0]), y: onLift.y + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
   poses.push({ t: t.drive[1], piece: { x: cx, y: dropTop + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
   poses.push({ t: t.lift[1], piece: { x: cx, y: dropTop - lift + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
+  return poses.sort((a, b) => a.t - b.t);
+}
+
+/**
+ * The minutes' tank, taken by the crane (its hook was the button): the hook rises from the button,
+ * goes over the tank and down onto its top (`go`, longer than a loose piece's), grabs it, lifts it
+ * (`swing`: no turn, it is upright already); while it is carried it shrinks to the rocket's minutes
+ * piece; then as every pick: lowered onto the waiting truck, under the rocket, lift, dock, bolts.
+ */
+export const TANK_PICK = { ...PICK, goMs: 700, swingMs: 260 } as const;
+
+/** A pose of the tank's pick: the element's centre and its scale across and along (it becomes the piece), and the hook's tip. */
+export interface TankPose {
+  t: number;
+  box: { x: number; y: number; sx: number; sy: number };
+  hook: { x: number; y: number };
+}
+
+/**
+ * The tank's pick, pose by pose: the tank `w` × `h` with its top-left at `at`, the hook starting at
+ * `hook` (in the button), parking at `parkY` between moves; it ends `box` wide and `len` long (the
+ * minutes piece) on the truck's lift at `loadX` (its top at `dropTop`), then under the rocket at
+ * `cx`, raised `lift`. The hook holds the element's top centre from the grab to the drop.
+ */
+export function tankPickPoses(
+  { at, w, h, hook, parkY, loadX, cx, dropTop, lift, box, len, raise }: { at: { x: number; y: number }; w: number; h: number; hook: { x: number; y: number }; parkY: number; loadX: number; cx: number; dropTop: number; lift: number; box: number; len: number; raise: number },
+  t: PickTimeline = pickTimeline(TANK_PICK),
+): TankPose[] {
+  const c0 = { x: at.x + w / 2, y: at.y + h / 2 };
+  const full = { sx: 1, sy: 1 };
+  const piece = { sx: box / w, sy: len / h };
+  const topOf = (b: { x: number; y: number; sy: number }) => ({ x: b.x, y: b.y - (h * b.sy) / 2 });
+  const rest = { x: c0.x, y: c0.y, ...full };
+  const go = t.go[1] - t.go[0];
+  const poses: TankPose[] = [
+    { t: 0, box: rest, hook },
+    { t: go * 0.3, box: rest, hook: { x: hook.x, y: parkY } },
+    { t: go * 0.72, box: rest, hook: { x: c0.x, y: parkY } },
+    { t: t.go[1], box: rest, hook: topOf(rest) },
+    { t: t.grab[1], box: rest, hook: topOf(rest) },
+  ];
+  const up = { ...rest, y: rest.y - raise };
+  poses.push({ t: t.swing[1], box: up, hook: topOf(up) });
+  const above = { x: loadX, y: dropTop - Math.max(24, raise) + len / 2, ...piece };
+  poses.push({ t: t.carry[1], box: above, hook: topOf(above) });
+  const onLift = { x: loadX, y: dropTop + len / 2, ...piece };
+  poses.push({ t: t.lower[1], box: onLift, hook: topOf(onLift) });
+  const drive = (ms: number) => loadX + ((cx - loadX) * Math.max(0, Math.min(1, (ms - t.drive[0]) / (t.drive[1] - t.drive[0]))));
+  poses.push({ t: t.hookUp[1], box: { ...onLift, x: drive(t.hookUp[1]) }, hook: { x: loadX, y: parkY } });
+  poses.push({ t: t.drive[1], box: { ...onLift, x: cx }, hook: { x: loadX, y: parkY } });
+  poses.push({ t: t.lift[1], box: { x: cx, y: dropTop - lift + len / 2, ...piece }, hook: { x: loadX, y: parkY } });
   return poses.sort((a, b) => a.t - b.t);
 }
 

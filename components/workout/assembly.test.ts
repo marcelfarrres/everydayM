@@ -8,6 +8,7 @@ import {
   PIECE_UNITS,
   QUICK,
   TAKE,
+  TANK_PICK,
   TAKEOFF,
   TITLE_MIN,
   TITLE_PX,
@@ -32,6 +33,7 @@ import {
   skyInk,
   skyStep,
   takeTimeline,
+  tankPickPoses,
   titleSize,
   truckTimeline,
   zoomLines,
@@ -390,5 +392,27 @@ describe('the typed nose carried to the questions', () => {
     expect((from.W - end.clipLeft) * end.scale).toBeCloseTo(to.len, 6);
     expect(noseCarryEnd(from, { ...to, len: 999 }).clipLeft).toBe(0);
     expect(NOSE_CARRY.liftMs + NOSE_CARRY.carryMs).toBeLessThan(1800);
+  });
+});
+
+describe('the minutes tank taken by the crane', () => {
+  it('hooks its top, shrinks it to the minutes piece on the way and ends where the piece goes, in about 3.5 s', () => {
+    const t = pickTimeline(TANK_PICK);
+    expect(t.placedAt).toBeGreaterThan(3000);
+    expect(t.placedAt).toBeLessThan(3800);
+    const cfg = { at: { x: 50, y: 300 }, w: 80, h: 360, hook: { x: 230, y: 470 }, parkY: 290, loadX: 240, cx: 313, dropTop: 600, lift: 150, box: 60, len: 70, raise: 14 };
+    const poses = tankPickPoses(cfg, t);
+    for (let i = 1; i < poses.length; i++) expect(poses[i].t).toBeGreaterThanOrEqual(poses[i - 1].t);
+    // from the grab to the drop the hook holds the top centre
+    for (const p of poses.filter((q) => q.t >= t.go[1] && q.t <= t.lower[1])) {
+      expect(p.hook.x).toBeCloseTo(p.box.x, 6);
+      expect(p.hook.y).toBeCloseTo(p.box.y - (cfg.h * p.box.sy) / 2, 6);
+    }
+    expect(poses[0].box).toEqual({ x: 90, y: 480, sx: 1, sy: 1 });
+    const last = poses[poses.length - 1];
+    expect(last.box.x).toBe(313);
+    expect(last.box.y).toBe(600 - 150 + 35);
+    expect(last.box.sx * cfg.w).toBeCloseTo(60, 6);
+    expect(last.box.sy * cfg.h).toBeCloseTo(70, 6);
   });
 });
