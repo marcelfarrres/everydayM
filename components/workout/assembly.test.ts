@@ -7,8 +7,8 @@ import {
   PIECES,
   PIECE_UNITS,
   QUICK,
-  TAKE,
-  TANK_PICK,
+  ARRIVE,
+  arrivalTimeline,
   TAKEOFF,
   TITLE_MIN,
   TITLE_PX,
@@ -25,15 +25,14 @@ import {
   noseCarryEnd,
   padHull,
   pieceBottom,
-  pickPoses,
-  pickTimeline,
+  grabPoint,
+  grabPoses,
+  grabTimeline,
   pieceModes,
   portholeTimeline,
   shownMinutes,
   skyInk,
   skyStep,
-  takeTimeline,
-  tankPickPoses,
   titleSize,
   truckTimeline,
   zoomLines,
@@ -220,18 +219,14 @@ describe('the timelines', () => {
     expect(t.endAt).toBe(t.driveOut[1]);
   });
 
-  it('takes a tapped piece to its place in under 3 s, then the next question after a beat', () => {
-    const t = takeTimeline();
-    expect(t.fly[0]).toBeGreaterThanOrEqual(0);
-    expect(t.lift[0]).toBeGreaterThanOrEqual(t.fly[1]);
-    expect(t.lift[0]).toBeGreaterThanOrEqual(t.driveIn[1]);
-    expect(t.dockAt).toBe(t.lift[1]);
-    expect(t.bolts[0]).toBeGreaterThan(t.dockAt);
-    expect(t.placedAt).toBeGreaterThan(t.bolts[1]);
-    expect(t.placedAt).toBeGreaterThanOrEqual(2600);
-    expect(t.placedAt).toBeLessThanOrEqual(3000);
-    expect(t.nextAt).toBe(t.placedAt + TAKE.beatMs);
-    expect(t.endAt).toBe(t.driveOut[1]);
+  it('opens one thing after another: the nose in place, then porthole and title, then the tank on its truck', () => {
+    const t = arrivalTimeline(true);
+    expect(t.revealAt).toBe(0);
+    expect(t.deliverAt).toBe(ARRIVE.revealMs);
+    expect(t.readyAt).toBe(ARRIVE.revealMs + ARRIVE.deliverMs);
+    const none = arrivalTimeline(false);
+    expect(none.deliverAt).toBeNull();
+    expect(none.readyAt).toBe(ARRIVE.revealMs);
   });
 
   it('fits a known piece much quicker than a truck brings one', () => {
@@ -332,35 +327,52 @@ describe("the standing rocket's window", () => {
 
 describe('the crane picking an answer', () => {
   const at = (w: number, h: number) => assemblyLayout(w, h, padHull(w, h), 0, 0);
-  it('goes, grabs, swings it upright, carries, lowers onto the waiting truck, which takes it under the rocket: bolted in about 3 s', () => {
-    const t = pickTimeline();
-    const order = [t.go[1], t.grab[1], t.swing[1], t.carry[1], t.lower[1], t.drive[1], t.dockAt, t.bolts[0], t.bolts[1], t.placedAt, t.nextAt];
+  it('grabs from above, lifts straight up, carries, lowers straight down onto the parked truck, which only then drives: bolted in 3.2 to 3.6 s', () => {
+    const t = grabTimeline();
+    const order = [t.go[1], t.down[1], t.grip[1], t.up[1], t.carry[1], t.lower[1], t.release[1], t.drive[1], t.dockAt, t.bolts[0], t.bolts[1], t.placedAt, t.nextAt];
     for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+    // the truck is parked (still) while the piece comes down and is let go, and moves only after
     expect(t.truckIn[1]).toBeLessThanOrEqual(t.lower[0]);
-    expect(t.placedAt).toBeGreaterThan(2700);
-    expect(t.placedAt).toBeLessThan(3400);
-    expect(t.hookUp[1]).toBeLessThanOrEqual(t.drive[1]);
+    expect(t.reposition[1]).toBeLessThanOrEqual(t.lower[0]);
+    expect(t.drive[0]).toBeGreaterThanOrEqual(t.release[1]);
+    expect(t.placedAt).toBeGreaterThanOrEqual(3200);
+    expect(t.placedAt).toBeLessThanOrEqual(3600);
   });
 
-  it('keeps the piece on the hook from the grab to the lift, and ends where the old flight ended', () => {
-    const from = { x: 20, y: 320 };
+  it('holds the piece from above all the way, turns it upright, and sets it on the bed', () => {
+    const t = grabTimeline();
     const len = 120;
-    const box = 60;
-    const cfg = { at: from, len, box, hook: { x: 170, y: 300 }, loadX: 240, cx: 313, dropTop: 600, lift: 140, parkY: 300, raise: 12 };
-    const poses = pickPoses(cfg);
-    const t = pickTimeline();
+    const T = 32;
+    const attach = { from: { x: len / 2 - 0.2 * T, y: -T / 2 }, to: { x: len / 2, y: 0 } };
+    const cfg = { c0: { x: 80, y: 350 }, attach, rot: -90, scale: { sx: 1, sy: 1 }, endHalf: len / 2, hook: { x: 170, y: 300 }, parkY: 300, clearY: 310, loadX: 240, dropTop: 600 };
+    const poses = grabPoses(cfg, t);
     for (let i = 1; i < poses.length; i++) expect(poses[i].t).toBeGreaterThanOrEqual(poses[i - 1].t);
-    // from the grab to the drop the hook holds the piece's end: lying its right end, upright its top
-    for (const p of poses.filter((q) => q.t >= t.go[1] && q.t <= t.lower[1])) {
-      const th = (p.piece.rot * Math.PI) / 180;
-      expect(p.piece.x + (len / 2) * Math.cos(th)).toBeCloseTo(p.hook.x, 6);
-      expect(p.piece.y + (len / 2) * Math.sin(th)).toBeCloseTo(p.hook.y, 6);
+    // straight down onto it (the grabber over its grip point before coming down)
+    const grip = grabPoint(poses[0].piece, attach.from);
+    // up first, then along, then straight down
+    expect(poses.find((p) => p.t > 0 && p.t < t.go[1])!.hook).toEqual({ x: 170, y: 300 });
+    expect(poses.find((p) => p.t === t.go[1])!.hook).toEqual({ x: grip.x, y: 300 });
+    expect(poses.find((p) => p.t === t.down[1])!.hook).toEqual(grip);
+    // already waiting right over it: it only comes down
+    const near = grabPoses({ ...cfg, hook: { x: grip.x, y: grip.y - 10 }, overY: grip.y - 10 }, t);
+    expect(near.filter((p) => p.t < t.go[1] && p.t > 0)).toEqual([]);
+    // from the grip to the release the grabber is on the piece (the hold sliding to its top as it turns)
+    for (const p of poses.filter((q) => q.t >= t.down[1] && q.t <= t.release[1])) {
+      const s = Math.min(1, Math.max(0, (p.t - t.up[1]) / (t.carry[1] - t.up[1])));
+      const a = { x: attach.from.x + (attach.to.x - attach.from.x) * s, y: attach.from.y + (attach.to.y - attach.from.y) * s };
+      const held = grabPoint(p.piece, a);
+      expect(held.x).toBeCloseTo(p.hook.x, 6);
+      expect(held.y).toBeCloseTo(p.hook.y, 6);
     }
-    // it starts lying where it was tapped, and ends upright in its place (centre on the rocket's line)
-    expect(poses[0].piece).toEqual({ x: 80, y: 350, rot: 0 });
-    const last = poses[poses.length - 1];
-    expect(last.t).toBe(t.lift[1]);
-    expect(last.piece).toEqual({ x: 313, y: 600 - 140 + 60, rot: -90 });
+    // lifted straight up, then lowered straight down
+    const up = poses.find((p) => p.t === t.up[1])!;
+    expect(up.hook.x).toBe(grip.x);
+    const down = poses.find((p) => p.t === t.lower[1])!;
+    expect(down.piece).toEqual({ x: 240, y: 600 + len / 2, rot: -90, sx: 1, sy: 1 });
+    // let go: the piece stays exactly where it was set down
+    const released = poses.filter((p) => p.t >= t.lower[1]);
+    for (const p of released) expect(p.piece).toEqual(down.piece);
+    expect(poses[poses.length - 1].hook).toEqual({ x: 240, y: 300 });
   });
 
   it('starts the answers under the crane arm, and lets the truck wait clear of the rocket', () => {
@@ -397,23 +409,25 @@ describe('the typed nose carried to the questions', () => {
 });
 
 describe('the minutes tank taken by the crane', () => {
-  it('hooks its top, shrinks it to the minutes piece on the way and ends where the piece goes, in about 3.5 s', () => {
-    const t = pickTimeline(TANK_PICK);
-    expect(t.placedAt).toBeGreaterThan(3000);
-    expect(t.placedAt).toBeLessThan(3800);
-    const cfg = { at: { x: 50, y: 300 }, w: 80, h: 360, hook: { x: 230, y: 470 }, parkY: 290, loadX: 240, cx: 313, dropTop: 600, lift: 150, box: 60, len: 70, raise: 14 };
-    const poses = tankPickPoses(cfg, t);
-    for (let i = 1; i < poses.length; i++) expect(poses[i].t).toBeGreaterThanOrEqual(poses[i - 1].t);
-    // from the grab to the drop the hook holds the top centre
-    for (const p of poses.filter((q) => q.t >= t.go[1] && q.t <= t.lower[1])) {
-      expect(p.hook.x).toBeCloseTo(p.box.x, 6);
-      expect(p.hook.y).toBeCloseTo(p.box.y - (cfg.h * p.box.sy) / 2, 6);
+  it('takes it by its top, shrinks it to the minutes piece on the way, sets it on the bed', () => {
+    const t = grabTimeline();
+    const w = 80;
+    const h = 360;
+    const cfg = { c0: { x: 90, y: 480 }, attach: { from: { x: 0, y: -h / 2 }, to: { x: 0, y: -h / 2 } }, rot: 0, scale: { sx: 60 / w, sy: 70 / h }, endHalf: 35, hook: { x: 230, y: 470 }, parkY: 290, clearY: 300, loadX: 240, dropTop: 600 };
+    const poses = grabPoses(cfg, t);
+    for (const p of poses.filter((q) => q.t >= t.down[1] && q.t <= t.release[1])) {
+      expect(p.hook.x).toBeCloseTo(p.piece.x, 6);
+      expect(p.hook.y).toBeCloseTo(p.piece.y - (h * p.piece.sy) / 2, 6);
     }
-    expect(poses[0].box).toEqual({ x: 90, y: 480, sx: 1, sy: 1 });
-    const last = poses[poses.length - 1];
-    expect(last.box.x).toBe(313);
-    expect(last.box.y).toBe(600 - 150 + 35);
-    expect(last.box.sx * cfg.w).toBeCloseTo(60, 6);
-    expect(last.box.sy * cfg.h).toBeCloseTo(70, 6);
+    const end = poses.find((p) => p.t === t.lower[1])!.piece;
+    expect(end.sx * w).toBeCloseTo(60, 6);
+    expect(end.sy * h).toBeCloseTo(70, 6);
+    expect(end.y - (h * end.sy) / 2).toBeCloseTo(600, 6);
+    // it shrinks smoothly (never a jump in size)
+    let prev = 1;
+    for (const p of poses) {
+      expect(Math.abs(p.piece.sy - prev)).toBeLessThan(0.2);
+      prev = p.piece.sy;
+    }
   });
 });

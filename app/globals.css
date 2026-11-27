@@ -838,11 +838,28 @@ body {
     opacity: 0.25;
   }
 }
+/* the crane's grabber (phone): its jaws open apart, and close on a piece's top under [data-grip] */
+.claw-jaw {
+  transition: transform 140ms ease-out;
+}
+.claw-jaw-l {
+  transform: rotate(24deg);
+}
+.claw-jaw-r {
+  transform: rotate(-24deg);
+}
+[data-grip] .claw-jaw-l,
+[data-grip] .claw-jaw-r {
+  transform: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .tank-ring,
   [data-nudge] .tank-chev-up,
   [data-nudge] .tank-chev-down {
     animation: none;
+  }
+  .claw-jaw {
+    transition: none;
   }
 }
 

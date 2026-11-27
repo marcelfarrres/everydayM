@@ -30,7 +30,6 @@ import { NoseCarry, NoseCrane, type NoseSpot } from '@/components/workout/NoseCa
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
 import { LaunchBase, useTextMeasure, type LaunchHold } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
-import { MinutesTank } from '@/components/workout/MinutesTank';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
 import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
@@ -49,7 +48,7 @@ import {
   FINALE,
   OPEN_QUESTIONS_MS,
   PAGE_DAY,
-  TAKE,
+  GRAB,
   finaleSentence,
   shownMinutes,
   fittedTarget,
@@ -713,7 +712,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     nextTimer.current = setTimeout(() => {
       setAsked((a) => a + 1);
       setPending(null);
-    }, TAKE.beatMs);
+    }, GRAB.beatMs);
   }, []);
 
   /** `show`: the build-up of the ready view (the computer, "Cambiar"); without it (phone), it is built out of sight. */
@@ -1296,7 +1295,21 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           onTaken={pieceTaken}
           onFitted={pieceFitted}
           // (blocks, intensity: the crane's hook drifts over the loose answers until one is tapped)
-          picking={!pending && !finale && questions[asked] ? (questions[asked].id === 'intensity' ? 'engine' : questions[asked].id === 'minutes' ? 'minutes' : 'blocks') : null}
+          picking={!pending && !finale && questions[asked] && questions[asked].id !== 'minutes' ? (questions[asked].id === 'intensity' ? 'engine' : 'blocks') : null}
+          // (the minutes: a truck brings the tank you slide; the crane's hook is the button)
+          minutes={
+            !finale && questions[asked]?.id === 'minutes'
+              ? {
+                  value: draftMinutes,
+                  onChange: setDraftMinutes,
+                  hidden: pending?.piece === 'minutes' && pending.taken,
+                  onHook: (tank, button) => {
+                    if (pending || tease({ kind: 'minutes', minutes: draftMinutes }, button)) return;
+                    answerWith({ targetMinutes: draftMinutes }, 'minutes', tank, `${draftMinutes} min`, true);
+                  },
+                }
+              : null
+          }
         >
           {(L, ink) =>
             finale?.path === 'B' && finaleText ? (
@@ -1341,22 +1354,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                       ))}
                   </AnimatePresence>
                 </div>
-                {questions[asked]?.id === 'minutes' ? (
-                  // the minutes: the tank you slide; the crane's hook is the button
-                  <MinutesTank
-                    value={draftMinutes}
-                    onChange={setDraftMinutes}
-                    width={L.column.right - L.column.left}
-                    height={Math.min(440, L.cambiarTop + 44 - 16 - (L.column.top + L.column.titleMin + 20))}
-                    light={!ink}
-                    reduced={Boolean(reducedMotion)}
-                    hidden={pending?.piece === 'minutes' && pending.taken}
-                    onHook={(tank, button) => {
-                      if (pending || tease({ kind: 'minutes', minutes: draftMinutes }, button)) return;
-                      answerWith({ targetMinutes: draftMinutes }, 'minutes', tank, `${draftMinutes} min`, true);
-                    }}
-                  />
-                ) : questions[asked] ? (
+                {questions[asked]?.id === 'minutes' ? null : questions[asked] ? (
                   <div key={questions[asked].id} className="flex flex-col items-start gap-3">
                     {questions[asked].options.map((option, i) => {
                       const q = questions[asked];

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import { PAD_COLORS as C } from '@/components/workout/padRocketShape';
 import { DAWN } from '@/components/workout/dawnScene';
 import {
@@ -33,7 +33,8 @@ import { creatorSfx } from '@/lib/audio/creatorSfx';
  * slides (the level rises and comes back twice, a hand following it), then the chevrons pulse until
  * the first drag. The fuel is a liquid: it sloshes as the level moves and settles flat.
  *
- * The button is the crane's hook (drawn by the scene, hanging in the ring here): «Enganchar».
+ * It stands on the truck that brings it (the scene draws the truck, the ring and the crane). The
+ * button is the crane's grabber, hanging in its ring (HookRing): «Enganchar».
  *
  * Numbers in tankLevel.ts. One path and a few transforms written per frame, only while something
  * moves; nothing runs at rest.
@@ -153,60 +154,47 @@ export function TankArt({ w, h, minutes }: { w: number; h: number; minutes: numb
   );
 }
 
+/** The tank's width for a column `width` px wide (its marks' labels take LABELS px on its left). */
+export const tankWidth = (width: number) => Math.round(Math.max(62, Math.min(84, width * 0.34)));
+/** The tank's body starts this far right of its box (its marks' labels are left of it). */
+export const TANK_LABELS = LABELS;
+/** Where the hook's ring sits for a tank in a column `width` wide and `height` tall: its centre, from the tank's box's top-left. */
+export function ringSpot(width: number, height: number): { x: number; y: number } {
+  const w = tankWidth(width);
+  const f = frame(w, height);
+  return { x: LABELS + w + Math.max(44, (width - LABELS - w) / 2), y: levelY(30, f.top, f.bottom) + 14 };
+}
+
 export function MinutesTank({
   value,
   onChange,
-  onHook,
   height,
   width,
   light,
   reduced,
+  ready,
   hidden = false,
 }: {
   value: number;
   onChange: (minutes: number) => void;
-  /** the hook was tapped: `tank` is the tank's own drawing (the crane takes it from there), `button` the ring */
-  onHook: (tank: HTMLElement, button: HTMLElement) => void;
-  /** the room it has in the column, px */
+  /** its own height (it stands on the truck's bed), and its column's width, px */
   height: number;
   width: number;
-  /** the sky is still dark: light labels and button text */
+  /** the sky is still dark: light labels */
   light: boolean;
   reduced: boolean;
+  /** it has arrived (the truck has stopped): it shows that it slides, and it can be dragged */
+  ready: boolean;
   /** the crane has taken it (the scene draws it now) */
   hidden?: boolean;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
-  const rootRef = useRef<HTMLDivElement>(null);
-  // as tall as the column allows: the room under the title (measured: the title may wrap)
-  const [room, setRoom] = useState(height);
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    const col = el?.offsetParent;
-    if (!el || !(col instanceof HTMLElement)) return;
-    const read = () => {
-      const pad = parseFloat(getComputedStyle(col).paddingBottom) || 0;
-      const free = Math.round(col.clientHeight - el.offsetTop - pad);
-      setRoom((r) => {
-        const next = Math.min(height, free);
-        return Math.abs(next - r) < 1 ? r : next;
-      });
-    };
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(col);
-    return () => ro.disconnect();
-  }, [height]);
-  const tankW = Math.round(Math.max(62, Math.min(84, width * 0.34)));
-  const STAND = 18;
-  const tankH = Math.max(170, Math.round(room - STAND));
+  const tankW = tankWidth(width);
+  const tankH = Math.max(150, Math.round(height));
   const f = frame(tankW, tankH);
   const ppm = pxPerMinute(f.top, f.bottom);
-  const ringY = levelY(30, f.top, f.bottom);
   const textAbove = levelMarks(f.x0 + tankW * 0.42).baseline;
 
-  const tankRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const fuelRef = useRef<SVGPathElement>(null);
   const lineRef = useRef<SVGGElement>(null);
   const valueRef = useRef<SVGGElement>(null);
@@ -277,7 +265,7 @@ export function MinutesTank({
     [],
   );
 
-  // its size changed (measured): the level where it belongs, at once
+  // its size changed: the level where it belongs, at once
   useLayoutEffect(() => {
     live.current.y = levelY(valueNow.current, f.top, f.bottom);
     paint(live.current.y, live.current.slosh);
@@ -292,15 +280,15 @@ export function MinutesTank({
     }
   }, [value, kick]);
 
-  // on entering: it shows it slides (none with reduced motion)
+  // once it has arrived: it shows it slides (none with reduced motion)
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !ready) return;
     const t = setTimeout(() => {
       live.current.hintAt = performance.now();
       kick();
-    }, 350);
+    }, 200);
     return () => clearTimeout(t);
-  }, [reduced, kick]);
+  }, [reduced, ready, kick]);
 
   /** A whole minute reached: a soft tick (on the marks, the stronger click), a light buzz, the value. */
   const land = (mark: number) => {
@@ -315,7 +303,7 @@ export function MinutesTank({
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (hidden) return;
+    if (hidden || !ready) return;
     const start = snapMinutes(valueNow.current);
     drag.current = { id: e.pointerId, y0: e.clientY, start, cont: start, mark: start };
     live.current.hintAt = 0;
@@ -344,11 +332,12 @@ export function MinutesTank({
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     drag.current = null;
-    // it settles on the nearest mark
+    // it settles on the nearest whole minute
     valueNow.current = d.mark;
     kick();
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!ready) return;
     const next = keyMinutes(valueNow.current, e.key);
     if (next === null) return;
     e.preventDefault();
@@ -359,58 +348,74 @@ export function MinutesTank({
     kick();
   };
 
-  const ringX = LABELS + tankW + Math.max(44, (width - LABELS - tankW) / 2);
   return (
-    <div ref={rootRef} className="relative" style={{ width, height: tankH + STAND, visibility: hidden ? 'hidden' : undefined }} data-nudge={!touched && !hinting && !reduced ? '' : undefined}>
-      <div
-        ref={tankRef}
-        role="slider"
-        tabIndex={0}
-        aria-label="Minutos"
-        aria-valuemin={TANK.min}
-        aria-valuemax={TANK.max}
-        aria-valuenow={shown}
-        aria-valuetext={`${shown} minutos`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onKeyDown={onKeyDown}
-        className="absolute left-0 top-0 cursor-ns-resize touch-none select-none rounded-xl outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
-        style={{ width: LABELS + tankW + 2, height: tankH }}
-      >
-        <div data-tank="" className="absolute top-0" style={{ left: LABELS, width: tankW, height: tankH }} />
-        <TankSvg w={tankW} h={tankH} minutes={shown} light={light} uid={uid} fuelRef={fuelRef} lineRef={lineRef} valueRef={valueRef} handRef={handRef} />
-      </div>
-      {/* its low stand */}
-      <svg aria-hidden="true" width={tankW + 20} height={STAND} viewBox={`0 0 ${tankW + 20} ${STAND}`} className="absolute" style={{ left: LABELS - 10, top: tankH }}>
-        <rect x={2} y={0} width={tankW + 16} height={7} rx={2} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1} />
-        <path d={`M${14} 7V${STAND}M${tankW + 6} 7V${STAND}`} stroke={DAWN.steel} strokeWidth={4} />
-      </svg>
-      {/* the button: the crane's hook hangs in this ring (the scene draws it); «Enganchar» */}
-      <button
-        ref={buttonRef}
-        type="button"
-        data-hook-button=""
-        disabled={hidden}
-        onClick={() => {
-          const tank = tankRef.current?.querySelector<HTMLElement>('[data-tank]');
-          if (tank && buttonRef.current) onHook(tank, buttonRef.current);
-        }}
-        className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center gap-1.5 rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-2 ${light ? 'focus-visible:outline-white' : 'focus-visible:outline-ink'}`}
-        style={{ left: ringX, top: ringY + 14 }}
-      >
-        <span data-hook-ring="" className="tank-ring relative block h-14 w-14 rounded-full border-[3px] border-[#f2c230]">
-          {/* (reduced motion: the scene's hook does not hang here; a still one instead) */}
-          {reduced && (
-            <svg aria-hidden="true" viewBox="0 0 13 15" className="absolute left-1/2 top-1/2 h-6 w-5 -translate-x-1/2 -translate-y-1/2">
-              <circle cx={6.5} cy={2.4} r={1.9} fill="none" stroke={C.ink} strokeWidth={1.3} />
-              <path d="M6.5 4.3V9.2Q6.5 14.2 10 13.6Q12.4 13.1 12 9.8" fill="none" stroke={C.ink} strokeWidth={1.6} strokeLinecap="round" />
-            </svg>
-          )}
-        </span>
-        <span className={`text-[15px] font-semibold ${light ? 'text-white' : 'text-ink'}`}>Enganchar</span>
-      </button>
+    <div
+      role="slider"
+      tabIndex={ready ? 0 : -1}
+      aria-label="Minutos"
+      aria-valuemin={TANK.min}
+      aria-valuemax={TANK.max}
+      aria-valuenow={shown}
+      aria-valuetext={`${shown} minutos`}
+      aria-disabled={ready ? undefined : true}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onKeyDown={onKeyDown}
+      data-nudge={ready && !touched && !hinting && !reduced ? '' : undefined}
+      className="relative cursor-ns-resize touch-none select-none rounded-xl outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+      style={{ width: LABELS + tankW + 2, height: tankH, visibility: hidden ? 'hidden' : undefined }}
+    >
+      <div data-tank="" className="absolute top-0" style={{ left: LABELS, width: tankW, height: tankH }} />
+      <TankSvg w={tankW} h={tankH} minutes={shown} light={light} uid={uid} fuelRef={fuelRef} lineRef={lineRef} valueRef={valueRef} handRef={handRef} />
     </div>
+  );
+}
+
+/**
+ * The button: the crane's open grabber hangs in this ring (the scene draws it), «Enganchar» under
+ * it. With reduced motion the scene's grabber does not hang here: a still one is drawn instead.
+ */
+export function HookRing({ light, reduced, disabled, onClick, style }: { light: boolean; reduced: boolean; disabled: boolean; onClick: (button: HTMLButtonElement) => void; style: CSSProperties }) {
+  return (
+    <button
+      type="button"
+      data-hook-button=""
+      disabled={disabled}
+      onClick={(e) => onClick(e.currentTarget)}
+      className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center gap-1.5 rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-2 ${light ? 'focus-visible:outline-white' : 'focus-visible:outline-ink'}`}
+      style={style}
+    >
+      <span data-hook-ring="" className="tank-ring relative block h-14 w-14 rounded-full border-[3px] border-[#f2c230]">
+        {reduced && (
+          <svg aria-hidden="true" viewBox="-11 -2 22 20" className="absolute left-1/2 top-1/2 h-5 w-6 -translate-x-1/2 -translate-y-1/2">
+            <Claw open />
+          </svg>
+        )}
+      </span>
+      <span className={`text-[15px] font-semibold ${light ? 'text-white' : 'text-ink'}`}>Enganchar</span>
+    </button>
+  );
+}
+
+/**
+ * The crane's grabber, drawn in its own units (22 wide, 18 tall, its tip at (0, 16)): the cable's
+ * shackle, a little hoist block and two jaws that open apart and close together on a piece's top.
+ * `open`: drawn open (still); else the jaws follow `[data-grip]` on an ancestor (CSS: claw-jaw).
+ */
+export function Claw({ open = false }: { open?: boolean }) {
+  return (
+    <g stroke={C.ink} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx={0} cy={0.8} r={1.6} fill="none" strokeWidth={1.2} />
+      <rect x={-5} y={2.6} width={10} height={5} rx={1.2} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1} />
+      <path d="M-5 5H5" stroke={DAWN.hazard} strokeWidth={1.2} />
+      <g className={open ? undefined : 'claw-jaw claw-jaw-l'} style={{ transformOrigin: '-3px 7.6px', transform: open ? 'rotate(24deg)' : undefined }}>
+        <path d="M-3 7.6L-6.5 13L-2.5 16.2" fill="none" strokeWidth={1.8} />
+      </g>
+      <g className={open ? undefined : 'claw-jaw claw-jaw-r'} style={{ transformOrigin: '3px 7.6px', transform: open ? 'rotate(-24deg)' : undefined }}>
+        <path d="M3 7.6L6.5 13L2.5 16.2" fill="none" strokeWidth={1.8} />
+      </g>
+    </g>
   );
 }

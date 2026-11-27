@@ -9,31 +9,30 @@ import { PortholePerson, type Outfit } from '@/components/workout/PortholePerson
 import { PortholeFrame, ZoomLinesSvg } from '@/components/workout/PortholeFrame';
 import { DressSequence } from '@/components/workout/DressSequence';
 import type { NoseSpot } from '@/components/workout/NoseCarry';
-import { TankArt } from '@/components/workout/MinutesTank';
+import { Claw, HookRing, MinutesTank, TANK_LABELS, TankArt, ringSpot, tankWidth } from '@/components/workout/MinutesTank';
 import { Mechanic, MECHANIC } from '@/components/workout/player/Mechanic';
 import { useTextMeasure } from '@/components/workout/textMeasure';
 import {
   BIG_RIM,
   DRESS,
+  ARRIVE,
+  GRAB,
   PIECES,
-  PICK,
   QUICK,
   SKY_MS,
   SKY_STEPS,
   TAKEOFF,
-  TAKE,
   TRUCK,
   assemblyLayout,
   bigPorthole,
   liftFor,
   padHull,
-  pickPoses,
-  pickTimeline,
-  tankPickPoses,
-  TANK_PICK,
+  arrivalTimeline,
+  grabPoint,
+  grabPoses,
+  grabTimeline,
   portholeTimeline,
   skyInk,
-  takeTimeline,
   truckTimeline,
   type AssemblyLayout,
   type Circle,
@@ -94,6 +93,12 @@ interface AssemblySceneProps {
   noseHidden?: boolean;
   /** where the nose hangs, on the screen (for the page's carried nose to land on) */
   onNose?: (spot: NoseSpot) => void;
+  /**
+   * the minutes' question: the tank (brought by a truck, standing on its bed at the left) you slide,
+   * and the ring the crane's grabber waits in («Enganchar»: `onHook`, with the tank's body); `hidden`:
+   * the crane has taken it
+   */
+  minutes?: { value: number; onChange: (minutes: number) => void; onHook: (tank: HTMLElement, button: HTMLButtonElement) => void; hidden: boolean } | null;
   /** the left column: the questions (or the finale's sentence); `ink`: dark text (the sky is light) */
   children: (L: AssemblyLayout, ink: boolean) => ReactNode;
 }
@@ -109,10 +114,14 @@ export type Take = {
 type Moving = { piece: PieceId; mode: FitMode; from?: { x: number; y: number }; label?: string; tank?: Take['tank'] };
 
 const EASE_DRIVE = 'cubic-bezier(0.25, 0.7, 0.3, 1)';
+/** a truck pulling up and stopping dead: an ease-out, no bounce */
+const EASE_STOP = 'cubic-bezier(0.22, 0.8, 0.3, 1)';
+/** the grabber takes a loose piece over its hull this many hull thicknesses in from its top end */
+const GRIP_IN = 0.22;
 const EASE_LIFT = 'cubic-bezier(0.45, 0, 0.3, 1)';
 const STEEL = DAWN.steel;
 
-export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, picking = null, noseHidden = false, onNose, children }: AssemblySceneProps) {
+export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, picking = null, noseHidden = false, onNose, minutes = null, children }: AssemblySceneProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -244,98 +253,17 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     handlers.current.onFitted?.(piece);
   };
 
-  /** The answer's piece, from where it was tapped in the column, onto the lift and up into place. */
-  const fitTaken = async (piece: PieceId, from: Take) => {
-    const Lx = layoutRef.current;
-    const root = rootRef.current;
-    if (!Lx || !root) return;
-    const lift = liftFor(Lx, piece);
-    const box = root.getBoundingClientRect();
-    const at = { x: from.rect.left - box.left, y: from.rect.top - box.top };
-    setTruckLift(lift);
-    const shown = onPage();
-    setMoving({ piece, mode: 'truck', from: at, label: from.label });
-    await shown;
-    // (it waits where it was while the last truck is still driving off)
-    await truckFree.current;
-    const fly = flyRef.current;
-    const truck = truckRef.current;
-    const platform = liftRef.current;
-    const scissor = scissorRef.current;
-    if (!alive.current || !fly || !truck || !platform || !scissor) {
-      if (alive.current) place(piece);
-      return;
-    }
-    const t = takeTimeline();
-    const b = Lx.pieces[piece];
-    // lying at `at` (its box len × box), it turns upright and stands on the lift under its place
-    const dx = Lx.cx - (at.x + b.len / 2);
-    const dy = b.top + b.len / 2 + lift - (at.y + Lx.box / 2);
-    const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
-    const outTo = Lx.W - Lx.truck.stopLeft + 16;
-    truck.style.visibility = 'visible';
-    const drive = truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: 'translateX(0px)' }], { duration: t.driveIn[1], easing: EASE_DRIVE, fill: 'both' });
-    cue(0, 'truckIn');
-    cue(t.lift[0], 'liftUp');
-    const span = t.lift[1] - t.fly[0];
-    const off = (ms: number) => Math.min(1, Math.max(0, (ms - t.fly[0]) / span));
-    const travel = fly.animate(
-      [
-        { transform: 'translate(0px, 0px) rotate(0deg)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
-        { transform: `translate(${(dx * 0.5).toFixed(1)}px, ${(dy * 0.5 - 36).toFixed(1)}px) rotate(-50deg)`, offset: off(t.fly[0] + (t.fly[1] - t.fly[0]) * 0.5), easing: 'cubic-bezier(0.3, 0, 0.4, 1)' },
-        { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(-90deg)`, offset: off(t.fly[1]) },
-        { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(-90deg)`, offset: off(t.lift[0]), easing: EASE_LIFT },
-        { transform: `translate(${dx.toFixed(1)}px, ${(dy - lift).toFixed(1)}px) rotate(-90deg)` },
-      ],
-      { delay: t.fly[0], duration: span, fill: 'both' },
-    );
-    const up = { delay: t.lift[0], duration: t.lift[1] - t.lift[0], easing: EASE_LIFT, fill: 'both' as const };
-    const raise = platform.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], up);
-    const open = scissor.animate([{ transform: 'scaleY(0.04)' }, { transform: 'scaleY(1)' }], up);
-
-    await sleep(t.dockAt);
-    if (!alive.current) return;
-    creatorSfx('dock');
-    setBolting(true);
-    await sleep(t.bolts[0] - t.dockAt);
-    if (!alive.current) return;
-    spark();
-    creatorSfx('bolt');
-    await sleep(t.bolts[1] - t.bolts[0]);
-    if (!alive.current) return;
-    spark();
-    creatorSfx('bolt');
-    await sleep(t.placedAt - t.bolts[1]);
-    if (!alive.current) return;
-    travel.cancel();
-    place(piece);
-    setBolting(false);
-
-    // the lift comes down and the truck drives off (the next piece may already come meanwhile)
-    const down = { duration: TAKE.lowerMs, easing: EASE_LIFT, fill: 'both' as const };
-    const lower = platform.animate([{ transform: `translateY(${-lift}px)` }, { transform: 'translateY(0px)' }], down);
-    const close = scissor.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.04)' }], down);
-    const away = truck.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${outTo}px)` }], {
-      delay: TAKE.lowerMs,
-      duration: TAKE.driveOutMs,
-      easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)',
-      fill: 'both',
-    });
-    truckFree.current = sleep(t.endAt - t.placedAt).then(() => {
-      truck.style.visibility = 'hidden';
-      [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
-    });
-  };
-
-  // ── the crane picking the answer (blocks, intensity) ───────────────────────────────────────
+  // ── the crane's grabber: it waits over the answers and takes the one chosen, from above ───────
   const hookRef = useRef<HTMLDivElement>(null);
   const trolleyRef = useRef<HTMLDivElement>(null);
   const wireRef = useRef<HTMLDivElement>(null);
   const hookAnims = useRef<Animation[]>([]);
-  // the piece the crane is carrying now (its hook stays out until the piece is on)
+  // the piece the crane is carrying now (its grabber stays out until the piece is on)
   const [carrying, setCarrying] = useState(false);
+  // where the truck stands while it holds the minutes' tank (px from its usual stop), if it does
+  const parkDx = useRef<number | null>(null);
 
-  /** The hook's tip now (scene px), wherever its animations have it. */
+  /** The grabber's tip now (scene px), wherever its animations have it. */
   const hookNow = (): { x: number; y: number } => {
     const Lx = layoutRef.current;
     const el = hookRef.current;
@@ -345,27 +273,33 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     const g = hookGeometry(Lx);
     return { x: m.m41 + g.w / 2, y: m.m42 + g.h };
   };
-  /** The trolley, its wire and the hook along `points` (offsets 0..1), `ms` long. */
+  /** The grabber's three parts' transforms for its tip at `p`. */
+  const hookPose = (Lx: AssemblyLayout, p: { x: number; y: number }) => {
+    const g = hookGeometry(Lx);
+    return {
+      hook: `translate(${(p.x - g.w / 2).toFixed(1)}px, ${(p.y - g.h).toFixed(1)}px)`,
+      trolley: `translateX(${(p.x - g.trolleyW / 2).toFixed(1)}px)`,
+      wire: `translateX(${p.x.toFixed(1)}px) scaleY(${Math.max(0.01, p.y - g.h + g.eye - g.wireTop).toFixed(1)})`,
+    };
+  };
+  /** The trolley, its wire and the grabber along `points` (offsets 0..1), `ms` long. */
   const moveHook = (points: { x: number; y: number; offset: number; easing?: string }[], ms: number, delay = 0) => {
     const Lx = layoutRef.current;
     const hook = hookRef.current;
     const trolley = trolleyRef.current;
     const wire = wireRef.current;
     if (!Lx || !hook || !trolley || !wire) return [];
-    const g = hookGeometry(Lx);
     const opts = { duration: Math.max(1, ms), delay, fill: 'forwards' as const };
+    const frames = points.map((p) => ({ offset: p.offset, easing: p.easing, ...hookPose(Lx, p) }));
     const anims = [
-      hook.animate(points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translate(${(p.x - g.w / 2).toFixed(1)}px, ${(p.y - g.h).toFixed(1)}px)` })), opts),
-      trolley.animate(points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translateX(${(p.x - g.trolleyW / 2).toFixed(1)}px)` })), opts),
-      wire.animate(
-        points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translateX(${p.x.toFixed(1)}px) scaleY(${Math.max(0.01, p.y - g.h * 0.6 - g.wireTop).toFixed(1)})` })),
-        opts,
-      ),
+      hook.animate(frames.map((f) => ({ offset: f.offset, easing: f.easing, transform: f.hook })), opts),
+      trolley.animate(frames.map((f) => ({ offset: f.offset, easing: f.easing, transform: f.trolley })), opts),
+      wire.animate(frames.map((f) => ({ offset: f.offset, easing: f.easing, transform: f.wire })), opts),
     ];
     hookAnims.current.push(...anims);
     return anims;
   };
-  /** The hook (its trolley and wire) set at `p` as it is, no animation: a resting pose that holds even if no animation ever runs. */
+  /** The grabber set at `p` as it is, no animation: a resting pose that holds even if no animation ever runs. */
   const placeHook = (p: { x: number; y: number }) => {
     const Lx = layoutRef.current;
     const hook = hookRef.current;
@@ -374,248 +308,224 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     if (!Lx || !hook || !trolley || !wire) return;
     hookAnims.current.forEach((a) => a.cancel());
     hookAnims.current = [];
-    const g = hookGeometry(Lx);
-    hook.style.transform = `translate(${(p.x - g.w / 2).toFixed(1)}px, ${(p.y - g.h).toFixed(1)}px)`;
-    trolley.style.transform = `translateX(${(p.x - g.trolleyW / 2).toFixed(1)}px)`;
-    wire.style.transform = `translateX(${p.x.toFixed(1)}px) scaleY(${Math.max(0.01, p.y - g.h * 0.6 - g.wireTop).toFixed(1)})`;
+    const pose = hookPose(Lx, p);
+    hook.style.transform = pose.hook;
+    trolley.style.transform = pose.trolley;
+    wire.style.transform = pose.wire;
   };
-  const stopHook = () => {
-    const at = hookNow();
-    hookAnims.current.forEach((a) => a.cancel());
-    hookAnims.current = [];
-    moveHook([{ ...at, offset: 0 }, { ...at, offset: 1 }], 1);
+  /** Glides the grabber from where it is to `to` (and leaves it resting there). */
+  const glideHook = (to: { x: number; y: number }, ms: number) => {
+    const from = hookNow();
+    placeHook(to);
+    if (Math.hypot(to.x - from.x, to.y - from.y) < 1.5) return;
+    moveHook([{ ...from, offset: 0, easing: 'cubic-bezier(0.45, 0, 0.25, 1)' }, { ...to, offset: 1 }], ms);
+  };
+  /** The grabber's jaws: closed on a piece, or open. */
+  const setGrip = (closed: boolean) => hookRef.current?.toggleAttribute('data-grip', closed);
+
+  /** Where the grabber waits over a loose piece (and takes it from): over its hull, near its top end, just above it. */
+  const gripSpot = (el: HTMLElement): { x: number; y: number } | null => {
+    const root = rootRef.current;
+    const Lx = layoutRef.current;
+    const art = el.querySelector<SVGSVGElement>('svg[data-piece]');
+    if (!root || !Lx || !art) return null;
+    const box = root.getBoundingClientRect();
+    const r = art.getBoundingClientRect();
+    return { x: r.left - box.left + r.width - GRIP_IN * Lx.T, y: r.top - box.top + Lx.finH - 3 };
   };
 
-  // while an answer waits to be chosen, the hook drifts from one loose piece to the next
+  // while an answer (blocks, intensity) waits to be chosen, the grabber drifts from one loose piece
+  // to the next; it goes and waits over the one the pointer is on (or the focus, or the finger)
   useEffect(() => {
     if (!picking || reduced || carrying || !L) return;
-    const root = rootRef.current;
     const column = columnRef.current;
-    if (!root || !column) return;
+    if (!column) return;
     let k = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    // the minutes: the hook simply hangs in the button's ring (its resting pose, set directly; kept
-    // there if the column moves)
-    if (picking === 'minutes') {
-      const hang = () => {
-        const ring = column.querySelector<HTMLElement>('[data-hook-ring]');
-        if (ring) {
-          const box = root.getBoundingClientRect();
-          const r = ring.getBoundingClientRect();
-          placeHook({ x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height * 0.72 });
+    let leave: ReturnType<typeof setTimeout> | null = null;
+    let hovered: HTMLElement | null = null;
+    const pieces = () => Array.from(column.querySelectorAll<HTMLElement>(`[data-loose="${picking}"]`)).filter((el) => !(el as HTMLButtonElement).disabled);
+    const drift = () => {
+      if (!hovered) {
+        const list = pieces();
+        if (list.length > 0) {
+          const spot = gripSpot(list[k % list.length]);
+          k += 1;
+          if (spot) {
+            const from = hookNow();
+            const mid = { x: (from.x + spot.x) / 2, y: Math.min(from.y, spot.y) - 14 };
+            if (Math.hypot(spot.x - from.x, spot.y - from.y) > 2) {
+              placeHook(spot);
+              moveHook(
+                [
+                  { ...from, offset: 0, easing: 'ease-in-out' },
+                  { ...mid, offset: 0.5, easing: 'ease-in-out' },
+                  { ...spot, offset: 1 },
+                ],
+                GRAB.idleMoveMs,
+              );
+            }
+          }
         }
-        timer = setTimeout(hang, 400);
-      };
-      hang();
-      return () => {
-        if (timer) clearTimeout(timer);
-      };
-    }
-    const spots = () => {
-      const box = root.getBoundingClientRect();
-      return Array.from(column.querySelectorAll<HTMLElement>(`[data-loose="${picking}"]`))
-        .filter((el) => !(el as HTMLButtonElement).disabled)
-        .map((el) => {
-          const r = el.getBoundingClientRect();
-          return { x: r.right - box.left + 10, y: r.top - box.top + r.height / 2 - 4 };
-        });
-    };
-    const next = () => {
-      const s = spots();
-      if (s.length > 0) {
-        const to = s[k % s.length];
-        k += 1;
-        const from = hookNow();
-        const far = Math.hypot(to.x - from.x, to.y - from.y) > 2;
-        const mid = { x: (from.x + to.x) / 2, y: Math.min(from.y, to.y) - 14 };
-        if (far)
-          moveHook(
-            [
-              { ...from, offset: 0, easing: 'ease-in-out' },
-              { ...mid, offset: 0.5, easing: 'ease-in-out' },
-              { ...to, offset: 1 },
-            ],
-            PICK.idleMoveMs,
-          );
       }
-      timer = setTimeout(next, PICK.idleMoveMs + PICK.idleRestMs);
+      timer = setTimeout(drift, GRAB.idleMoveMs + GRAB.idleRestMs);
     };
-    timer = setTimeout(next, 120);
+    const pieceOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>(`[data-loose="${picking}"]`) : null);
+    const enter = (target: EventTarget | null) => {
+      const el = pieceOf(target);
+      if (!el || (el as HTMLButtonElement).disabled) return;
+      if (leave) clearTimeout(leave);
+      leave = null;
+      if (hovered === el) return;
+      hovered = el;
+      const spot = gripSpot(el);
+      if (spot) glideHook(spot, GRAB.hoverMs);
+    };
+    const exit = (target: EventTarget | null, next: EventTarget | null) => {
+      const el = pieceOf(target);
+      if (!el || pieceOf(next) === el) return;
+      // (crossing the gap to the next piece is no leaving: it waits a moment)
+      if (leave) clearTimeout(leave);
+      leave = setTimeout(() => {
+        hovered = null;
+      }, GRAB.hoverLeaveMs);
+    };
+    const over = (e: Event) => enter(e.target);
+    const out = (e: Event) => exit(e.target, (e as PointerEvent | FocusEvent).relatedTarget ?? null);
+    column.addEventListener('pointerover', over);
+    column.addEventListener('pointerdown', over);
+    column.addEventListener('focusin', over);
+    column.addEventListener('pointerout', out);
+    column.addEventListener('focusout', out);
+    timer = setTimeout(drift, 120);
     return () => {
       if (timer) clearTimeout(timer);
+      if (leave) clearTimeout(leave);
+      column.removeEventListener('pointerover', over);
+      column.removeEventListener('pointerdown', over);
+      column.removeEventListener('focusin', over);
+      column.removeEventListener('pointerout', out);
+      column.removeEventListener('focusout', out);
     };
+    // (the helpers read refs only)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picking, reduced, carrying, L]);
 
-  /** The answer's piece (blocks, intensity), picked by the crane from where it was tapped and taken to the rocket. */
-  const fitPicked = async (piece: PieceId, from: Take) => {
+  /**
+   * The answer's piece (blocks, intensity, or the minutes' tank) taken by the crane from above: down
+   * onto its top, closed, straight up, across (a piece turning upright, the tank shrinking into the
+   * minutes piece), straight down onto the parked truck, let go; only then the truck drives under
+   * the rocket with the piece rigidly on it (it rides the truck's own moves), the lift raises it,
+   * dock, bolts.
+   */
+  const fitGrabbed = async (piece: PieceId, from: Take) => {
     const Lx = layoutRef.current;
     const root = rootRef.current;
     if (!Lx || !root) return;
     const lift = liftFor(Lx, piece);
     const box = root.getBoundingClientRect();
     const at = { x: from.rect.left - box.left, y: from.rect.top - box.top };
+    const tank = from.tank;
+    const b = Lx.pieces[piece];
+    const w = tank ? tank.w : b.len;
+    const h = tank ? tank.h : Lx.box;
     setTruckLift(lift);
     setCarrying(true);
     const shown = onPage();
-    setMoving({ piece, mode: 'truck', from: at, label: from.label });
+    setMoving({ piece, mode: 'truck', from: at, label: from.label, tank });
     await shown;
     await truckFree.current;
-    const fly = flyRef.current;
+    const outer = flyRef.current;
+    const middle = outer?.firstElementChild as HTMLElement | null;
+    const inner = middle?.firstElementChild as HTMLElement | null;
     const truck = truckRef.current;
     const platform = liftRef.current;
     const scissor = scissorRef.current;
-    if (!alive.current || !fly || !truck || !platform || !scissor) {
+    if (!alive.current || !outer || !middle || !inner || !truck || !platform || !scissor) {
       if (alive.current) place(piece);
       setCarrying(false);
       return;
     }
-    const t = pickTimeline();
-    const b = Lx.pieces[piece];
-    const c0 = { x: at.x + b.len / 2, y: at.y + Lx.box / 2 };
-    const start = hookNow();
-    stopHook();
-    const poses = pickPoses({ at, len: b.len, box: Lx.box, hook: start, loadX: Lx.pick.loadX, cx: Lx.cx, dropTop: b.top + lift, lift, parkY: Lx.pick.parkY, raise: 0.4 * Lx.T }, t);
-    const total = t.lift[1];
-    const travel = fly.animate(
-      poses.map((p) => ({ offset: p.t / total, transform: `translate(${(p.piece.x - c0.x).toFixed(1)}px, ${(p.piece.y - c0.y).toFixed(1)}px) rotate(${p.piece.rot.toFixed(1)}deg)` })),
-      { duration: total, fill: 'both' },
-    );
-    moveHook(
-      poses.filter((p) => p.t <= t.hookUp[1]).map((p) => ({ ...p.hook, offset: p.t / t.hookUp[1] })),
-      t.hookUp[1],
-    );
-    // the truck: to its loading spot left of the rocket, waits for the piece, then under the rocket
-    const shift = Lx.cx - Lx.pick.loadX;
-    const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
-    const outTo = Lx.W - Lx.truck.stopLeft + 16;
-    truck.style.visibility = 'visible';
-    const drive = truck.animate(
-      [
-        { transform: `translateX(${inFrom}px)`, easing: EASE_DRIVE },
-        { transform: `translateX(${-shift}px)`, offset: t.truckIn[1] / t.drive[1] },
-        { transform: `translateX(${-shift}px)`, offset: t.drive[0] / t.drive[1], easing: EASE_DRIVE },
-        { transform: 'translateX(0px)' },
-      ],
-      { duration: t.drive[1], fill: 'both' },
-    );
-    cue(0, 'truckIn');
-    cue(t.lift[0], 'liftUp');
-    const up = { delay: t.lift[0], duration: t.lift[1] - t.lift[0], easing: EASE_LIFT, fill: 'both' as const };
-    const raise = platform.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], up);
-    const open = scissor.animate([{ transform: 'scaleY(0.04)' }, { transform: 'scaleY(1)' }], up);
-
-    await sleep(t.grab[0]);
-    if (!alive.current) return;
-    // the grab: a clang of the hook on the piece
-    creatorSfx('hookGrab');
-    await sleep(t.lower[1] - t.grab[0]);
-    if (!alive.current) return;
-    creatorSfx('hookRelease');
-    await sleep(t.dockAt - t.lower[1]);
-    if (!alive.current) return;
-    creatorSfx('dock');
-    setBolting(true);
-    await sleep(t.bolts[0] - t.dockAt);
-    if (!alive.current) return;
-    spark();
-    creatorSfx('bolt');
-    await sleep(t.bolts[1] - t.bolts[0]);
-    if (!alive.current) return;
-    spark();
-    creatorSfx('bolt');
-    await sleep(t.placedAt - t.bolts[1]);
-    if (!alive.current) return;
-    travel.cancel();
-    place(piece);
-    setBolting(false);
-    setCarrying(false);
-
-    const down = { duration: PICK.lowerLiftMs, easing: EASE_LIFT, fill: 'both' as const };
-    const lower = platform.animate([{ transform: `translateY(${-lift}px)` }, { transform: 'translateY(0px)' }], down);
-    const close = scissor.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.04)' }], down);
-    const away = truck.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${outTo}px)` }], {
-      delay: PICK.lowerLiftMs,
-      duration: PICK.driveOutMs,
-      easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)',
-      fill: 'both',
-    });
-    truckFree.current = sleep(t.endAt - t.placedAt).then(() => {
-      truck.style.visibility = 'hidden';
-      [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
-    });
-  };
-
-  /** The minutes' tank, taken by the crane's hook (the button) and turned into the minutes piece on its way. */
-  const fitTank = async (from: Take & { tank: NonNullable<Take['tank']> }) => {
-    const piece: PieceId = 'minutes';
-    const Lx = layoutRef.current;
-    const root = rootRef.current;
-    if (!Lx || !root) return;
-    const lift = liftFor(Lx, piece);
-    const box = root.getBoundingClientRect();
-    const at = { x: from.rect.left - box.left, y: from.rect.top - box.top };
-    const { w, h } = from.tank;
-    setTruckLift(lift);
-    setCarrying(true);
-    const shown = onPage();
-    setMoving({ piece, mode: 'truck', from: at, label: from.label, tank: from.tank });
-    await shown;
-    await truckFree.current;
-    const fly = flyRef.current;
-    const truck = truckRef.current;
-    const platform = liftRef.current;
-    const scissor = scissorRef.current;
-    if (!alive.current || !fly || !truck || !platform || !scissor) {
-      if (alive.current) place(piece);
-      setCarrying(false);
-      return;
-    }
-    const t = pickTimeline(TANK_PICK);
-    const b = Lx.pieces[piece];
+    const t = grabTimeline();
     const c0 = { x: at.x + w / 2, y: at.y + h / 2 };
+    const attach = tank ? { from: { x: 0, y: -h / 2 }, to: { x: 0, y: -h / 2 } } : { from: { x: w / 2 - GRIP_IN * Lx.T, y: -Lx.T / 2 }, to: { x: w / 2, y: 0 } };
     const start = hookNow();
-    stopHook();
-    const poses = tankPickPoses({ at, w, h, hook: start, parkY: Lx.pick.parkY, loadX: Lx.pick.loadX, cx: Lx.cx, dropTop: b.top + lift, lift, box: Lx.box, len: b.len, raise: 0.4 * Lx.T }, t);
-    const total = t.lift[1];
-    const travel = fly.animate(
-      poses.map((p) => ({ offset: p.t / total, transform: `translate(${(p.box.x - c0.x).toFixed(1)}px, ${(p.box.y - c0.y).toFixed(1)}px) scale(${p.box.sx.toFixed(4)}, ${p.box.sy.toFixed(4)})` })),
-      { duration: total, fill: 'both' },
+    const grip = grabPoint({ x: c0.x, y: c0.y, rot: 0, sx: 1, sy: 1 }, attach.from);
+    const overY = Math.abs(start.x - grip.x) <= 6 && start.y < grip.y ? start.y : Lx.pick.parkY;
+    const poses = grabPoses(
+      {
+        c0,
+        attach,
+        rot: tank ? 0 : -90,
+        scale: tank ? { sx: Lx.box / w, sy: b.len / h } : { sx: 1, sy: 1 },
+        endHalf: b.len / 2,
+        hook: start,
+        parkY: Lx.pick.parkY,
+        clearY: Lx.pick.parkY + 14,
+        loadX: Lx.pick.loadX,
+        dropTop: b.top + lift,
+        overY,
+      },
+      t,
     );
-    // the tank gives way to the piece while it is carried
-    const swap = { delay: t.swing[1], duration: t.carry[1] - t.swing[1], fill: 'both' as const };
-    const tankArt = fly.querySelector<HTMLElement>('[data-fly-tank]');
-    const pieceArt = fly.querySelector<HTMLElement>('[data-fly-piece]');
-    const fades = [tankArt?.animate([{ opacity: 1 }, { opacity: 0 }], swap), pieceArt?.animate([{ opacity: 0 }, { opacity: 1 }], swap)];
+    const span = t.hookUp[1];
+    // the piece in the grabber (it stops, exactly, where it is set down on the bed)
+    const carry = inner.animate(
+      poses.map((p) => ({ offset: p.t / span, transform: `translate(${(p.piece.x - c0.x).toFixed(2)}px, ${(p.piece.y - c0.y).toFixed(2)}px) rotate(${p.piece.rot.toFixed(2)}deg) scale(${p.piece.sx.toFixed(4)}, ${p.piece.sy.toFixed(4)})` })),
+      { duration: span, fill: 'forwards' },
+    );
+    const anims: Animation[] = [carry];
+    if (tank) {
+      // the tank gives way to the piece while it is carried
+      const swap = { delay: t.up[1], duration: t.carry[1] - t.up[1], fill: 'both' as const };
+      const tankArt = inner.querySelector<HTMLElement>('[data-fly-tank]');
+      const pieceArt = inner.querySelector<HTMLElement>('[data-fly-piece]');
+      if (tankArt) anims.push(tankArt.animate([{ opacity: 1 }, { opacity: 0 }], swap));
+      if (pieceArt) anims.push(pieceArt.animate([{ opacity: 0 }, { opacity: 1 }], swap));
+    }
+    // (its resting pose at the end, set first; the move animates there)
+    placeHook(poses[poses.length - 1].hook);
     moveHook(
-      poses.filter((p) => p.t <= t.hookUp[1]).map((p) => ({ ...p.hook, offset: p.t / t.hookUp[1] })),
-      t.hookUp[1],
+      poses.map((p) => ({ ...p.hook, offset: p.t / span })),
+      span,
     );
+
+    // the truck: (the tank's) from where it brought the tank, or (a loose piece's) in along the road,
+    // to its loading spot, where it stops dead; after the release, under the rocket
     const shift = Lx.cx - Lx.pick.loadX;
     const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
     const outTo = Lx.W - Lx.truck.stopLeft + 16;
+    const parked = parkDx.current;
     truck.style.visibility = 'visible';
-    const drive = truck.animate(
-      [
-        { transform: `translateX(${inFrom}px)`, easing: EASE_DRIVE },
-        { transform: `translateX(${-shift}px)`, offset: t.truckIn[1] / t.drive[1] },
-        { transform: `translateX(${-shift}px)`, offset: t.drive[0] / t.drive[1], easing: EASE_DRIVE },
-        { transform: 'translateX(0px)' },
-      ],
-      { duration: t.drive[1], fill: 'both' },
-    );
-    cue(0, 'truckIn');
-    cue(t.lift[0], 'liftUp');
+    if (tank && parked !== null) {
+      anims.push(truck.animate([{ transform: `translateX(${parked}px)` }, { transform: `translateX(${-shift}px)` }], { delay: t.reposition[0], duration: t.reposition[1] - t.reposition[0], easing: EASE_STOP, fill: 'both' }));
+      cue(t.reposition[0], 'truckIn');
+      // (it holds the tank no more: the crane has it)
+      parkDx.current = null;
+    } else {
+      anims.push(truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: `translateX(${-shift}px)` }], { duration: t.truckIn[1] - t.truckIn[0], easing: EASE_STOP, fill: 'both' }));
+      cue(0, 'truckIn');
+    }
+    const drive = { delay: t.drive[0], duration: t.drive[1] - t.drive[0], easing: EASE_DRIVE, fill: 'forwards' as const };
+    anims.push(truck.animate([{ transform: `translateX(${-shift}px)` }, { transform: 'translateX(0px)' }], drive));
+    // (the piece on the bed rides the very same move, and then the very same lift)
+    anims.push(outer.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${shift}px)` }], drive));
     const up = { delay: t.lift[0], duration: t.lift[1] - t.lift[0], easing: EASE_LIFT, fill: 'both' as const };
     const raise = platform.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], up);
     const open = scissor.animate([{ transform: 'scaleY(0.04)' }, { transform: 'scaleY(1)' }], up);
+    anims.push(middle.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], { ...up, fill: 'forwards' }));
+    cue(t.lift[0], 'liftUp');
 
-    await sleep(t.grab[0]);
+    await sleep(t.grip[0]);
     if (!alive.current) return;
+    // the grab: the jaws close on its top, a clang
+    setGrip(true);
     creatorSfx('hookGrab');
-    await sleep(t.lower[1] - t.grab[0]);
+    await sleep(t.release[0] - t.grip[0]);
     if (!alive.current) return;
+    setGrip(false);
     creatorSfx('hookRelease');
-    await sleep(t.dockAt - t.lower[1]);
+    await sleep(t.dockAt - t.release[0]);
     if (!alive.current) return;
     creatorSfx('dock');
     setBolting(true);
@@ -629,34 +539,34 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     creatorSfx('bolt');
     await sleep(t.placedAt - t.bolts[1]);
     if (!alive.current) return;
-    travel.cancel();
-    fades.forEach((a) => a?.cancel());
+    anims.forEach((a) => a.cancel());
     place(piece);
     setBolting(false);
     setCarrying(false);
 
-    const down = { duration: PICK.lowerLiftMs, easing: EASE_LIFT, fill: 'both' as const };
+    // the lift comes down and the truck drives off
+    truck.style.transform = 'translateX(0px)';
+    const down = { duration: GRAB.lowerLiftMs, easing: EASE_LIFT, fill: 'both' as const };
     const lower = platform.animate([{ transform: `translateY(${-lift}px)` }, { transform: 'translateY(0px)' }], down);
     const close = scissor.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.04)' }], down);
     const away = truck.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${outTo}px)` }], {
-      delay: PICK.lowerLiftMs,
-      duration: PICK.driveOutMs,
+      delay: GRAB.lowerLiftMs,
+      duration: GRAB.driveOutMs,
       easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)',
       fill: 'both',
     });
     truckFree.current = sleep(t.endAt - t.placedAt).then(() => {
       truck.style.visibility = 'hidden';
-      [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
+      truck.style.transform = '';
+      [raise, open, lower, close, away].forEach((a) => a.cancel());
     });
   };
 
   const fitPiece = async (piece: PieceId, mode: FitMode) => {
     const from = takeRef.current;
     if (mode === 'truck' && from && from.piece === piece) {
-      // (the minutes' tank and the blocks and the intensity: the crane takes it; else it flies as before)
-      if (piece === 'minutes' && from.tank) await fitTank({ ...from, tank: from.tank });
-      else if (piece === 'blocks' || piece === 'engine') await fitPicked(piece, from);
-      else await fitTaken(piece, from);
+      // (an answer: the crane takes the very piece tapped, or the minutes' tank)
+      await fitGrabbed(piece, from);
       return;
     }
     if (mode === 'truck') await truckFree.current;
@@ -869,6 +779,149 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     };
   }, [end]);
 
+  // ── the questions open, one thing after another; the minutes' tank comes on a truck ──────────
+  // 'nose': the crane is still setting the carried nose in place (nothing of the question shows);
+  // 'reveal': the porthole and the title come in; 'deliver': the grabber lets go of the nose and goes
+  // down to its ring while a truck brings the tank and parks; 'ready': the tank can be dragged
+  const minutesOn = minutes !== null;
+  const [arrival, setArrival] = useState<'nose' | 'reveal' | 'deliver' | 'ready'>(noseHidden ? 'nose' : reduced ? 'ready' : 'reveal');
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    if (arrival === 'nose' && !noseHidden) t = setTimeout(() => setArrival('reveal'), 0);
+    else if (arrival === 'reveal') {
+      const plan = arrivalTimeline(minutesOn && !reduced);
+      t = setTimeout(() => setArrival(plan.deliverAt !== null ? 'deliver' : 'ready'), plan.deliverAt ?? plan.readyAt);
+    } else if (arrival === 'deliver') t = setTimeout(() => setArrival('ready'), ARRIVE.deliverMs);
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [arrival, noseHidden, minutesOn, reduced]);
+  const revealed = arrival !== 'nose';
+  const tankShown = minutesOn && (arrival === 'deliver' || arrival === 'ready');
+
+  // where the tank stands: on the truck's bed, under the title (measured: it may wrap)
+  const tankBoxRef = useRef<HTMLDivElement>(null);
+  const [titleBottom, setTitleBottom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const col = columnRef.current;
+    const root = rootRef.current;
+    const title = col?.firstElementChild?.firstElementChild;
+    if (!col || !root || !minutesOn || !(title instanceof HTMLElement)) return;
+    const read = () => {
+      const y = Math.round(title.getBoundingClientRect().bottom - root.getBoundingClientRect().top);
+      setTitleBottom((old) => (old === y ? old : y));
+    };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(title);
+    return () => ro.disconnect();
+  }, [L, minutesOn]);
+  const tank =
+    L && minutesOn
+      ? (() => {
+          const colW = L.column.right - L.column.left;
+          const below = (titleBottom ?? L.column.top + L.column.titleMin) + 16;
+          const h = Math.max(150, Math.min(360, Math.round(L.truck.bedTop - below)));
+          const top = L.truck.bedTop - h;
+          const w = tankWidth(colW);
+          const ring = ringSpot(colW, h);
+          return {
+            colW,
+            top,
+            h,
+            // the truck parks with its bed's middle under the tank
+            dx: Math.round(L.column.left + TANK_LABELS + w / 2 - (L.truck.stopLeft + L.truck.bedW / 2)),
+            ring: { x: L.column.left + ring.x, y: top + ring.y },
+            // the grabber hangs open in the ring (its tip a little under the ring's middle)
+            hang: { x: L.column.left + ring.x, y: top + ring.y + Math.round(hookGeometry(L).h / 2) },
+          };
+        })()
+      : null;
+  const tankRef = useRef(tank);
+  useLayoutEffect(() => {
+    tankRef.current = tank;
+  });
+
+  // the truck holding the tank: parked under it (its resting pose, set directly); once the tank has
+  // gone without the crane (reduced motion), it simply goes too
+  useLayoutEffect(() => {
+    const truck = truckRef.current;
+    if (!truck || carrying) return;
+    if (tank && tankShown && !minutes?.hidden) {
+      parkDx.current = tank.dx;
+      truck.style.visibility = 'visible';
+      truck.style.transform = `translateX(${tank.dx}px)`;
+    } else if (!tankShown && parkDx.current !== null) {
+      parkDx.current = null;
+      truck.style.visibility = 'hidden';
+      truck.style.transform = '';
+    }
+  });
+
+  // the nose is in place: the grabber that brought it still holds it, at its top
+  useLayoutEffect(() => {
+    const Lx = layoutRef.current;
+    if (arrival !== 'reveal' || !minutesOn || reduced || !Lx) return;
+    placeHook({ x: Lx.cx, y: Lx.rocketTop });
+    setGrip(true);
+    // (once, as the question comes in)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrival]);
+
+  // the delivery: the truck comes along the road with the tank standing on its bed (one rigid
+  // thing) and stops dead at the left; meanwhile the grabber lets go of the nose, slowly, and goes
+  // up, along and down into its ring
+  useLayoutEffect(() => {
+    const Lx = layoutRef.current;
+    const truck = truckRef.current;
+    const box = tankBoxRef.current;
+    const at = tankRef.current;
+    if (arrival !== 'deliver' || !Lx || !truck || !box || !at) return;
+    const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
+    const timing = { duration: ARRIVE.deliverMs, easing: EASE_STOP };
+    const anims = [
+      truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: `translateX(${at.dx}px)` }], timing),
+      box.animate([{ transform: `translateX(${inFrom - at.dx}px)` }, { transform: 'translateX(0px)' }], timing),
+    ];
+    creatorSfx('truckIn');
+    const from = { x: Lx.cx, y: Lx.rocketTop };
+    const letGo = ARRIVE.letGoMs / ARRIVE.deliverMs;
+    placeHook(at.hang);
+    moveHook(
+      [
+        { ...from, offset: 0 },
+        { ...from, offset: letGo, easing: 'cubic-bezier(0.45, 0, 0.3, 1)' },
+        { x: from.x, y: Lx.pick.parkY, offset: letGo + 0.2, easing: 'cubic-bezier(0.45, 0, 0.3, 1)' },
+        { x: at.hang.x, y: Lx.pick.parkY, offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.3, 1)' },
+        { ...at.hang, offset: 1 },
+      ],
+      ARRIVE.deliverMs,
+    );
+    // (its jaws open slowly, a moment in)
+    const open = setTimeout(() => {
+      setGrip(false);
+      creatorSfx('hookRelease');
+    }, Math.round(ARRIVE.letGoMs * 0.4));
+    return () => {
+      clearTimeout(open);
+      anims.forEach((a) => a.cancel());
+    };
+    // (once, as the delivery starts)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrival]);
+
+  // once it is there, the grabber hangs open in its ring (and stays there if the ring moves)
+  const hangX = tank?.hang.x;
+  const hangY = tank?.hang.y;
+  useEffect(() => {
+    if (!minutesOn || minutes?.hidden || arrival !== 'ready' || carrying || reduced || hangX === undefined || hangY === undefined) return;
+    const now = hookNow();
+    setGrip(false);
+    if (Math.hypot(now.x - hangX, now.y - hangY) > 0.5) glideHook({ x: hangX, y: hangY }, GRAB.hoverMs);
+    // (the helpers read refs only)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minutesOn, minutes?.hidden, arrival, carrying, reduced, hangX, hangY]);
+
   const step = Math.max(0, Math.min(3, Math.round(sky)));
   // the porthole now: its place at the top, or its big one in the corner at the end
   const porthole = L && end?.big ? { ...end.big, rim: BIG_RIM } : L ? { ...L.porthole, rim: L.rim } : null;
@@ -882,33 +935,38 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
       {L && (
         <>
           <Backdrop L={L} step={step} uid={uid} reduced={reduced} risen={risen} />
-          <Crane L={L} uid={uid} jibRef={jibRef} cableRef={cableRef} pickOut={!reduced && (picking !== null || carrying)} reduced={reduced} />
+          <Crane L={L} uid={uid} jibRef={jibRef} cableRef={cableRef} pickOut={!reduced && (picking !== null || carrying || (minutesOn && revealed))} reduced={reduced} />
           {/* the mechanics' platform on the tower, at the seam being bolted */}
           <MechanicsPlatform L={L} y={L.platform[seamPiece]} bolting={bolting} reduced={reduced} />
           <Truck L={L} lift={truckLift} truckRef={truckRef} liftRef={liftRef} scissorRef={scissorRef} />
           {/* the piece on its way (on the truck, or sliding up into place) */}
-          {moving?.from && moving.tank ? (
-            // the minutes' tank, where it stood: it shrinks into the minutes piece on its way to the lift
-            <div
-              ref={flyRef}
-              className="pointer-events-none absolute z-[21] [transform-origin:50%_50%]"
-              style={{ left: moving.from.x, top: moving.from.y, width: moving.tank.w, height: moving.tank.h }}
-            >
-              <div data-fly-tank="" className="absolute inset-0">
-                <TankArt w={moving.tank.w} h={moving.tank.h} minutes={moving.tank.minutes} />
+          {moving?.from ? (
+            // the answer's piece (or the minutes' tank) on its way: it rides the truck's drive and the
+            // lift (the two outer layers move exactly as they do), the grab moves it inside them
+            <div ref={flyRef} className="pointer-events-none absolute left-0 top-0 z-[21]">
+              <div>
+                <div
+                  className="absolute [transform-origin:50%_50%]"
+                  style={{ left: moving.from.x, top: moving.from.y, width: moving.tank ? moving.tank.w : L.pieces[moving.piece].len, height: moving.tank ? moving.tank.h : L.box }}
+                >
+                  {moving.tank ? (
+                    <>
+                      <div data-fly-tank="" className="absolute inset-0">
+                        <TankArt w={moving.tank.w} h={moving.tank.h} minutes={moving.tank.minutes} />
+                      </div>
+                      <div
+                        data-fly-piece=""
+                        className="absolute left-1/2 top-1/2"
+                        style={{ opacity: 0, width: L.pieces.minutes.len, height: L.box, transform: `translate(-50%, -50%) rotate(-90deg) scale(${(moving.tank.h / L.pieces.minutes.len).toFixed(4)}, ${(moving.tank.w / L.box).toFixed(4)})` }}
+                      >
+                        <RocketPiece piece="minutes" L={L} label={moving.label ?? labels.minutes} measure={measure} lying className="block" />
+                      </div>
+                    </>
+                  ) : (
+                    <RocketPiece piece={moving.piece} L={L} label={moving.label ?? labels[moving.piece]} measure={measure} lying className="block" />
+                  )}
+                </div>
               </div>
-              <div data-fly-piece="" className="absolute left-1/2 top-1/2" style={{ opacity: 0, width: L.pieces.minutes.len, height: L.box, transform: `translate(-50%, -50%) rotate(-90deg) scale(${(moving.tank.h / L.pieces.minutes.len).toFixed(4)}, ${(moving.tank.w / L.box).toFixed(4)})` }}>
-                <RocketPiece piece="minutes" L={L} label={moving.label ?? labels.minutes} measure={measure} lying className="block" />
-              </div>
-            </div>
-          ) : moving?.from ? (
-            // the answer's piece, lying where it was tapped: it turns upright on its way to the lift
-            <div
-              ref={flyRef}
-              className="pointer-events-none absolute z-[21] [transform-origin:50%_50%]"
-              style={{ left: moving.from.x, top: moving.from.y, width: L.pieces[moving.piece].len, height: L.box }}
-            >
-              <RocketPiece piece={moving.piece} L={L} label={moving.label ?? labels[moving.piece]} measure={measure} lying className="block" />
             </div>
           ) : (
             moving && (
@@ -945,7 +1003,11 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
           <PadSmoke L={L} />
           {/* the big porthole: the rocket's own window seen close up (at the end, large in the corner) */}
           {porthole && (
-            <>
+            // (it comes in once the nose is in place)
+            <div
+              className="pointer-events-none absolute inset-0 z-[17]"
+              style={{ opacity: revealed ? 1 : 0, transform: revealed ? 'none' : 'scale(0.94)', transformOrigin: `${porthole.x}px ${porthole.y}px`, transition: reduced ? 'none' : 'opacity 500ms ease-out, transform 500ms cubic-bezier(0.2, 0.8, 0.3, 1)' }}
+            >
               <ZoomLinesSvg
                 W={L.W}
                 H={L.H}
@@ -970,15 +1032,34 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
                   )}
                 </PortholeFrame>
               </div>
-            </>
+            </div>
           )}
           {/* the crane's picking hook over the loose answers (blocks, intensity) */}
-          <PickHook L={L} shown={!reduced && (picking !== null || carrying)} hookRef={hookRef} trolleyRef={trolleyRef} wireRef={wireRef} />
-          {/* the questions (or the sentence), on the left */}
+          <PickHook L={L} shown={!reduced && (picking !== null || carrying || (minutesOn && revealed && !minutes?.hidden))} hookRef={hookRef} trolleyRef={trolleyRef} wireRef={wireRef} />
+          {/* the minutes' tank on its truck's bed, and the ring the grabber waits in («Enganchar») */}
+          {minutes && tank && (
+            <>
+              <div ref={tankBoxRef} className="absolute z-[21]" style={{ left: L.column.left, top: tank.top, visibility: tankShown ? undefined : 'hidden' }}>
+                <MinutesTank value={minutes.value} onChange={minutes.onChange} width={tank.colW} height={tank.h} light={!ink} reduced={reduced} ready={arrival === 'ready'} hidden={minutes.hidden} />
+              </div>
+              <HookRing
+                light={!ink}
+                reduced={reduced}
+                disabled={arrival !== 'ready' || minutes.hidden}
+                onClick={(button) => {
+                  const body = tankBoxRef.current?.querySelector<HTMLElement>('[data-tank]');
+                  if (body) minutes.onHook(body, button);
+                }}
+                // (the ring's middle exactly at its spot: «Enganchar» hangs under it)
+                style={{ left: tank.ring.x, top: tank.ring.y, translate: '-50% -28px', zIndex: 21, opacity: tankShown && !minutes.hidden ? 1 : 0, transition: reduced ? 'none' : 'opacity 300ms ease-out' }}
+              />
+            </>
+          )}
+          {/* the questions (or the sentence), on the left (they come in once the nose is in place) */}
           <div
             ref={columnRef}
             className="absolute z-20 overflow-y-auto overflow-x-hidden px-[14px] pb-4 [scrollbar-width:none]"
-            style={{ left: L.column.left - 14, top: L.column.top, width: L.column.right - L.column.left + 28, bottom: L.H - L.cambiarTop - 44 }}
+            style={{ left: L.column.left - 14, top: L.column.top, width: L.column.right - L.column.left + 28, bottom: L.H - L.cambiarTop - 44, opacity: revealed ? 1 : 0, transform: revealed ? 'none' : 'translateX(24px)', transition: reduced ? 'none' : 'opacity 450ms ease-out, transform 450ms cubic-bezier(0.2, 0.8, 0.3, 1)' }}
           >
             {children(L, ink)}
           </div>
@@ -1271,16 +1352,17 @@ function PadSmoke({ L }: { L: AssemblyLayout }) {
   );
 }
 
-/** The picking hook's sizes (scene px): its box (the tip at its bottom centre), the trolley, where its wire starts. */
+/** The grabber's sizes (scene px): its box (the jaws' tip at its bottom centre, the cable's shackle `eye` px down from its top), the trolley, where its wire starts. */
 function hookGeometry(L: AssemblyLayout) {
   const u = L.T / 36;
-  return { w: Math.round(18 * u), h: Math.round(21 * u), trolleyW: Math.round(16 * u), trolleyH: Math.max(3, Math.round(5 * u)), wireTop: L.jib.y + L.jib.h + Math.max(3, Math.round(5 * u)) };
+  const h = Math.round(19 * u);
+  return { w: Math.round(26 * u), h, eye: Math.round(h * 0.1), trolleyW: Math.round(16 * u), trolleyH: Math.max(3, Math.round(5 * u)), wireTop: L.jib.y + L.jib.h + Math.max(3, Math.round(5 * u)) };
 }
 
 /**
- * The crane's picking hook: a trolley on the arm, its wire and an open hook (its tip at the bottom
- * centre of its box). Moved by the scene through refs (Web Animations); parked over the waiting
- * truck's spot until it is needed.
+ * The crane's grabber: a trolley on the arm, its cable and a small claw (its jaws' tip at the bottom
+ * centre of its box). Moved by the scene through refs (Web Animations, and its resting pose set
+ * directly); parked over the waiting truck's spot until it is needed.
  */
 function PickHook({
   L,
@@ -1308,14 +1390,12 @@ function PickHook({
       <div
         ref={wireRef}
         className="absolute left-0 origin-top"
-        style={{ top: g.wireTop, width: 1.3, height: 1, background: C.ink, transform: `translateX(${park.x}px) scaleY(${Math.max(0.01, park.y - g.h * 0.6 - g.wireTop)})` }}
+        style={{ top: g.wireTop, width: 1.3, height: 1, background: C.ink, transform: `translateX(${park.x}px) scaleY(${Math.max(0.01, park.y - g.h + g.eye - g.wireTop)})` }}
       />
+      {/* the grabber: its jaws open, closing on a piece's top under [data-grip] */}
       <div ref={hookRef} className="absolute left-0 top-0" style={{ width: g.w, height: g.h, transform: `translate(${park.x - g.w / 2}px, ${park.y - g.h}px)` }}>
-        <svg viewBox="0 0 13 15" className="h-full w-full overflow-visible">
-          {/* the eye, the shank and the open hook, its tip up on the right */}
-          <circle cx={6.5} cy={2.4} r={1.9} fill="none" stroke={C.ink} strokeWidth={1.3} />
-          <path d="M6.5 4.3V9.2Q6.5 14.2 10 13.6Q12.4 13.1 12 9.8" fill="none" stroke={C.ink} strokeWidth={1.6} strokeLinecap="round" />
-          <path d="M6.5 6.2H8.4" stroke={DAWN.hazard} strokeWidth={1.4} />
+        <svg viewBox="-12 -1 24 17.4" className="h-full w-full overflow-visible">
+          <Claw />
         </svg>
       </div>
     </div>
