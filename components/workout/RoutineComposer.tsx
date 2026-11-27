@@ -859,13 +859,17 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         );
       }
     } else if (finale.phase === 'smoke') {
+      // the white is the smoke itself: it spreads up from the pad, uncovering its words as it goes
+      const warmup = Boolean(built?.queue.some((item) => item.kind === 'warmup'));
+      veilRef.current ??= openVeil({ warmup, reduced: Boolean(reducedMotion), originX: finale.smokeFrom?.x });
       at(FINALE.smokeMs, () => updateFinale({ phase: 'white' }));
     } else if (finale.phase === 'white') {
       if (!veilRef.current) creatorSfx('veil');
       const warmup = Boolean(built?.queue.some((item) => item.kind === 'warmup'));
       veilRef.current ??= openVeil({ warmup, reduced: Boolean(reducedMotion) });
-      // (the words held 2 s once they are all in)
-      at(veilHandOffMs(warmup ? 2 : 1, Boolean(reducedMotion)), handOff);
+      // (the words held 2 s from the moment they are fully uncovered)
+      const veil = veilRef.current;
+      at(veil.openedAt + veilHandOffMs(veil.uncoveredMs) - now, handOff);
     }
     return () => timers.forEach(clearTimeout);
   }, [finale, built, reducedMotion, updateFinale, handOff]);

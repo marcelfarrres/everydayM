@@ -1,16 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import { VEIL_WORDS, trailProgressAt, trailPuffs, trailShape, veilHandOffMs, veilWordsInMs } from '@/components/workout/veilTrail';
+import { VEIL_WORDS, arrivalCoveredAt, arrivalFront, arrivalPuffs, maskAlpha, trailProgressAt, trailPuffs, trailShape, veilHandOffMs } from '@/components/workout/veilTrail';
 
 describe('the white screen: the hold', () => {
-  it('holds the words 2 s once they are all in (also with reduced motion)', () => {
-    for (const lines of [1, 2]) {
-      for (const reduced of [false, true]) {
-        const leavesAt = veilHandOffMs(lines, reduced) + VEIL_WORDS.leaveDelayMs;
-        expect(leavesAt - veilWordsInMs(lines, reduced)).toBe(2000);
+  it('holds the words 2 s from the moment they are fully uncovered', () => {
+    for (const uncovered of [0, 420, 760]) {
+      const leavesAt = veilHandOffMs(uncovered) + VEIL_WORDS.leaveDelayMs;
+      expect(leavesAt - uncovered).toBe(2000);
+    }
+  });
+});
+
+describe('the white screen: it arrives as the smoke spreading up, uncovering what is on it', () => {
+  const W = 390;
+  const H = 844;
+  const steps = Array.from({ length: 101 }, (_, i) => i / 100);
+  const grid: [number, number][] = [];
+  for (let x = 0; x <= W; x += 15) for (let y = 0; y <= H; y += 15) grid.push([x, y]);
+
+  it('the front only rises; nothing shows at 0, all is white at 1', () => {
+    for (let i = 1; i < steps.length; i++) expect(arrivalFront(steps[i])).toBeLessThanOrEqual(arrivalFront(steps[i - 1]));
+    const none = arrivalPuffs(0, W, H);
+    const all = arrivalPuffs(1, W, H);
+    for (const [x, y] of grid) {
+      expect(maskAlpha(none, x, y)).toBe(0);
+      expect(maskAlpha(all, x, y)).toBe(1);
+    }
+  });
+
+  it('what is covered stays covered (from the pad, off the middle, too)', () => {
+    for (const origin of [W / 2, W * 0.62]) {
+      let prev = grid.map(() => 0);
+      for (const p of steps) {
+        const shape = arrivalPuffs(p, W, H, origin);
+        const now = grid.map(([x, y]) => maskAlpha(shape, x, y));
+        now.forEach((a, k) => expect(a).toBeGreaterThanOrEqual(prev[k] - 0.02));
+        prev = now;
       }
     }
-    expect(veilWordsInMs(2)).toBe(720);
-    expect(veilWordsInMs(2, true)).toBe(0);
+  });
+
+  it('below the front it is all white (no holes in it)', () => {
+    for (const p of [0.25, 0.5, 0.75]) {
+      const shape = arrivalPuffs(p, W, H);
+      const E = arrivalFront(p) * H;
+      for (const [x, y] of grid) if (y >= E + 0.6 * (W / 6) * 1.15 + 0.45 * 0.6 * 0.85 * (W / 6)) expect(maskAlpha(shape, x, y)).toBe(1);
+    }
+  });
+
+  it('the words are fully uncovered exactly when the white covers their box, the lower lines first', () => {
+    const line1 = { left: 60, top: 300, right: 330, bottom: 350 };
+    const line3 = { left: 60, top: 420, right: 330, bottom: 470 };
+    const p1 = arrivalCoveredAt(line1, W, H);
+    const p3 = arrivalCoveredAt(line3, W, H);
+    expect(p3).toBeLessThan(p1);
+    // (at that moment every point of the box is white; a moment before, some is not)
+    const at = arrivalPuffs(p1, W, H);
+    const before = arrivalPuffs(p1 - 0.01, W, H);
+    const pts: [number, number][] = [];
+    for (let x = line1.left; x <= line1.right; x += 45) for (let y = line1.top; y <= line1.bottom; y += 25) pts.push([x, y]);
+    expect(pts.every(([x, y]) => maskAlpha(at, x, y) >= 0.999)).toBe(true);
+    expect(pts.some(([x, y]) => maskAlpha(before, x, y) < 0.999)).toBe(true);
   });
 });
 

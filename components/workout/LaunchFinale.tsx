@@ -10,7 +10,7 @@ import { DressSequence } from '@/components/workout/DressSequence';
 /*
  * The creator's automatic finale (phone), over the assembly scene or the start screen's base:
  * the routine's sentence in the sky (`sentence`, when the page itself does not write it), and at
- * lift-off the rocket's white smoke grows from its pad until it covers the whole screen. The white text that follows is whiteVeil.ts. Transforms and opacity only.
+ * lift-off the rocket's white smoke grows from its pad; the white that covers the whole screen, with its words, is whiteVeil.ts, spreading up over it at the same time. Transforms and opacity only.
  *
  * With no questions (the start screen's own launch held on its pad, `dress`): between the sentence
  * and the rocket a big porthole grows out of the rocket's window, the last change of clothes plays
@@ -84,8 +84,7 @@ export function LaunchFinale({
         }),
       );
     });
-    const white = root.querySelector<HTMLElement>('[data-white]');
-    if (white) anims.push(white.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FINALE.smokeMs * 0.4, delay: FINALE.smokeMs * 0.6, easing: 'ease-in', fill: 'both' }));
+    // (the white itself, with its words, is the page's veil spreading up over this: whiteVeil.ts)
     return () => anims.forEach((a) => a.cancel());
   }, [phase, reduced]);
 
