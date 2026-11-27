@@ -64,7 +64,8 @@ En el creador no suena música, así que los efectos llevan el ambiente y van m�
 | `clampShut` | `towerDock` | ×1,5 (≈0,33) | 250 ms | La rueda se para: las garras se cierran («pum»). |
 | `engineStart` | `engineStart` (sintetizado) | ×1 (0,34) | 500 ms | Encima del «pum»: el motor del elegido arranca (~0,6 s). |
 | `noseCreak` | `hookCreak` (sintetizado) | ×1 (0,16) | 800 ms | Al tocar la barra de escribir: cruje un poco la grúa de la que cuelga la punta. Sutil. |
-| `levelClick` | `drumClick` | ×1,4 | 50 ms | El nivel del depósito de los minutos se queda en una marca (con un toque de vibración donde se pueda). |
+| `levelTick` | `drumClick` | ×0,8 | 35 ms | El nivel del depósito de los minutos pasa por un minuto (con un toque corto de vibración donde se pueda). |
+| `levelClick` | `drumClick` | ×1,5 | 35 ms | El nivel se queda en una marca, múltiplo de 5 (clic más fuerte y vibración algo más larga). |
 | `randomButton` | `buttonThunk` | ×1,4 (≈0,34) | — | Al pulsar «Random». |
 | `crewStep` / `crewRung` | `metalStep` / `ladderStep` | ×1,6 (≈0,13) | — | Pasos y peldaños de los astronautas. |
 | `crewLand` | `metalStep` | ×2,4 (≈0,19) | 200 ms | Aterrizan sobre el cohete al pararse la rueda. |
@@ -72,9 +73,9 @@ En el creador no suena música, así que los efectos llevan el ambiente y van m�
 | `gantryDock` | `towerDock` | ×1,6 | — | Los brazos de la torre de lanzamiento se acoplan. |
 | `ignite` | `ignite` | ×1,5 (≈0,6) | 300 ms | Ignición (base y montaje). |
 | `liftOff` | `launch` | ×1,2 (≈0,9) | 600 ms | Despegue (base y montaje). |
-| `hookGrab` | `hookGrab` (sintetizado) | ×1 (0,3) | 200 ms | El gancho de la grúa coge la pieza. |
-| `hookRelease` | `clack` | ×0,9 | — | La deja en el elevador. |
-| `truckIn` | `truckRoll` (sintetizado) | ×1 (0,22) | 600 ms | Llega el camión. |
+| `hookGrab` | `hookGrab` (sintetizado) | ×1 (0,3) | 200 ms | La garra de la grúa se cierra sobre la pieza (o el depósito). |
+| `hookRelease` | `clack` | ×0,9 | — | La deja en el camión parado; también al soltar la punta antes de los minutos. |
+| `truckIn` | `truckRoll` (sintetizado) | ×1 (0,22) | 600 ms | Llega el camión (también el que trae el depósito de los minutos). |
 | `liftUp` | `liftWhir` (sintetizado) | ×1 (0,18) | 300 ms | El elevador sube la pieza. |
 | `dock` | `towerDock` | ×1,5 | 200 ms | La pieza encaja bajo la de arriba. |
 | `bolt` + `spark` | `clack` + `spark` (sintetizado) | ×1,5 + ×1 (0,14) | — | Cada tornillo, con sus chispas. |
