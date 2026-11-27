@@ -35,7 +35,7 @@ export function StudioLoginForm() {
       setError(message);
       setPin('');
     } catch {
-      setError('Sin conexión con el PC. ¿Está EverydayM Studio abierto?');
+      setError('Sin conexión con el PC. ¿Está abierto el Estudio?');
     } finally {
       setLoading(false);
     }
@@ -44,7 +44,7 @@ export function StudioLoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-5">
       <div>
-        <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">EverydayM</p>
+        <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Be a Rocket</p>
         <h1 className="mt-1 text-4xl font-semibold tracking-[-0.03em]">Estudio</h1>
         <p className="mt-2 text-[16px] leading-snug text-ink/60">Escribe el PIN del Estudio para entrar.</p>
       </div>

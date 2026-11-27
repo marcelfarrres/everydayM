@@ -1,4 +1,4 @@
-# App de iPhone (Everyday M)
+# App de iPhone («Be a Rocket»; antes «Everyday M»)
 
 ## Cómo está hecha
 

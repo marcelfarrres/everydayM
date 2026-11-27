@@ -40,8 +40,11 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Everyday M | Entrena cada día",
+  title: "Be a Rocket | Entrena cada día",
   description: "Entrenamientos para moverte cada día, juntos.",
+  // (the name under the icon when it is added to the home screen)
+  applicationName: "Be a Rocket",
+  appleWebApp: { title: "Be a Rocket" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

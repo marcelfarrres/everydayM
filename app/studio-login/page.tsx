@@ -18,7 +18,7 @@ export default async function StudioLoginPage() {
       {problem ? (
         <div className="flex w-full max-w-sm flex-col gap-5">
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">EverydayM</p>
+            <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink/50">Be a Rocket</p>
             <h1 className="mt-1 text-4xl font-semibold tracking-[-0.03em]">Estudio</h1>
           </div>
           <p role="alert" className="rounded-2xl bg-heat/10 px-4 py-3 text-[15px] font-medium text-heat">

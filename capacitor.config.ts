@@ -13,7 +13,7 @@ const url = process.env.CAP_SERVER_URL ?? 'http://192.168.1.37:3000';
 
 const config: CapacitorConfig = {
   appId: 'com.everydaym.app',
-  appName: 'Everyday M',
+  appName: 'Be a Rocket',
   webDir: 'mobile/www', // only the "no connection" page; the app itself comes from `url`
   backgroundColor: '#e9e9e7',
   server: { url, errorPath: 'index.html' },

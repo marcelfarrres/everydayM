@@ -68,7 +68,7 @@ async function download(objectPath: string, target: string): Promise<string> {
 /** A local file for a media URL: the original on disk (local driver) or a cached download. */
 export async function localSource(url: string): Promise<string> {
   const objectPath = mediaObjectPath(url);
-  if (!objectPath) throw new Error('Hay un vídeo que no es de la biblioteca de EverydayM.');
+  if (!objectPath) throw new Error('Hay un vídeo que no es de la biblioteca de Be a Rocket.');
 
   if (mediaDriver() === 'local') {
     const file = localFilePath(objectPath);

@@ -19,6 +19,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Pruebas**: vitest (`npm run test`, archivos `lib/**/*.test.ts`).
 
 ## 2. Arquitectura de Carpetas
+> El producto se muestra como **«Be a Rocket»** (cabecera, título de la página, app de iPhone, página sin conexión); el código conserva los identificadores `everydaym` (paquete npm, bundle id `com.everydaym.app`, cookie del Estudio, claves de almacenamiento, nombres de archivo).
+
 Todo el código fuente debe respetar estrictamente la separación de responsabilidades:
 
 - `app/` — Rutas del App Router de Next.js:

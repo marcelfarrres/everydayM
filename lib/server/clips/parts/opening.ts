@@ -101,7 +101,7 @@ function keyboardFrame(o: KeyboardFrame): string {
   return full(
     `<defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-opacity="0.25"/></filter></defs>
      <rect width="${W}" height="${H}" fill="${C.paper}"/>
-     ${text(64, 330, 'Everyday M', 44, C.ink, { weight: 800 })}
+     ${text(64, 330, 'Be a Rocket', 44, C.ink, { weight: 800 })}
      ${text(64, 520, '¿Qué entrenamos', 112, C.ink, { weight: 800 })}
      ${text(64, 642, 'hoy?', 112, C.ink, { weight: 800 })}
      <rect x="40" y="720" width="${W - 80}" height="${cardH}" rx="64" fill="#fff" filter="url(#sh)"/>

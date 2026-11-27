@@ -188,7 +188,7 @@ export function fromRoutine(o: {
   };
   const media = mediaFor(spec);
   if (![...media.videos, ...media.talks].every(isAllowedMediaUrl)) {
-    throw new ClipRequestError('Hay un vídeo que no es de la biblioteca de EverydayM.');
+    throw new ClipRequestError('Hay un vídeo que no es de la biblioteca de Be a Rocket.');
   }
   return finish(spec);
 }

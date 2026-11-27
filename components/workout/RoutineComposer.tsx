@@ -1056,7 +1056,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             Cambiar
           </button>
         ) : (
-          <span className={`text-lg font-bold tracking-tight max-lg:transition-colors max-lg:duration-[1200ms] ${darkTop ? 'max-lg:text-white' : 'max-lg:text-ink'}`}>Everyday M</span>
+          <span className={`text-lg font-bold tracking-tight max-lg:transition-colors max-lg:duration-[1200ms] ${darkTop ? 'max-lg:text-white' : 'max-lg:text-ink'}`}>Be a Rocket</span>
         )}
         {onOpenStudio && !(finale && !desktop) && (
           <button
