@@ -129,6 +129,11 @@ describe('the wheel', () => {
       expect(L.panel.x + L.panel.w).toBeGreaterThan(L.band.x1);
       expect(L.padY).toBeLessThan(h);
       expect(L.rocket.height).toBe(rocketBoxHeight(L.rocket.body));
+      // standing on the pad, the whole rocket shows (its top under the base's top) and so does its
+      // lit flame under it (at ignition 1.2 hulls long at the rocket's size there)
+      const k = Math.min(1, (L.padY - 10) / L.rocket.length);
+      expect(L.padY - L.rocket.length * k).toBeGreaterThanOrEqual(0);
+      expect(L.padY + 1.2 * L.rocket.body * k).toBeLessThanOrEqual(h - Math.max(8, safe + 4) + 0.5);
     }
   });
 

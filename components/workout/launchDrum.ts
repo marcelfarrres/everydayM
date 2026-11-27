@@ -252,6 +252,8 @@ export const SCENE = {
   panelLift: 4,
   /** the panel is at least this many centred rockets tall (on a short screen it reaches over the ground) */
   panelMin: 2.9,
+  /** room under the launch pad for the lit flame, in hull thicknesses */
+  flameRoom: 1.15,
 } as const;
 
 /**
@@ -282,7 +284,8 @@ export function baseLayout(width: number, height: number, safeBottom = 0): BaseL
   const px = tower.leftX + tw - 10;
   const panel = { x: px, y: top, w: W - 2 * px, h: Math.round(bottom - top), r: 18 };
   const centreY = Math.round(panel.y + panel.h / 2);
-  const padY = Math.round(Hb - Math.max(8, safeBottom + 4) - 14);
+  // (the pad stands high enough for the lit flame under it to show whole above the screen's bottom)
+  const padY = Math.round(Hb - Math.max(8, safeBottom + 4) - Math.round(body * SCENE.flameRoom));
   return {
     width: W,
     height: Hb,

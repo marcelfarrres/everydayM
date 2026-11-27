@@ -259,6 +259,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const roofOutRef = useRef(false);
   const crewUpRef = useRef(crewUp);
   const [visitor, setVisitor] = useState<Visitor | null>(null);
+  // a launch: the panel no longer cuts (freed), and only the launched rocket is left (kept)
+  const [freed, setFreed] = useState(false);
+  const [kept, setKept] = useState<number | null>(null);
   const visitorRef = useRef<HTMLDivElement>(null);
 
   // ── the moving parts, through refs ───────────────────────────────────────────────────────
@@ -860,15 +863,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     // the layout too) and the panel's edge no longer cuts: the chosen one may stand up below it and
     // fly out of the top (never below the base: the page must not grow a scroll)
     clearWheel(index);
+    // (in React state: a re-render, e.g. on a resize, must not bring the panel's cut back)
     later(LAUNCH.fadeMs, () => {
-      rockets.current.forEach((r, i) => {
-        if (r && i !== index) r.style.display = 'none';
-      });
-      const layer = wheelLayer.current;
-      if (layer) {
-        layer.style.clipPath = 'none';
-        layer.style.overflow = 'visible';
-      }
+      setKept(index);
+      setFreed(true);
     });
 
     const c = crew.current;
@@ -996,12 +994,12 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
             className="pointer-events-none absolute z-[6] rounded-[14px] border-[1.2px] border-white/40 bg-white/8"
             style={{ left: L.band.x0 - 2, width: L.band.x1 - L.band.x0 + 4, top: L.centreY - L.wheel.band, height: 2 * L.wheel.band }}
           />
+          <FlightBox height={L.height} className="z-10">
           <div
             ref={wheelLayer}
-            // (the panel's rounded edge cuts the outer rockets; the layer's own box keeps the ones out
-            // of sight from reaching past the base, where they would make the page scroll)
-            className="absolute inset-0 z-10 overflow-hidden"
-            style={{ clipPath: `inset(${P.y}px ${L.width - P.x - P.w}px ${L.height - P.y - P.h}px ${P.x}px round ${P.r}px)` }}
+            // (the panel's rounded edge cuts the outer rockets until a launch frees the chosen one)
+            className="absolute inset-0"
+            style={freed ? undefined : { clipPath: `inset(${P.y}px ${L.width - P.x - P.w}px ${L.height - P.y - P.h}px ${P.x}px round ${P.r}px)` }}
           >
             <ul role="list" aria-labelledby={`${uid}-title`} aria-describedby={`${uid}-hint`} className="contents">
               {suggestions.map((s, i) => (
@@ -1017,7 +1015,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
                     onClick={() => onRocket(i)}
                     onKeyDown={onKey}
                     className="pad-drum-rocket absolute cursor-pointer rounded-full outline-none [transform-origin:50%_50%] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                    style={{ left: L.rocket.left, top: L.centreY - G.H / 2, width: G.W, height: G.H, opacity: 0 }}
+                    style={{ left: L.rocket.left, top: L.centreY - G.H / 2, width: G.W, height: G.H, opacity: 0, display: kept !== null && i !== kept ? 'none' : undefined }}
                   >
                     <span className="pad-shake pointer-events-none absolute inset-0">
                       <PadRocket g={G} label={fits[i] ? { text: fits[i].text, px: fits[i].px } : null} />
@@ -1027,6 +1025,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
               ))}
             </ul>
           </div>
+          </FlightBox>
           <span
             ref={counterRef}
             data-chrome=""
@@ -1041,6 +1040,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           <Foreground L={L} G={G} track={track} />
           {/* the text bar's rocket, flying from the base (the typed sentence's launch) */}
           {visitor && (
+            <FlightBox height={L.height} className="z-[25]">
             <div
               ref={visitorRef}
               aria-hidden="true"
@@ -1051,6 +1051,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
                 <PadRocket g={visitor.g} label={visitor.label} flame={0.3} parts={{ hatch: false }} windowDoor />
               </span>
             </div>
+            </FlightBox>
           )}
           {/* the crew: one pair, living in the base */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-30" data-crew="">
@@ -1072,6 +1073,21 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Where the rockets fly: the base's own box, reaching far up above it (they fly out of the top of
+ * the screen, uncut) but cut at its bottom and sides, so a lit flame or a rocket out of sight never
+ * makes the page longer than the screen.
+ */
+function FlightBox({ height, className, children }: { height: number; className: string; children: React.ReactNode }) {
+  return (
+    <div className={`pointer-events-none absolute inset-x-0 bottom-0 top-[-100vh] overflow-hidden ${className}`}>
+      <div className="absolute inset-x-0 bottom-0" style={{ height }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1371,7 +1387,8 @@ function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
         {/* the pad: a deck either side of the flame's opening, on legs */}
         <rect x={tx - 12} y={padY} width={cx - gapHalf - (tx - 12)} height={9} rx={1.5} />
         <rect x={cx + gapHalf} y={padY} width={cx - gapHalf - (tx - 12) - 10} height={9} rx={1.5} />
-        <path d={`M${tx - 4} ${padY + 9}V${padY + 15}M${cx - gapHalf - 6} ${padY + 9}V${padY + 15}M${cx + gapHalf + 6} ${padY + 9}V${padY + 15}`} fill="none" strokeWidth={2} />
+        {/* (its legs reach the ground: the pad stands above the flame's room) */}
+        <path d={`M${tx - 4} ${padY + 9}V${H}M${cx - gapHalf - 6} ${padY + 9}V${H}M${cx + gapHalf + 6} ${padY + 9}V${H}`} fill="none" strokeWidth={2} />
         {/* the tower: a steel lattice, no fill */}
         <path d={towerPath(tx, tw, ttop, padY)} fill="none" stroke={DAWN.brace} strokeWidth={1} />
         <path d={`M${tx} ${ttop}V${padY}M${tx + tw} ${ttop}V${padY}`} fill="none" strokeWidth={2.2} />

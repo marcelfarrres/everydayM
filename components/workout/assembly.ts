@@ -98,8 +98,12 @@ export const BASE_DAY: readonly (readonly [number, string])[] = [
   [0.55, '#b7d9f3'],
   [1, '#e9f5fc'],
 ];
-/** The page above the base at full day (CSS). */
-export const PAGE_DAY = 'linear-gradient(180deg, #4d9ae0 0%, #80b9ea 100%)';
+/**
+ * The page above the base at full day (CSS, over the whole page): from the top down to where the
+ * base starts (its height: LaunchBase's), reaching BASE_DAY's first colour exactly there, so the day
+ * sky is one gradient with no seam at the base's top edge.
+ */
+export const PAGE_DAY = 'linear-gradient(180deg, #4d9ae0 0%, #80b9ea calc(100% - clamp(236px, 40dvh, 380px)), #80b9ea 100%)';
 
 // ---------------------------------------------------------------------------------------------
 // Sizes
