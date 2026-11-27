@@ -163,6 +163,7 @@ Rama `feat/creador-montaje`. Solo móvil; el ordenador queda como estaba. Códig
 - **Sin preguntas** (sugerencia del tambor, Random o una frase con tiempo): el despegue de la base de siempre, mientras el cielo se hace de día y sale la frase; el cohete espera acoplado en la plataforma hasta que la rutina está hecha y la frase lleva 3,5 s a la vista; después, el mismo final.
 - **Sonido**: lo que antes se desbloqueaba en «Empezar» se desbloquea en el último toque (la última pieza, «Saltar» o el toque que lanza el cohete sin preguntas), sin sonar; la música empieza con el entrenamiento.
 - **Movimiento reducido**: sin camión ni transiciones, la pieza tocada aparece en su sitio y sale la pregunta siguiente, el cielo cambia a saltos, la frase 3,5 s y corte a blanco.
+- **Sin vuelta atrás** (27-11-2026): en las preguntas del móvil ya no está el «‹ Cambiar» de arriba a la izquierda (solo la marca); en el ordenador sigue.
 - **Bromas** (27-11-2026): «¿Tan poco tiempo tenemos?» solo con menos de 25 min; «¿Tan poco hemos dormido hoy?» solo con Suave.
 
 ## 4. Sonido

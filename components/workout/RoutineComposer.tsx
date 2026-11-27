@@ -999,13 +999,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         />
       )}
       <header className="absolute inset-x-0 top-0 z-10 box-content flex h-16 items-center justify-between px-5 pt-[env(safe-area-inset-top)] sm:px-8">
-        {view !== 'ask' && !(finale && !desktop) ? (
+        {/* (phone: no way back from the questions or the finale; the brand stays at the top) */}
+        {view !== 'ask' && desktop ? (
           <button
             type="button"
             onClick={backToAsk}
-            className={`-ml-2 flex min-h-11 items-center gap-1 rounded-full pl-2 pr-4 text-[15px] font-medium text-ink/75 hover:text-ink ${focusRing} ${
-              darkTop ? 'max-lg:text-white/85 max-lg:transition-colors max-lg:duration-[1200ms] max-lg:hover:text-white max-lg:focus-visible:outline-white' : 'max-lg:transition-colors max-lg:duration-[1200ms]'
-            }`}
+            className={`-ml-2 flex min-h-11 items-center gap-1 rounded-full pl-2 pr-4 text-[15px] font-medium text-ink/75 hover:text-ink ${focusRing}`}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Cambiar
