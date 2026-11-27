@@ -74,6 +74,14 @@ describe('the wheel', () => {
     expect(wheelSlot(3, m).opacity).toBe(0);
     expect(wheelSlot(3, m).visible).toBe(false);
     expect(wheelSlot(-4.4, m).visible).toBe(false);
+    // the ones out of sight wait in the last slot: never laid out further away (they would reach
+    // past the base and make the page scroll)
+    for (let d = -4.5; d <= 4.5; d += 0.25) {
+      const s = wheelSlot(d, m);
+      expect(Math.abs(s.y)).toBeLessThanOrEqual(m.y[3] + 1e-9);
+      expect(s.scale).toBeGreaterThanOrEqual(m.scale[3] - 1e-9);
+      if (Math.abs(d) >= 3) expect(Math.abs(s.y)).toBe(m.y[3]);
+    }
     // in between two places, in between (it moves smoothly)
     let prev = wheelSlot(0, m);
     for (let d = 0.05; d < 3; d += 0.05) {

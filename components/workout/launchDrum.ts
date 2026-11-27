@@ -110,7 +110,8 @@ export function wheelSlot(d: number, m: WheelMetrics): WheelSlot {
   let opacity: number;
   let blur: number;
   if (a >= 3) {
-    y = m.y[3] + (a - 3) * (m.y[3] - m.y[2]);
+    // (the ones out of sight wait in the last slot: never laid out further away)
+    y = m.y[3];
     scale = m.scale[3];
     opacity = 0;
     blur = BLUR_AT[3];

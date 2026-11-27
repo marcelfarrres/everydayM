@@ -856,10 +856,19 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       later(LAUNCH.reducedMs, finish);
       return;
     }
-    // the other rockets leave, the panel and the heading fade (then the panel's edge no longer cuts)
+    // the other rockets leave, the panel and the heading fade; then they are gone for good (out of
+    // the layout too) and the panel's edge no longer cuts: the chosen one may stand up below it and
+    // fly out of the top (never below the base: the page must not grow a scroll)
     clearWheel(index);
     later(LAUNCH.fadeMs, () => {
-      if (wheelLayer.current) wheelLayer.current.style.clipPath = 'none';
+      rockets.current.forEach((r, i) => {
+        if (r && i !== index) r.style.display = 'none';
+      });
+      const layer = wheelLayer.current;
+      if (layer) {
+        layer.style.clipPath = 'none';
+        layer.style.overflow = 'visible';
+      }
     });
 
     const c = crew.current;
@@ -989,7 +998,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           />
           <div
             ref={wheelLayer}
-            className="absolute inset-0 z-10"
+            // (the panel's rounded edge cuts the outer rockets; the layer's own box keeps the ones out
+            // of sight from reaching past the base, where they would make the page scroll)
+            className="absolute inset-0 z-10 overflow-hidden"
             style={{ clipPath: `inset(${P.y}px ${L.width - P.x - P.w}px ${L.height - P.y - P.h}px ${P.x}px round ${P.r}px)` }}
           >
             <ul role="list" aria-labelledby={`${uid}-title`} aria-describedby={`${uid}-hint`} className="contents">
