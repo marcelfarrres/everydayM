@@ -450,11 +450,17 @@ body {
   transform: scaleX(1);
   transition-delay: 240ms;
 }
-/* the clamps let go while the drum turns, and close on the rocket that comes to the centre */
+/* the clamps either side of the wheel's band open while it turns, and snap shut on the rocket it
+   settles on («pum»: a quick overshoot into the hull) */
 .pad-hook-top,
 .pad-hook-bottom,
 .pad-cradle {
-  transition: transform 200ms cubic-bezier(0.3, 0.7, 0.3, 1);
+  transition: transform 170ms cubic-bezier(0.3, 1.9, 0.55, 1);
+}
+[data-moving] .pad-hook-top,
+[data-moving] .pad-hook-bottom,
+[data-moving] .pad-cradle {
+  transition: transform 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 [data-moving] .pad-hook-top {
   transform: translateY(-6px);
@@ -464,6 +470,20 @@ body {
 }
 [data-moving] .pad-cradle {
   transform: translateX(6px);
+}
+/* the structure (towers, ladder, walkway) is out of sight at rest: the right tower with its ladder
+   rises while the crew go up to the text bar, all of it for a launch (data-structure) */
+.pad-st {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 180ms ease-out,
+    transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1.04);
+}
+[data-structure='full'] .pad-st,
+[data-structure='ladder'] .pad-st-right {
+  opacity: 1;
+  transform: none;
 }
 /* the red button: the dome sinks when pressed */
 .pad-dome {
@@ -513,6 +533,46 @@ body {
 }
 .pad-astro[data-mode='climb'] .pad-leg-b {
   animation: pad-climb 0.28s ease-in-out infinite alternate-reverse;
+}
+/* hopping from rocket to rocket while the wheel turns: legs tucked, an arm up; floating over the
+   band (a fast spin): a slow tumble; the landing: a little squash */
+.pad-astro[data-mode='hop'] .pad-leg-a,
+.pad-astro[data-mode='float'] .pad-leg-a {
+  transform: rotate(-24deg);
+}
+.pad-astro[data-mode='hop'] .pad-leg-b,
+.pad-astro[data-mode='float'] .pad-leg-b {
+  transform: rotate(20deg);
+}
+.pad-astro[data-mode='hop'] .pad-arm,
+.pad-astro[data-mode='float'] .pad-arm {
+  transform: rotate(-125deg);
+}
+.pad-astro[data-mode='float'] .pad-sway {
+  animation: pad-float 1.5s ease-in-out var(--pad-delay, 0s) infinite;
+}
+.pad-astro[data-mode='land'] .pad-sway {
+  animation: pad-land 0.22s ease-out;
+}
+@keyframes pad-float {
+  0%,
+  100% {
+    transform: rotate(-9deg);
+  }
+  50% {
+    transform: rotate(9deg);
+  }
+}
+@keyframes pad-land {
+  0% {
+    transform: scale(1.08, 0.78);
+  }
+  55% {
+    transform: scale(0.97, 1.04);
+  }
+  100% {
+    transform: none;
+  }
 }
 @keyframes pad-look {
   0%,
@@ -657,7 +717,8 @@ body {
   .pad-dome,
   .pad-window,
   .pad-ext,
-  .pad-gangway {
+  .pad-gangway,
+  .pad-st {
     transition: none;
   }
 }

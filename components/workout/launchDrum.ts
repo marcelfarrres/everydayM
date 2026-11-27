@@ -1,22 +1,47 @@
 /*
- * The rocket base of the first screen (phone), as pure numbers: the drum of suggestion rockets
- * (a wheel seen from above: the centred one full size, its neighbours smaller and fainter), its
- * snapping and its roulette, where everything sits in the base, and the launch's timeline.
- * LaunchBase.tsx moves the elements with these, frame by frame, through refs.
+ * The rocket base of the first screen (phone), as pure numbers: the selection wheel of suggestion
+ * rockets (five in sight: the chosen one in the centre band at full size, its two neighbours
+ * smaller and fainter, the two outer ones smaller still, faint, a little blurred and cut by the
+ * panel's edge), its inertia and settling, its roulette, where everything sits in the base, and the
+ * launch's timeline. LaunchBase.tsx moves the elements with these, frame by frame, through refs.
  *
- * Positions on the drum are a float `pos`: rocket i is centred when pos ≡ i (mod n).
+ * Positions on the wheel are a float `pos`: rocket i is centred when pos ≡ i (mod n). It wraps
+ * around endlessly.
  */
 
-export const DRUM = {
-  /** radians between two rockets on the wheel */
-  step: 0.62,
-  /** past this angle a rocket is hidden (and not tappable) */
-  hideAt: 1.2,
-  /** a drag of this many px (times the radius share) moves the drum one step */
-  flickMs: 140,
-  snapMs: 320,
-  /** the drum counts as moved once a drag goes this far, px (a shorter one is a tap) */
+export const WHEEL = {
+  /** the neighbours' size (of the centred one's), at most */
+  near: 0.66,
+  /** the outer rockets' size, as a share of the neighbours' */
+  farShare: 0.7,
+  /** their opacity: centre, neighbours, outer ones, gone */
+  opacity: [1, 0.62, 0.3, 0] as readonly number[],
+  /** the outer ones' blur, px (the centre and its neighbours stay crisp) */
+  farBlur: 1.2,
+  /** px between the centred rocket's box and a neighbour's (the band's edge is in the middle) */
+  gap: 6,
+  /** px between a neighbour's box and an outer one's */
+  farGap: 2,
+  /** from this far off the centre (in steps) a rocket can't be tapped */
+  hideAt: 2.7,
+  /** from this far it can't be seen at all: its sentence may change then (Random) */
+  unseenAt: 3,
+  /** a drag counts once it goes this far, px (a shorter one is a tap) */
   dragSlop: 6,
+  /** a plain snap to the nearest rocket, ms */
+  snapMs: 320,
+  /** the glide after a flick: it would travel velocity × this (an exponential slow-down), ms */
+  glideTau: 380,
+  /** the glide's curve: 1 - (1 - p)^glideK (its speed at the start is glideK × distance / time) */
+  glideK: 3,
+  minGlideMs: 240,
+  maxGlideMs: 2400,
+  /** a flick never throws further than this, steps */
+  maxGlideSteps: 30,
+  /** slower than this, steps per ms, the release is a plain snap */
+  flickMin: 0.0015,
+  /** the spin each time the start screen loads, ms */
+  entryMs: 1400,
 } as const;
 
 /** Rocket i's offset from the centre, in steps, wrapped to [-n/2, n/2). */
@@ -27,43 +52,132 @@ export function wrapOffset(i: number, pos: number, n: number): number {
   return d;
 }
 
-export interface DrumSlot {
-  y: number;
-  scale: number;
-  opacity: number;
-  z: number;
-  visible: boolean;
-}
-
-/** Where a rocket `d` steps from the centre sits on a wheel of radius `radius` px. */
-export function drumSlot(d: number, radius: number): DrumSlot {
-  const a = d * DRUM.step;
-  if (Math.abs(a) > DRUM.hideAt) return { y: Math.sign(a) * radius, scale: 0.4, opacity: 0, z: 0, visible: false };
-  const c = Math.cos(a);
-  return {
-    y: Math.sin(a) * radius,
-    scale: 0.4 + 0.6 * c * c,
-    opacity: Math.max(0, Math.min(1, c * c * c)),
-    z: Math.round(c * 100),
-    visible: true,
-  };
-}
-
-/** The centred rocket's index for a drum at `pos`. */
+/** The centred rocket's index for a wheel at `pos`. */
 export function centreIndex(pos: number, n: number): number {
   if (n <= 0) return 0;
   return ((Math.round(pos) % n) + n) % n;
 }
 
-/** The drum position (an integer) that centres rocket `index` with the shortest turn from `pos`. */
+/** The wheel position (an integer) that centres rocket `index` with the shortest turn from `pos`. */
 export function nearestPos(pos: number, index: number, n: number): number {
   return Math.round(pos + wrapOffset(index, pos, n));
 }
 
-/** Where a drag let go at `pos`, moving `velocity` steps per ms, comes to rest (a flick goes further). */
-export function snapTarget(pos: number, velocity: number): number {
-  const throwBy = Math.max(-2, Math.min(2, velocity * DRUM.flickMs));
-  return Math.round(pos + (Number.isFinite(throwBy) ? throwBy : 0));
+/**
+ * The wheel's places for a centred rocket box `h` px tall in a panel `panelH` px tall: each slot's
+ * distance from the centre (px) and size, for 0 (centre), 1 (neighbour), 2 (outer) and 3 (gone).
+ * The neighbours fit whole inside the panel; the outer ones sit on its edge.
+ */
+export interface WheelMetrics {
+  y: readonly [number, number, number, number];
+  scale: readonly [number, number, number, number];
+  /** the selection band's half height, px */
+  band: number;
+}
+
+export function wheelMetrics(h: number, panelH: number): WheelMetrics {
+  const half = panelH / 2;
+  const s1 = Math.max(0.42, Math.min(WHEEL.near, (half - 3 - h / 2 - WHEEL.gap) / h));
+  const s2 = s1 * WHEEL.farShare;
+  const s3 = s2 * 0.8;
+  const y1 = h / 2 + WHEEL.gap + (s1 * h) / 2;
+  // (on the panel's edge, a little more in than out, even when there is room for it whole)
+  const y2 = Math.max(y1 + (s1 * h) / 2 + WHEEL.farGap + (s2 * h) / 2, half - 0.1 * s2 * h);
+  const y3 = y2 + (s2 * h) / 2 + WHEEL.farGap + (s3 * h) / 2;
+  return { y: [0, y1, y2, y3], scale: [1, s1, s2, s3], band: h / 2 + WHEEL.gap / 2 };
+}
+
+export interface WheelSlot {
+  y: number;
+  scale: number;
+  opacity: number;
+  /** px (0: crisp) */
+  blur: number;
+  z: number;
+  /** can be tapped */
+  visible: boolean;
+}
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const BLUR_AT = [0, 0, WHEEL.farBlur, WHEEL.farBlur * 1.4] as const;
+
+/** Where a rocket `d` steps from the centre sits on the wheel (in between two slots: in between). */
+export function wheelSlot(d: number, m: WheelMetrics): WheelSlot {
+  const a = Math.abs(d);
+  const sign = d < 0 ? -1 : 1;
+  let y: number;
+  let scale: number;
+  let opacity: number;
+  let blur: number;
+  if (a >= 3) {
+    y = m.y[3] + (a - 3) * (m.y[3] - m.y[2]);
+    scale = m.scale[3];
+    opacity = 0;
+    blur = BLUR_AT[3];
+  } else {
+    const i = Math.floor(a);
+    const t = a - i;
+    y = lerp(m.y[i], m.y[i + 1], t);
+    scale = lerp(m.scale[i], m.scale[i + 1], t);
+    opacity = lerp(WHEEL.opacity[i], WHEEL.opacity[i + 1], t);
+    blur = lerp(BLUR_AT[i], BLUR_AT[i + 1], t);
+  }
+  return {
+    y: sign * y,
+    scale,
+    opacity: Math.max(0, Math.min(1, opacity)),
+    blur: Math.round(blur * 10) / 10,
+    z: Math.max(0, Math.round(100 - a * 25)),
+    visible: a < WHEEL.hideAt,
+  };
+}
+
+/**
+ * Where a drag let go at `pos`, moving `velocity` steps per ms, comes to rest and how long it
+ * takes: a flick glides on (about velocity × glideTau further), slowing down smoothly, and settles
+ * exactly on a rocket; it starts at the finger's speed (unless the time is capped). A slow release
+ * is a plain snap to the nearest one.
+ */
+export function glide(pos: number, velocity: number): { to: number; dur: number } {
+  const v = Number.isFinite(velocity) ? velocity : 0;
+  const near = Math.round(pos);
+  if (Math.abs(v) < WHEEL.flickMin) return { to: near, dur: WHEEL.snapMs };
+  const throwBy = Math.max(-WHEEL.maxGlideSteps, Math.min(WHEEL.maxGlideSteps, v * WHEEL.glideTau));
+  const to = Math.round(pos + throwBy);
+  // (rounded back against the throw: a plain snap)
+  if ((to - pos) * v <= 0) return { to: near, dur: WHEEL.snapMs };
+  const dur = (WHEEL.glideK * Math.abs(to - pos)) / Math.abs(v);
+  return { to, dur: Math.max(WHEEL.minGlideMs, Math.min(WHEEL.maxGlideMs, dur)) };
+}
+
+/** The glide's slow-down (see WHEEL.glideK). */
+export function glideEase(p: number): number {
+  const t = Math.max(0, Math.min(1, p));
+  return 1 - (1 - t) ** WHEEL.glideK;
+}
+
+/**
+ * The spin each time the start screen loads: from more than a full turn back, fast at first and
+ * slowing down (the roulette's curve) until it stops on `index`.
+ */
+export function entrySpin(index: number, n: number): { from: number; to: number; dur: number } {
+  if (n < 2) return { from: index, to: index, dur: 0 };
+  return { from: index - (n + 3), to: index, dur: WHEEL.entryMs };
+}
+
+/** The wheel's speed at `p` (0..1) of a turn from `from` to `to` over `dur` ms with `ease`, steps per s. */
+export function animSpeed(from: number, to: number, dur: number, p: number, ease: (p: number) => number): number {
+  if (dur <= 0) return 0;
+  const h = 0.004;
+  const a = Math.max(0, Math.min(1, p) - h);
+  const b = Math.min(1, Math.max(0, p) + h);
+  if (b <= a) return 0;
+  return (Math.abs(to - from) * Math.abs(ease(b) - ease(a))) / (((b - a) * dur) / 1000);
+}
+
+/** The clamps either side of the band: open while the wheel moves, shut on the rocket once it settles. */
+export function clampsOpen(moving: boolean): boolean {
+  return moving;
 }
 
 /** How many steps the roulette turns: more than one full turn, landing on another suggestion. */
@@ -90,7 +204,7 @@ export function snapEase(p: number): number {
   return 1 - (1 - t) ** 3;
 }
 
-/** Ratchet clicks owed between two drum positions: one per rocket passing the centre. */
+/** Ratchet clicks owed between two wheel positions: one per rocket passing the centre. */
 export function ticksBetween(prev: number, next: number): number {
   return Math.abs(Math.round(next) - Math.round(prev));
 }
@@ -101,14 +215,19 @@ export function ticksBetween(prev: number, next: number): number {
 export interface BaseLayout {
   width: number;
   height: number;
-  /** the lattice towers, left and right */
+  /** the lattice towers, left and right (out of sight at rest: they come for a launch, or the ladder) */
   tower: { w: number; leftX: number; rightX: number; top: number; bottom: number };
-  /** the rockets of the drum: their box's left edge, length and body thickness */
+  /** the rockets of the wheel: their box's left edge, length and body thickness */
   rocket: { left: number; length: number; body: number; height: number; cx: number };
+  /** the heading row («O elige una rutina hecha» and Random) */
+  head: { y: number; h: number };
+  /** the wheel's translucent panel; its selection band runs between the towers' inner edges */
+  panel: { x: number; y: number; w: number; h: number; r: number };
+  band: { x0: number; x1: number };
   centreY: number;
-  radius: number;
-  /** the red button, its box (fully inside the base, above the safe area and the screen's corners) */
-  random: { x: number; y: number; w: number; h: number };
+  wheel: WheelMetrics;
+  /** the horizon (the ground starts there) */
+  horizon: number;
   /** the launch pad's deck (top) for the launch */
   padY: number;
 }
@@ -116,9 +235,29 @@ export interface BaseLayout {
 /** The rocket's box height for a body of `T` (fins included: padRocketGeometry's H). */
 export const rocketBoxHeight = (T: number) => Math.round((T + 2 * 0.43 * T) * 10) / 10;
 
+export const SCENE = {
+  /** the sketch's width, px: everything in it scales by width / this */
+  sketchW: 320,
+  /** the far skyline's tallest piece (the water tower) above the horizon, sketch px */
+  skylineH: 26,
+  /** the ground's share of the base's height (sketch: 43 of 278) */
+  groundShare: 0.155,
+  /** the least ground: the road must fit, px */
+  minGround: 24,
+  /** the heading row's height, and the gap under it, px */
+  headH: 40,
+  headGap: 6,
+  /** the panel ends this far above the horizon (unless it needs the room) */
+  panelLift: 4,
+  /** the panel is at least this many centred rockets tall (on a short screen it reaches over the ground) */
+  panelMin: 2.9,
+} as const;
+
 /**
- * The base `width` × `height` px, with `safeBottom` px of the screen's bottom inset (home bar).
- * The centred rocket and its two neighbours never reach the red button, nor out of the base.
+ * The base `width` × `height` px, with `safeBottom` px of the screen's bottom inset (home bar):
+ * the heading row on top, the wheel's panel under it down to the horizon (further, over the
+ * ground, on a short screen, so the five fit), the rocket as ever between the towers' places
+ * (the launch needs them there).
  */
 export function baseLayout(width: number, height: number, safeBottom = 0): BaseLayout {
   const W = Math.max(280, width);
@@ -133,43 +272,35 @@ export function baseLayout(width: number, height: number, safeBottom = 0): BaseL
   const length = W - inner - left;
   const rocketH = rocketBoxHeight(body);
 
-  const small = Hb < 270;
-  const rw = small ? 56 : 64;
-  const rh = Math.round(rw * 1.12);
-  // never in the screen's rounded corner: well in from the right edge, above the home bar
-  const rightIn = Math.max(40, Math.round(W * 0.11));
-  const random = { x: W - rightIn - rw, y: Math.round(Hb - Math.max(8, safeBottom + 6) - rh), w: rw, h: rh };
-
-  // the wheel: the neighbours (at step 0.62, scale ~0.8) just clear the centred one
-  const neighbour = drumSlot(1, 1);
-  const radius = Math.round((rocketH * (1 + neighbour.scale) * 0.5 * 0.92) / neighbour.y);
-  const reach = neighbour.y * radius + (rocketH * neighbour.scale) / 2;
-  const lowest = random.y - 4; // the lower neighbour stays above the button
-  const highest = 8;
-  let centreY = Math.round((highest + reach + (lowest - reach)) / 2);
-  centreY = Math.max(Math.round(highest + reach), Math.min(Math.round(lowest - reach), centreY));
+  const ground = Math.max(SCENE.minGround, Math.round(Hb * SCENE.groundShare));
+  const horizon = Hb - ground;
+  const head = { y: 0, h: SCENE.headH };
+  const top = head.y + head.h + SCENE.headGap;
+  const floor = Hb - Math.max(8, safeBottom + 6);
+  const bottom = Math.min(floor, Math.max(horizon - SCENE.panelLift, top + rocketH * SCENE.panelMin));
+  const px = tower.leftX + tw - 10;
+  const panel = { x: px, y: top, w: W - 2 * px, h: Math.round(bottom - top), r: 18 };
+  const centreY = Math.round(panel.y + panel.h / 2);
   const padY = Math.round(Hb - Math.max(8, safeBottom + 4) - 14);
-  return { width: W, height: Hb, tower, rocket: { left, length, body, height: rocketH, cx: left + length / 2 }, centreY, radius, random, padY };
+  return {
+    width: W,
+    height: Hb,
+    tower,
+    rocket: { left, length, body, height: rocketH, cx: left + length / 2 },
+    head,
+    panel,
+    band: { x0: tower.leftX + tw, x1: tower.rightX },
+    centreY,
+    wheel: wheelMetrics(rocketH, panel.h),
+    horizon,
+    padY,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
-// The scene behind the drum ("Amanecer", approved 26-11-2026: fondos-base.html, variant A): a dawn
-// sky from the page's own dark down to a warm horizon, a far skyline, the ground with its road,
-// steel towers, and the Random button on a console bolted to the right tower. The sketch is drawn
-// 320 px wide; its pieces scale with the base's width (`k`).
-
-export const SCENE = {
-  /** the sketch's width, px: everything in it scales by width / this */
-  sketchW: 320,
-  /** the far skyline's tallest piece (the water tower) above the horizon, sketch px */
-  skylineH: 26,
-  /** the ground's share of the base's height (sketch: 43 of 278) */
-  groundShare: 0.155,
-  /** the least ground: the road must fit, px */
-  minGround: 24,
-  /** the rail's light marks, px apart (they run while the drum turns) */
-  railPitch: 24,
-} as const;
+// The scene behind the wheel ("Amanecer", approved 26-11-2026: fondos-base.html, variant A): a
+// dawn sky from the page's own dark down to a warm horizon, a far skyline, the ground with its
+// road. The sketch is drawn 320 px wide; its pieces scale with the base's width (`k`).
 
 export interface BaseScene {
   k: number;
@@ -178,42 +309,15 @@ export interface BaseScene {
   skylineTop: number;
   /** the road on the ground */
   road: { top: number; h: number };
-  /** the console of the Random button: its two brackets to the right tower (y, from x0 to x1) and two legs to the ground (x, from y0 down) */
-  console: { brackets: [number, number]; x0: number; x1: number; legs: [number, number]; legTop: number };
 }
 
-/** The bottom of the lowest drum rocket that can be seen (the neighbour under the centred one), px. */
-export function lowestRocketBottom(L: BaseLayout): number {
-  const n1 = drumSlot(1, L.radius);
-  return L.centreY + n1.y + (L.rocket.height * n1.scale) / 2;
-}
-
-/**
- * The scene for a base `L`: the horizon as low as the sketch has it, but always under the lowest
- * rocket with the whole skyline too (nothing of it behind a label), and with room for the road.
- */
+/** The scene for a base `L`: the horizon as low as the sketch has it, with room for the road. */
 export function baseScene(L: BaseLayout): BaseScene {
   const k = L.width / SCENE.sketchW;
-  const ground = Math.max(SCENE.minGround, Math.round(L.height * SCENE.groundShare));
-  const clearOfRockets = lowestRocketBottom(L) + 2 + SCENE.skylineH * k;
-  const horizon = Math.round(Math.min(L.height - SCENE.minGround, Math.max(clearOfRockets, L.height - ground)));
+  const horizon = L.horizon;
   const below = L.height - horizon;
   const road = { top: horizon + Math.round(below * 0.21), h: Math.max(12, Math.round(below * 0.46)) };
-  const r = L.random;
-  const u = r.w / 64; // the button's drawing is 64 × 72
-  return {
-    k,
-    horizon,
-    skylineTop: horizon - SCENE.skylineH * k,
-    road,
-    console: {
-      brackets: [Math.round(r.y + r.h * 0.17), Math.round(r.y + r.h * 0.7)],
-      x0: r.x + r.w - 2,
-      x1: L.tower.rightX + 2,
-      legs: [Math.round(r.x + 8 * u), Math.round(r.x + r.w - 11 * u)],
-      legTop: r.y + r.h - 3,
-    },
-  };
+  return { k, horizon, skylineTop: horizon - SCENE.skylineH * k, road };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -300,14 +404,14 @@ export function barOnPad(L: BaseLayout, barLength: number, barBody: number): { s
 }
 
 /**
- * When, during a roulette from `from` turning `steps`, the rocket `index` is out of sight (two
- * steps or more from the centre), as a share of the spin (0..1): its sentence can be changed then
+ * When, during a roulette from `from` turning `steps`, the rocket `index` is out of sight
+ * (WHEEL.unseenAt steps or more from the centre), as a share of the spin (0..1): its sentence can be changed then
  * without anyone seeing it. 0 when it already is; the fastest moment when it never is.
  */
 export function rouletteSwapAt(from: number, steps: number, n: number, index: number): number {
   for (let i = 0; i <= 200; i++) {
     const p = i / 200;
-    if (Math.abs(wrapOffset(index, from + steps * rouletteEase(p), n)) >= 2) return p;
+    if (Math.abs(wrapOffset(index, from + steps * rouletteEase(p), n)) >= WHEEL.unseenAt) return p;
   }
   return 0;
 }

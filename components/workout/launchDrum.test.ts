@@ -1,28 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import {
   BAR_LAUNCH,
-  DRUM,
   LAUNCH,
+  SCENE,
+  WHEEL,
+  animSpeed,
   barLaunchTimeline,
   barOnPad,
   baseLayout,
   baseScene,
-  lowestRocketBottom,
-  SCENE,
   centreIndex,
-  drumSlot,
+  clampsOpen,
+  entrySpin,
+  glide,
+  glideEase,
   launchTimeline,
   nearestPos,
   rocketBoxHeight,
   rouletteEase,
   rouletteMs,
   rouletteSteps,
-  snapTarget,
   ticksBetween,
+  wheelMetrics,
+  wheelSlot,
   wrapOffset,
 } from './launchDrum';
 
-describe('the drum', () => {
+const screens: [number, number, number][] = [
+  [320, 236, 0],
+  [320, 227, 0],
+  [360, 292, 0],
+  [375, 325, 34],
+  [390, 337.6, 0],
+  [390, 338, 34],
+  [430, 372, 34],
+  [600, 380, 20],
+];
+
+describe('the wheel', () => {
   it('wraps offsets around the wheel', () => {
     for (let i = 0; i < 9; i++) {
       for (const pos of [-12.3, -1, 0, 0.5, 4.2, 17]) {
@@ -39,25 +54,128 @@ describe('the drum', () => {
     expect(nearestPos(17, 7, 9)).toBe(16);
   });
 
-  it('shows the centred rocket whole, its neighbours smaller and fainter, the rest hidden', () => {
-    const centre = drumSlot(0, 100);
-    expect(centre).toMatchObject({ y: 0, scale: 1, opacity: 1, visible: true });
-    const next = drumSlot(1, 100);
-    expect(next.scale).toBeLessThan(1);
-    expect(next.opacity).toBeLessThan(1);
-    expect(next.y).toBeGreaterThan(0);
-    expect(drumSlot(-1, 100).y).toBeCloseTo(-next.y, 6);
-    expect(next.z).toBeLessThan(centre.z);
-    expect(drumSlot(2, 100).visible).toBe(false);
-    expect(drumSlot(3, 100).visible).toBe(false);
+  it('shows five: the centred one whole and crisp, its neighbours smaller and fainter, the outer ones smaller still, fainter and blurred', () => {
+    const m = wheelMetrics(78, 234);
+    const at = [0, 1, 2].map((d) => wheelSlot(d, m));
+    expect(at[0]).toMatchObject({ y: 0, scale: 1, opacity: 1, blur: 0, visible: true });
+    expect(at[1].scale).toBeLessThan(0.75);
+    expect(at[1].opacity).toBeLessThan(1);
+    expect(at[1].blur).toBe(0);
+    expect(at[2].scale).toBeLessThan(at[1].scale);
+    expect(at[2].opacity).toBeLessThan(at[1].opacity);
+    expect(at[2].blur).toBeGreaterThan(0);
+    expect(at[2].visible).toBe(true);
+    for (const d of [1, 2]) {
+      expect(wheelSlot(-d, m).y).toBeCloseTo(-wheelSlot(d, m).y, 6);
+      expect(wheelSlot(-d, m).scale).toBeCloseTo(wheelSlot(d, m).scale, 6);
+      expect(wheelSlot(d, m).z).toBeLessThan(wheelSlot(d - 1, m).z);
+    }
+    // the rest: gone (not seen, not tappable)
+    expect(wheelSlot(3, m).opacity).toBe(0);
+    expect(wheelSlot(3, m).visible).toBe(false);
+    expect(wheelSlot(-4.4, m).visible).toBe(false);
+    // in between two places, in between (it moves smoothly)
+    let prev = wheelSlot(0, m);
+    for (let d = 0.05; d < 3; d += 0.05) {
+      const s = wheelSlot(d, m);
+      expect(s.y).toBeGreaterThan(prev.y);
+      expect(s.scale).toBeLessThanOrEqual(prev.scale + 1e-9);
+      expect(s.opacity).toBeLessThanOrEqual(prev.opacity + 1e-9);
+      prev = s;
+    }
   });
 
-  it('snaps to a rocket, a flick going a little further', () => {
-    expect(snapTarget(3.4, 0)).toBe(3);
-    expect(snapTarget(3.6, 0)).toBe(4);
-    expect(snapTarget(3.4, 0.01)).toBe(5);
-    expect(snapTarget(3.4, -1)).toBe(1); // at most two more
-    expect(snapTarget(2, Number.NaN)).toBe(2);
+  it('never lets two rockets overlap, keeps the neighbours whole in the panel and cuts the outer ones on its edge', () => {
+    for (const [w, h, safe] of screens) {
+      const L = baseLayout(w, h, safe);
+      const H0 = L.rocket.height;
+      const m = L.wheel;
+      const half = L.panel.h / 2;
+      const box = (d: number) => {
+        const s = wheelSlot(d, m);
+        return { top: s.y - (H0 * s.scale) / 2, bottom: s.y + (H0 * s.scale) / 2 };
+      };
+      for (const d of [0, 1, 2]) expect(box(d + 1).top).toBeGreaterThanOrEqual(box(d).bottom - 1e-6);
+      // the neighbours whole inside; the centre band holds the centred one and no neighbour
+      expect(box(1).bottom).toBeLessThanOrEqual(half);
+      expect(m.band).toBeGreaterThanOrEqual(H0 / 2);
+      expect(box(1).top).toBeGreaterThanOrEqual(m.band);
+      // the outer ones: partly in, partly cut ("there is more")
+      expect(box(2).top).toBeLessThan(half);
+      expect(box(2).bottom).toBeGreaterThan(half);
+      // and the panel stays inside the base
+      expect(L.panel.y + L.panel.h).toBeLessThanOrEqual(L.height - Math.max(8, safe + 6) + 0.5);
+      expect(L.panel.y).toBeGreaterThanOrEqual(L.head.y + L.head.h);
+      expect(Math.abs(L.centreY - (L.panel.y + L.panel.h / 2))).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it("keeps the rockets, as ever, between the towers' places, and the band between their inner edges", () => {
+    for (const [w, h, safe] of screens) {
+      const L = baseLayout(w, h, safe);
+      expect(L.rocket.left - L.rocket.body / 2).toBeGreaterThan(L.tower.leftX + L.tower.w);
+      expect(L.rocket.left + L.rocket.length).toBeLessThan(L.tower.rightX);
+      expect(L.band.x0).toBe(L.tower.leftX + L.tower.w);
+      expect(L.band.x1).toBe(L.tower.rightX);
+      expect(L.panel.x).toBeLessThan(L.band.x0);
+      expect(L.panel.x + L.panel.w).toBeGreaterThan(L.band.x1);
+      expect(L.padY).toBeLessThan(h);
+      expect(L.rocket.height).toBe(rocketBoxHeight(L.rocket.body));
+    }
+  });
+
+  it('glides on after a flick, slowing down, and settles exactly on a rocket', () => {
+    // a slow release: the nearest one
+    expect(glide(3.4, 0)).toEqual({ to: 3, dur: WHEEL.snapMs });
+    expect(glide(3.6, 0.0001)).toEqual({ to: 4, dur: WHEEL.snapMs });
+    expect(glide(2, Number.NaN).to).toBe(2);
+    // a flick: further the harder, always on a whole rocket, in its direction
+    const soft = glide(3.2, 0.005);
+    const hard = glide(3.2, 0.03);
+    expect(Number.isInteger(soft.to) && Number.isInteger(hard.to)).toBe(true);
+    expect(soft.to).toBeGreaterThan(3.2);
+    expect(hard.to - 3.2).toBeGreaterThan(soft.to - 3.2);
+    expect(hard.to).toBe(Math.round(3.2 + 0.03 * WHEEL.glideTau));
+    expect(glide(3.2, -0.03).to).toBe(Math.round(3.2 - 0.03 * WHEEL.glideTau));
+    // it starts at the finger's speed (steps per ms) and slows down to nothing
+    const v0 = (WHEEL.glideK * (hard.to - 3.2)) / hard.dur;
+    expect(v0).toBeCloseTo(0.03, 3);
+    expect(glideEase(0)).toBe(0);
+    expect(glideEase(1)).toBe(1);
+    expect(animSpeed(3.2, hard.to, hard.dur, 0.999, glideEase)).toBeLessThan(0.1);
+    // within bounds, however hard
+    const wild = glide(0, 5);
+    expect(wild.to).toBeLessThanOrEqual(WHEEL.maxGlideSteps);
+    expect(wild.dur).toBeGreaterThanOrEqual(WHEEL.minGlideMs);
+    expect(glide(0, 0.002).dur).toBeLessThanOrEqual(WHEEL.maxGlideMs);
+    // around and around: any end is a rocket of the wheel
+    for (const pos of [-40.3, -3.7, 0.2, 55.5]) {
+      for (const v of [-0.05, -0.01, 0, 0.01, 0.05]) {
+        const { to } = glide(pos, v);
+        expect(Number.isInteger(to)).toBe(true);
+        expect(centreIndex(to, 9)).toBeGreaterThanOrEqual(0);
+        expect(centreIndex(to, 9)).toBeLessThan(9);
+      }
+    }
+  });
+
+  it('spins by itself on entering, more than a full turn, and stops on the rocket it had', () => {
+    for (const index of [0, 4, 8]) {
+      const spin = entrySpin(index, 9);
+      expect(spin.to).toBe(index);
+      expect(spin.to - spin.from).toBeGreaterThan(9);
+      expect(spin.dur).toBeGreaterThanOrEqual(1200);
+      expect(spin.dur).toBeLessThanOrEqual(1600);
+      // fast at first, slow at the end
+      expect(animSpeed(spin.from, spin.to, spin.dur, 0.02, rouletteEase)).toBeGreaterThan(15);
+      expect(animSpeed(spin.from, spin.to, spin.dur, 0.98, rouletteEase)).toBeLessThan(0.5);
+    }
+    expect(entrySpin(0, 1).dur).toBe(0);
+  });
+
+  it('opens the clamps while the wheel moves and shuts them once it settles', () => {
+    expect(clampsOpen(true)).toBe(true);
+    expect(clampsOpen(false)).toBe(false);
   });
 
   it('spins the roulette more than a full turn and lands on another suggestion', () => {
@@ -83,44 +201,6 @@ describe('the drum', () => {
     expect(ticksBetween(0, 0.6)).toBe(1);
     expect(ticksBetween(0, 11)).toBe(11);
     expect(ticksBetween(3.2, 1.7)).toBe(1);
-  });
-});
-
-describe('the base layout', () => {
-  const screens: [number, number, number][] = [
-    [320, 236, 0],
-    [360, 292, 0],
-    [375, 325, 34],
-    [390, 338, 34],
-    [430, 372, 34],
-    [600, 380, 20],
-  ];
-
-  it('keeps "Random" whole, above the home bar and clear of the rounded corners', () => {
-    for (const [w, h, safe] of screens) {
-      const { random } = baseLayout(w, h, safe);
-      expect(random.x).toBeGreaterThan(0);
-      expect(random.x + random.w).toBeLessThanOrEqual(w - 40);
-      expect(random.y).toBeGreaterThan(0);
-      expect(random.y + random.h).toBeLessThanOrEqual(h - Math.max(8, safe + 6) + 0.5);
-    }
-  });
-
-  it('keeps the centred rocket and its neighbours inside the base and off the button', () => {
-    for (const [w, h, safe] of screens) {
-      const L = baseLayout(w, h, safe);
-      const n1 = drumSlot(1, L.radius);
-      const half = (rocketBoxHeight(L.rocket.body) * n1.scale) / 2;
-      expect(L.centreY - n1.y - half).toBeGreaterThanOrEqual(0);
-      expect(L.centreY + n1.y + half).toBeLessThanOrEqual(L.random.y);
-      // the centred one and its neighbours barely touch (fins only)
-      expect(n1.y).toBeGreaterThan(L.rocket.height * 0.8);
-      // the rockets lie between the towers
-      expect(L.rocket.left).toBeGreaterThan(L.tower.leftX + L.tower.w);
-      expect(L.rocket.left + L.rocket.length).toBeLessThan(L.tower.rightX);
-      expect(L.padY).toBeLessThan(h);
-      expect(DRUM.step).toBeGreaterThan(0);
-    }
   });
 });
 
@@ -169,47 +249,14 @@ describe('the launch', () => {
 });
 
 describe('the dawn scene ("Amanecer")', () => {
-  const screens: [number, number, number][] = [
-    [320, 236, 0],
-    [320, 227, 0],
-    [360, 292, 0],
-    [375, 325, 34],
-    [390, 337.6, 34],
-    [390, 337.6, 0],
-    [430, 372, 34],
-    [600, 380, 20],
-  ];
-
-  it('puts the horizon, and the whole skyline, under the lowest rocket, with room for the road', () => {
+  it('keeps the ground and its road under the horizon, inside the base', () => {
     for (const [w, h, safe] of screens) {
       const L = baseLayout(w, h, safe);
       const s = baseScene(L);
-      expect(s.skylineTop).toBeGreaterThan(lowestRocketBottom(L));
       expect(s.horizon).toBeLessThanOrEqual(L.height - SCENE.minGround);
+      expect(s.skylineTop).toBeLessThan(s.horizon);
       expect(s.road.top).toBeGreaterThan(s.horizon);
       expect(s.road.top + s.road.h).toBeLessThanOrEqual(L.height);
-    }
-  });
-
-  it('keeps the Random console whole inside the screen, bolted to the right tower and standing on the ground', () => {
-    for (const [w, h, safe] of screens) {
-      const L = baseLayout(w, h, safe);
-      const { console: c } = baseScene(L);
-      expect(L.random.x).toBeGreaterThan(0);
-      expect(L.random.x + L.random.w).toBeLessThanOrEqual(w - 40);
-      expect(L.random.w).toBeGreaterThanOrEqual(44);
-      expect(L.random.h).toBeGreaterThanOrEqual(44);
-      expect(c.x0).toBeLessThan(c.x1);
-      expect(c.x1).toBeGreaterThan(L.tower.rightX);
-      for (const y of c.brackets) {
-        expect(y).toBeGreaterThan(L.random.y);
-        expect(y).toBeLessThan(L.random.y + L.random.h);
-      }
-      for (const x of c.legs) {
-        expect(x).toBeGreaterThan(L.random.x);
-        expect(x).toBeLessThan(L.random.x + L.random.w);
-      }
-      expect(c.legTop).toBeLessThan(L.height);
     }
   });
 });

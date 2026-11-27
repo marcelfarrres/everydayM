@@ -26,15 +26,13 @@ export const DAWN = {
   car: '#0f0e0d',
   carEdge: '#9a8f88',
   headlight: '#fff1cf',
-  /** the steel: chords, bracing, plates, the rail's marks and the ladder (light, to read on the steel) */
+  /** the steel: chords, bracing, plates and the ladder (light, to read on the steel) */
   steel: '#7a6f69',
   brace: '#5a514c',
   plate: '#322e2c',
   dark: '#171514',
-  mark: '#a39890',
   ladder: '#cfc6bf',
   hazard: '#f2c230',
-  label: '#f4f3f0',
 } as const;
 
 /** A dark steel lattice tower: two chords, alternating diagonals, horizontals, a cap and a red beacon. */

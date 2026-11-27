@@ -3,7 +3,11 @@ import {
   CREW,
   barRoof,
   boardingPlan,
-  climbTarget,
+  HOP,
+  crewAirTarget,
+  crewLift,
+  hopMode,
+  stepAir,
   crewFacing,
   crewMode,
   crewMove,
@@ -49,9 +53,7 @@ describe('the crew', () => {
     for (let from = 0; from < 166; from += 11) expect(Math.abs(crewMove(from, 0, 16, track) - from)).toBeLessThanOrEqual((CREW.walk * 16) / 1000 + 1e-9);
   });
 
-  it('climbs up and down while the drum turns, and knows how it looks', () => {
-    expect(climbTarget(true, track)).toBe(166);
-    expect(climbTarget(false, track)).toBeCloseTo(90 + 76 * CREW.climbLow, 6);
+  it('knows how it looks', () => {
     expect(crewMode(30, 30, track)).toBe('stand');
     expect(crewMode(30, 80, track)).toBe('walk');
     expect(crewMode(90, 120, track)).toBe('climb');
@@ -129,8 +131,7 @@ describe('the crew on the text bar (field focused)', () => {
     expect(end.y).toBe(-61);
     expect(onRoof(trackEnd(up), up)).toBe(true);
     expect(onRoof(deck + ladder, up)).toBe(false);
-    // the drum's climbing still stops at the tower's top
-    expect(climbTarget(true, up)).toBe(deck + towerUp);
+    expect(crewPoint(deck + towerUp, up).onLadder).toBe(true);
     // waiting: the leader at the far end, the other one gap behind
     const stands = roofStands(up, 25)!;
     expect(stands.a).toBeCloseTo(trackEnd(up), 6);
@@ -208,5 +209,66 @@ describe('the crew on the text bar (field focused)', () => {
     const far = boardingPlan(track.standA, track.standB, up, 600, win);
     expect(far.walkMs).toBe(600);
     expect(far.hurry).toBeGreaterThan(1);
+  });
+});
+
+describe('the crew while the wheel turns', () => {
+  const T = 40;
+
+  it('hops from rocket to rocket: down on each one as it is centred, up in between', () => {
+    expect(crewLift({ pos: 3, air: 0, t: 0, remainingMs: null, T })).toBeCloseTo(0, 6);
+    expect(crewLift({ pos: 3.5, air: 0, t: 0, remainingMs: null, T })).toBeCloseTo(HOP.height * T, 6);
+    expect(crewLift({ pos: -2.5, air: 0, t: 0, remainingMs: null, T })).toBeCloseTo(HOP.height * T, 6);
+    // the second one a little later
+    expect(crewLift({ pos: 3 + HOP.lag, lag: HOP.lag, air: 0, t: 0, remainingMs: null, T })).toBeCloseTo(0, 6);
+    for (let p = 0; p < 2; p += 0.05) expect(crewLift({ pos: p, air: 0, t: 0, remainingMs: null, T })).toBeGreaterThanOrEqual(0);
+  });
+
+  it('stays up in the air when the wheel turns fast or long, and comes back to hopping when it slows', () => {
+    expect(crewAirTarget(0.5, 100)).toBe(0);
+    expect(crewAirTarget(2, 300)).toBe(0);
+    expect(crewAirTarget(HOP.airFull, 0)).toBe(1);
+    expect(crewAirTarget(-HOP.airFull * 2, 0)).toBe(1);
+    expect(crewAirTarget((HOP.airFrom + HOP.airFull) / 2, 0)).toBeCloseTo(0.5, 6);
+    // long: up while it still turns at a fair pace, not when it crawls
+    expect(crewAirTarget(2, HOP.longMs + 1)).toBe(1);
+    expect(crewAirTarget(1, HOP.longMs + 1)).toBe(0);
+    // floating: up, bobbing a little, never on the rocket
+    for (let t = 0; t < 2000; t += 50) {
+      const lift = crewLift({ pos: 4, air: 1, t, remainingMs: null, T });
+      expect(lift).toBeGreaterThan((HOP.float - HOP.bob) * T - 1e-6);
+      expect(lift).toBeLessThan((HOP.float + HOP.bob) * T + 1e-6);
+    }
+    // the air level changes smoothly, toward its target, never past it
+    let air = 0;
+    for (let i = 0; i < 30; i++) {
+      const next = stepAir(air, 1, 16);
+      expect(next).toBeGreaterThan(air);
+      expect(next).toBeLessThan(1);
+      expect(next - air).toBeLessThan(0.15);
+      air = next;
+    }
+    expect(stepAir(0.6, 0, 16)).toBeLessThan(0.6);
+    expect(stepAir(0.6, 0, 16)).toBeGreaterThan(0);
+  });
+
+  it('drops onto the chosen rocket exactly as the wheel stops', () => {
+    const at = (remainingMs: number | null, air = 1) => crewLift({ pos: 7.3, air, t: 300, remainingMs, T });
+    expect(at(0)).toBe(0);
+    expect(at(HOP.dropMs)).toBeCloseTo(at(null), 6);
+    expect(at(HOP.dropMs * 3)).toBeCloseTo(at(null), 6);
+    // coming down all the way, faster near the end
+    let prev = at(HOP.dropMs);
+    let prevStep = 0;
+    for (let r = HOP.dropMs - 20; r >= 0; r -= 20) {
+      const lift = at(r);
+      expect(lift).toBeLessThanOrEqual(prev + 1e-9);
+      expect(prev - lift).toBeGreaterThanOrEqual(prevStep - 1e-9);
+      prevStep = prev - lift;
+      prev = lift;
+    }
+    expect(hopMode(0, 1, T)).toBe('stand');
+    expect(hopMode(10, 0.2, T)).toBe('hop');
+    expect(hopMode(30, 0.9, T)).toBe('float');
   });
 });

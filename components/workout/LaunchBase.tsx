@@ -23,42 +23,48 @@ import { fitDrumLabel } from '@/components/workout/drumLabel';
 import { stepsTo, type RandomLanding } from '@/components/workout/drumRandom';
 import {
   BAR_LAUNCH,
-  DRUM,
   LAUNCH,
+  WHEEL,
+  animSpeed,
   barLaunchTimeline,
   barOnPad,
   baseLayout,
   baseScene,
   centreIndex,
-  drumSlot,
+  clampsOpen,
+  entrySpin,
+  glide,
+  glideEase,
   launchTimeline,
   nearestPos,
   rouletteEase,
   rouletteMs,
   rouletteSteps,
   rouletteSwapAt,
-  snapEase,
-  snapTarget,
   ticksBetween,
+  wheelSlot,
   wrapOffset,
-  SCENE,
   type BaseLayout,
   type BaseScene,
   type LaunchTimeline,
 } from '@/components/workout/launchDrum';
 import {
   CREW,
+  HOP,
   barRoof,
   boardingPlan,
-  climbTarget,
+  crewAirTarget,
   crewFacing,
+  crewLift,
   crewMode,
   crewMove,
   crewPoint,
+  hopMode,
   onRoof,
   remapOnTrack,
   roofSpot,
   roofStands,
+  stepAir,
   stepSoundDue,
   stepsCrossed,
   trackPath,
@@ -72,30 +78,39 @@ import { DAWN, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/work
 import { BASE_DAY } from '@/components/workout/assembly';
 
 /*
- * The rocket base of the first screen (phone): today's suggestions as rockets on a vertical drum
- * between two lattice towers. Dragging turns the drum like a wheel seen from above and it snaps to
- * a rocket on release; the centred one is held by the clamps, its engine lit and trembling. The red
- * button spins it like a roulette. Tapping a rocket off the centre brings it there; tapping the
- * centred one launches it: the two astronauts board through the hatch, the rest of the base goes,
- * the rocket stands up, the launch tower slides in and docks, ignition, lift-off; then `onLaunch`
- * (the creator carries on exactly as when a suggestion was picked).
+ * The rocket base of the first screen (phone). At rest it is calm: the dawn scene, a heading
+ * («O elige una rutina hecha») with a small round Random button, and one translucent panel holding
+ * a selection wheel of today's suggestions as rockets: five in sight, the chosen one full size in
+ * the band across the middle (held by two clamps, its engine lit and trembling, the crew on its
+ * top), its neighbours smaller and fainter, the outer ones smaller still, faint, blurred and cut by
+ * the panel's edge. Dragging turns it with inertia (a flick glides on and slows down) and it always
+ * settles on a rocket; it wraps around. Each time the screen loads it spins by itself and slows
+ * down. While it turns the clamps open and the crew hop from rocket to rocket (up in the air if it
+ * goes fast or long); as it settles the clamps snap shut and the crew land on the chosen one.
+ * Random spins it like a roulette. Tapping a rocket off the centre brings it there; tapping the
+ * centred one launches it: now the structure (towers, ladder, walkway) rises into view, the other
+ * rockets, the panel and the heading go, the two astronauts board through the hatch, the rocket
+ * stands up, the launch tower slides in and docks, ignition, lift-off; then `onLaunch` (the creator
+ * carries on exactly as when a suggestion was picked).
  *
  * The text bar above the base (the sentence's rocket) is part of the show: while its field has
- * focus (`crewUp`) the right tower's ladder telescopes up to the bar and the crew climb onto the
- * bar's top to wait there; a typed sentence (`launchBar`, through the ref) takes off with the same
- * launch: the crew get in through its round window, it comes down to the pad while the drum
- * clears away, stands up, the tower docks, lift-off.
+ * focus (`crewUp`) the right tower rises into view with its ladder, the ladder telescopes up to the
+ * bar and the crew climb onto the bar's top to wait there (the tower sinks away again once they
+ * are back down); a typed sentence (`launchBar`, through the ref) takes off with the same launch:
+ * the rest of the structure comes, the crew get in through its round window, it comes down to the
+ * pad while the wheel clears away, stands up, the tower docks, lift-off.
  *
  * Performance: nothing here re-renders per frame. One requestAnimationFrame loop (running only
- * while something moves) writes transforms and opacity through refs; React state changes only when
- * the drum settles, on resize and when the fonts arrive (to fit the labels).
+ * while something moves) writes transforms, opacity and the outer rockets' blur through refs; a
+ * rocket at rest has no transform left at all. React state changes only when the wheel settles,
+ * on resize and when the fonts arrive (to fit the labels).
  */
 
 interface LaunchBaseProps {
   suggestions: readonly string[];
   /** the rocket at the centre when it appears (the last one, after "Cambiar") */
   initialIndex: number;
-  /** the drum came to rest with this rocket at the centre */
+  /** the wheel came to rest with this rocket at the centre */
   onCentre: (index: number) => void;
   /** the centred rocket was tapped: its launch starts (block the rest of the screen); inside the tap */
   onLaunchStart?: (suggestion: string) => void;
@@ -107,7 +122,7 @@ interface LaunchBaseProps {
   liftGate?: (go: () => void) => boolean;
   /** a held launch (liftGate) lifts off now: where its pad is on the screen, px */
   onLiftOff?: (pad: { x: number; y: number }) => void;
-  /** Random: where to land (any sentence of the bank; null: one of the drum's at random) */
+  /** Random: where to land (any sentence of the bank; null: one of the wheel's at random) */
   onRandom?: (centre: number) => RandomLanding | null;
   /** ...and put that sentence on that rocket (called while it is out of sight) */
   onSwap?: (index: number, text: string) => void;
@@ -144,10 +159,14 @@ interface Visitor {
 
 type Anim = { from: number; to: number; t0: number; dur: number; ease: (p: number) => number };
 type Drag = { id: number; y0: number; pos0: number; lastY: number; lastT: number; v: number; moved: boolean };
+/** How much of the structure is in sight: none (at rest), the right tower with its ladder (the bar's field has focus), all (a launch). */
+type Structure = '' | 'ladder' | 'full';
 
 const LABEL_MIN = 11;
 const clockNow = () => performance.now();
 const ASTRO_UNIT = 34; // astronaut drawing: body thickness / this = its scale
+/** a release this long after the finger last moved has no flick left in it, ms */
+const FLICK_STALE_MS = 90;
 
 // (the labels are measured in the page's font: textMeasure.ts, shared with the creator's bar)
 export { useTextMeasure };
@@ -251,15 +270,19 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const suppressClick = useRef(false);
   const lastTick = useRef(centre);
   const rockets = useRef<(HTMLButtonElement | null)[]>([]);
-  const drumLayer = useRef<HTMLDivElement>(null);
-  const rails = useRef<(SVGGElement | null)[]>([]);
+  const wheelLayer = useRef<HTMLDivElement>(null);
+  const counterRef = useRef<HTMLSpanElement>(null);
+  const shownIndex = useRef(-1);
   const astros = useRef<(HTMLDivElement | null)[]>([]);
-  const crew = useRef({ a: 0, b: 0, up: true, facingA: -1 as 1 | -1, facingB: 1 as 1 | -1, boarding: false });
+  const crew = useRef({ a: 0, b: 0, facingA: -1 as 1 | -1, facingB: 1 as 1 | -1, boarding: false, air: 0, lifted: false, landUntil: 0 });
   const lastStep = useRef(-Infinity);
   const raf = useRef<number | null>(null);
   const frameRef = useRef<((now: number) => void) | null>(null);
   const last = useRef(0);
   const moving = useRef(false);
+  const movedAt = useRef(0);
+  const structure = useRef<Structure>('');
+  const entered = useRef(false);
   const pending = useRef<(() => void)[]>([]);
   const alive = useRef(true);
   const callbacks = useRef({ onCentre, onLaunch, onLaunchStart, liftGate, onLiftOff });
@@ -267,52 +290,65 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     callbacks.current = { onCentre, onLaunch, onLaunchStart, liftGate, onLiftOff };
   });
 
-  const stepPx = L ? L.radius * Math.sin(DRUM.step) : 60;
+  // a drag of this many px moves the wheel one rocket
+  const stepPx = L ? L.wheel.y[1] : 60;
 
-  const paintDrum = useCallback(() => {
+  /** How much of the structure shows (a launch's "all" stays). */
+  const showStructure = useCallback((kind: Structure) => {
+    const root = rootRef.current;
+    if (!root || structure.current === 'full' || structure.current === kind) return;
+    structure.current = kind;
+    if (kind) root.setAttribute('data-structure', kind);
+    else root.removeAttribute('data-structure');
+  }, []);
+
+  const paintWheel = useCallback(() => {
     if (!L) return;
     const p = pos.current;
     for (let i = 0; i < n; i++) {
       const el = rockets.current[i];
       if (!el) continue;
-      const slot = drumSlot(wrapOffset(i, p, n), L.radius);
-      el.style.transform = `translate3d(0, ${slot.y.toFixed(2)}px, 0) scale(${slot.scale.toFixed(4)})`;
+      const slot = wheelSlot(wrapOffset(i, p, n), L.wheel);
+      // (at rest in the centre: no transform at all, so it stays crisp)
+      const still = Math.abs(slot.y) < 0.01 && Math.abs(slot.scale - 1) < 1e-4;
+      el.style.transform = still ? '' : `translate(0px, ${slot.y.toFixed(2)}px) scale(${slot.scale.toFixed(4)})`;
       el.style.opacity = slot.opacity.toFixed(3);
       el.style.zIndex = String(slot.z);
+      const blur = slot.blur > 0 ? `blur(${slot.blur}px)` : '';
+      if (el.style.filter !== blur) el.style.filter = blur;
       // (out of sight but still in the list: a screen reader can reach it, a finger can't)
       el.style.pointerEvents = slot.visible && slot.opacity > 0.02 ? 'auto' : 'none';
     }
-    // the rails' light marks run with the drum (where the chains used to)
-    const travel = p * stepPx;
-    const pitch = SCENE.railPitch;
-    const off = -(((travel % pitch) + pitch) % pitch);
-    rails.current.forEach((g) => g?.setAttribute('transform', `translate(0 ${off.toFixed(2)})`));
+    // the counter («3 de 9») follows the rocket passing through the band
+    const idx = centreIndex(p, n);
+    if (idx !== shownIndex.current && counterRef.current) {
+      shownIndex.current = idx;
+      counterRef.current.textContent = `${idx + 1} de ${n}`;
+    }
     if (ticksBetween(lastTick.current, p) > 0) {
       lastTick.current = p;
       playSfx('drumClick');
     }
-  }, [L, n, stepPx]);
+  }, [L, n]);
 
-  const paintCrew = useCallback(
-    (modeA: string, modeB: string) => {
-      const T = trackRef.current;
-      if (!T) return;
-      const c = crew.current;
-      const pts = [crewPoint(c.a, T), crewPoint(c.b, T)];
-      const facing = [c.facingA, c.facingB];
-      const modes = [modeA, modeB];
-      astros.current.forEach((el, i) => {
-        if (!el) return;
-        el.style.transform = `translate3d(${pts[i].x.toFixed(2)}px, ${pts[i].y.toFixed(2)}px, 0)`;
-        const fig = el.firstElementChild as HTMLElement | null;
-        if (fig) {
-          if (fig.dataset.mode !== modes[i]) fig.dataset.mode = modes[i];
-          fig.style.transform = `scaleX(${facing[i]})`;
-        }
-      });
-    },
-    [],
-  );
+  const paintCrew = useCallback((modeA: string, modeB: string, liftA = 0, liftB = 0) => {
+    const T = trackRef.current;
+    if (!T) return;
+    const c = crew.current;
+    const pts = [crewPoint(c.a, T), crewPoint(c.b, T)];
+    const lifts = [liftA, liftB];
+    const facing = [c.facingA, c.facingB];
+    const modes = [modeA, modeB];
+    astros.current.forEach((el, i) => {
+      if (!el) return;
+      el.style.transform = `translate(${pts[i].x.toFixed(2)}px, ${(pts[i].y - lifts[i]).toFixed(2)}px)`;
+      const fig = el.firstElementChild as HTMLElement | null;
+      if (fig) {
+        if (fig.dataset.mode !== modes[i]) fig.dataset.mode = modes[i];
+        fig.style.transform = `scaleX(${facing[i]})`;
+      }
+    });
+  }, []);
 
   const setLive = useCallback(
     (index: number | null) => {
@@ -323,15 +359,17 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 
   const settle = useCallback(() => {
     moving.current = false;
-    rootRef.current?.removeAttribute('data-moving');
+    // the clamps snap shut on the chosen rocket («pum»: CSS), the crew land on it this same frame
+    rootRef.current?.toggleAttribute('data-moving', clampsOpen(false));
+    playSfx('towerDock');
     const idx = centreIndex(pos.current, n);
     pos.current = idx;
     lastTick.current = idx;
-    paintDrum();
+    paintWheel();
     setLive(idx);
     setCentre(idx);
     callbacks.current.onCentre(idx);
-  }, [n, paintDrum, setLive]);
+  }, [n, paintWheel, setLive]);
 
   const frame = useCallback(
     (now: number) => {
@@ -339,39 +377,48 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       const dt = Math.min(64, now - (last.current || now));
       last.current = now;
       let active = false;
-      // the drum
+      // the wheel
+      let speed = 0; // steps per second
+      let remaining: number | null = null; // ms until it stops (null: a finger is on it)
       const a = anim.current;
       if (a) {
         const p = a.dur <= 0 ? 1 : (now - a.t0) / a.dur;
         pos.current = a.from + (a.to - a.from) * a.ease(p);
+        speed = animSpeed(a.from, a.to, a.dur, Math.min(1, Math.max(0, p)), a.ease);
+        remaining = Math.max(0, a.t0 + a.dur - now);
         if (p >= 1) {
           pos.current = a.to;
           anim.current = null;
           rolling.current = false;
+          remaining = 0;
         } else active = true;
       }
-      if (drag.current?.moved) active = true;
-      paintDrum();
+      const d = drag.current;
+      if (d?.moved) {
+        active = true;
+        speed = Math.abs(d.v) * 1000;
+        remaining = null;
+      }
+      paintWheel();
       const isMoving = active;
       if (!isMoving && moving.current) settle();
       // the crew
       const c = crew.current;
       const T = trackRef.current;
-      if (T && !c.boarding && !reduced) {
-        // up on the bar while its field has focus (once the ladder is out); else the drum's way
+      if (T && G && !c.boarding && !reduced) {
+        // up on the bar while its field has focus (once the ladder is out); else on the centred rocket
         const stands = crewUpRef.current && roofOutRef.current ? roofStands(T, gap) : null;
-        const tA = stands ? stands.a : isMoving ? climbTarget(c.up, T) : Math.max(T.standA, c.b + gap);
+        const tA = stands ? stands.a : Math.max(T.standA, c.b + gap);
         const prevA = c.a;
         c.a = crewMove(c.a, tA, dt, T);
-        if (!stands && isMoving && Math.abs(c.a - tA) < 0.01) c.up = !c.up;
-        const tB = stands ? Math.max(0, Math.min(stands.b, c.a - gap)) : isMoving ? Math.max(0, c.a - gap) : T.standB;
+        const tB = stands ? Math.max(0, Math.min(stands.b, c.a - gap)) : T.standB;
         const prevB = c.b;
         c.b = crewMove(c.b, tB, dt, T);
         if (c.a !== prevA) c.facingA = crewFacing(prevA, c.a, T, c.facingA);
         if (c.b !== prevB) c.facingB = crewFacing(prevB, c.b, T, c.facingB);
-        // waiting: facing each other (on the base A looks left, B right; on the bar the other way round)
-        if (Math.abs(c.a - tA) < 0.01 && !isMoving) c.facingA = onRoof(c.a, T) ? 1 : -1;
-        if (Math.abs(c.b - tB) < 0.01 && !isMoving) c.facingB = onRoof(c.b, T) ? -1 : 1;
+        // waiting: facing each other (on the rocket A looks left, B right; on the bar the other way round)
+        if (Math.abs(c.a - tA) < 0.01) c.facingA = onRoof(c.a, T) ? 1 : -1;
+        if (Math.abs(c.b - tB) < 0.01) c.facingB = onRoof(c.b, T) ? -1 : 1;
         // a footstep per stride on the walkways, a rung per rung on the ladder (the pair: one sound,
         // and never a rattle: CREW.soundGapMs between two)
         const was = crewPoint(prevA, T);
@@ -380,10 +427,37 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           lastStep.current = now;
           playSfx(is.onLadder ? 'ladderStep' : 'metalStep');
         }
-        paintCrew(crewMode(c.a, tA, T), crewMode(c.b, tB, T));
-        if (Math.abs(c.a - tA) > 0.01 || Math.abs(c.b - tB) > 0.01) active = true;
-        // both back below the tower's top and not wanted up there: the ladder folds away
+        // on the centred rocket while the wheel turns: they hop from rocket to rocket (up in the air
+        // if it goes fast or long), and land as it settles
         const { deck, up } = trackSpans(T);
+        // (the hull ends at the nose's base: from there the walkway runs to the tower)
+        const hullEnd = L ? L.rocket.left + G.body.x1 - T.hatchX : deck;
+        const onRocket = !stands && !crewUpRef.current && c.a <= hullEnd + 0.5 && c.b <= hullEnd + 0.5;
+        let liftA = 0;
+        let liftB = 0;
+        if (onRocket && isMoving) {
+          c.air = stepAir(c.air, crewAirTarget(speed, now - movedAt.current), dt);
+          liftA = crewLift({ pos: pos.current, air: c.air, t: now, remainingMs: remaining, T: G.T });
+          liftB = crewLift({ pos: pos.current, lag: HOP.lag, air: c.air, t: now + HOP.bobMs * 0.37, remainingMs: remaining, T: G.T });
+          if (Math.max(liftA, liftB) > 0.15 * G.T) c.lifted = true;
+        } else {
+          c.air = 0;
+          if (c.lifted && !isMoving) {
+            // touchdown: a little squash, and a step on the steel
+            c.lifted = false;
+            c.landUntil = now + HOP.landMs;
+            playSfx('metalStep');
+          }
+        }
+        const landing = now < c.landUntil;
+        const modeA = liftA > 0 || (onRocket && isMoving) ? hopMode(liftA, c.air, G.T) : landing ? 'land' : crewMode(c.a, tA, T);
+        const modeB = liftB > 0 || (onRocket && isMoving) ? hopMode(liftB, c.air, G.T) : landing ? 'land' : crewMode(c.b, tB, T);
+        paintCrew(modeA, modeB, liftA, liftB);
+        if (Math.abs(c.a - tA) > 0.01 || Math.abs(c.b - tB) > 0.01 || landing) active = true;
+        // the right tower with its ladder is in sight while the crew are off the rocket (it sinks away once they are back on it)
+        const away = c.a > hullEnd + 0.5 || c.b > hullEnd + 0.5;
+        if (!busy.current) showStructure(crewUpRef.current || away ? 'ladder' : '');
+        // both back below the tower's top and not wanted up there: the ladder's extension folds away
         if (!crewUpRef.current && roofOutRef.current && c.a <= deck + up + 0.5 && c.b <= deck + up + 0.5) {
           roofOutRef.current = false;
           setRoofOut(false);
@@ -391,7 +465,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       }
       if (active) raf.current = requestAnimationFrame((t) => frameRef.current?.(t));
     },
-    [paintDrum, paintCrew, settle, gap, reduced],
+    [paintWheel, paintCrew, settle, gap, reduced, G, L, showStructure],
   );
 
   useLayoutEffect(() => {
@@ -407,7 +481,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const startMoving = useCallback(() => {
     if (!moving.current) {
       moving.current = true;
-      rootRef.current?.setAttribute('data-moving', '');
+      movedAt.current = performance.now();
+      // the clamps open (CSS)
+      rootRef.current?.toggleAttribute('data-moving', clampsOpen(true));
       setLive(null);
     }
   }, [setLive]);
@@ -440,18 +516,38 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       roofOutRef.current = true;
       setRoofOut(true);
     }
+    // (reduced motion: the crew stay put, the tower simply shows while the field has focus)
+    if (reduced && !busy.current) showStructure(crewUp ? 'ladder' : '');
     kick();
-  }, [crewUp, roof, kick]);
+  }, [crewUp, roof, kick, reduced, showStructure]);
 
   // first paint, and again whenever the layout changes (resize, fonts)
   useLayoutEffect(() => {
     if (!L || !track) return;
-    paintDrum();
+    paintWheel();
     if (!moving.current) setLive(centreIndex(pos.current, n));
     crew.current.a = track.standA;
     crew.current.b = track.standB;
     paintCrew('stand', 'stand');
-  }, [L, track, paintDrum, paintCrew, setLive, n, fits]);
+  }, [L, track, paintWheel, paintCrew, setLive, n, fits]);
+
+  // each time the start screen loads: the wheel spins by itself and slows down onto its rocket
+  // (none with reduced motion)
+  useEffect(() => {
+    if (!L) return;
+    if (entered.current) {
+      if (anim.current) kick(); // (React's dev double mount cancelled the frame)
+      return;
+    }
+    entered.current = true;
+    if (reduced || n < 2 || busy.current) return;
+    const spin = entrySpin(Math.round(pos.current), n);
+    pos.current = spin.from;
+    lastTick.current = spin.from;
+    startMoving();
+    anim.current = { from: spin.from, to: spin.to, t0: performance.now(), dur: spin.dur, ease: rouletteEase };
+    kick();
+  }, [L, n, reduced, kick, startMoving]);
 
   useEffect(() => {
     alive.current = true;
@@ -486,7 +582,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     if (!d || d.id !== e.pointerId) return;
     const dy = e.clientY - d.y0;
     if (!d.moved) {
-      if (Math.abs(dy) < DRUM.dragSlop) return;
+      if (Math.abs(dy) < WHEEL.dragSlop) return;
       d.moved = true;
       suppressClick.current = true;
       // (captured only now: a plain tap still reaches the rocket's button)
@@ -495,6 +591,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       } catch {
         // fine without
       }
+      // (a finger on a turning wheel catches it where it is)
       anim.current = null;
       d.pos0 = pos.current + dy / stepPx;
       startMoving();
@@ -512,21 +609,24 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     if (!d || d.id !== e.pointerId) return;
     drag.current = null;
     if (!d.moved) return;
-    animateTo(snapTarget(pos.current, d.v), DRUM.snapMs, snapEase);
+    // let go: it glides on with the finger's speed and settles on a rocket
+    const v = e.timeStamp - d.lastT > FLICK_STALE_MS ? 0 : d.v;
+    const { to, dur } = glide(pos.current, v);
+    animateTo(to, dur, glideEase);
     setTimeout(() => {
       suppressClick.current = false;
     }, 0);
   };
 
   const go = (index: number) => {
-    animateTo(nearestPos(anim.current ? anim.current.to : pos.current, index, n), 380, snapEase);
+    animateTo(nearestPos(anim.current ? anim.current.to : pos.current, index, n), 380, glideEase);
   };
 
   const step = (by: number) => {
     if (busy.current || rolling.current) return;
     const from = anim.current ? anim.current.to : Math.round(pos.current);
     const to = from + by;
-    animateTo(to, DRUM.snapMs, snapEase);
+    animateTo(to, WHEEL.snapMs, glideEase);
     rockets.current[centreIndex(to, n)]?.focus({ preventScroll: true });
   };
 
@@ -552,8 +652,8 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     const steps = pick ? stepsTo(centreIndex(from, n), pick.index, n) : rouletteSteps(n);
     const swapIn = pick && pick.text !== suggestions[pick.index] ? () => onSwap?.(pick.index, pick.text) : null;
     if (reduced) {
-      // no roulette: the drum fades, the new one is there, it fades back
-      const layer = drumLayer.current;
+      // no roulette: the wheel fades, the new one is there, it fades back
+      const layer = wheelLayer.current;
       const target = from + (steps % n === 0 ? 1 : steps % n);
       const out = layer?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' });
       const swap = () => {
@@ -584,7 +684,6 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     pending.current.push(() => clearTimeout(t));
   };
 
-  /**
   /**
    * From the pad on, the same for every launch: the rocket `el` stands up (from `onPad` to
    * `upright`), the launch tower slides in from the left and its arms dock, ignition, lift-off
@@ -691,9 +790,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     const c = crew.current;
     const top = crewPoint(to, T);
     const hop: Keyframe[] = [
-      { transform: `translate3d(${top.x}px, ${top.y}px, 0) scale(1)`, opacity: 1 },
-      { transform: `translate3d(${top.x}px, ${top.y - gtT * 0.22}px, 0) scale(0.95)`, opacity: 1, offset: 0.35 },
-      { transform: `translate3d(${door.x}px, ${door.y}px, 0) scale(0.7)`, opacity: 0 },
+      { transform: `translate(${top.x}px, ${top.y}px) scale(1)`, opacity: 1 },
+      { transform: `translate(${top.x}px, ${top.y - gtT * 0.22}px) scale(0.95)`, opacity: 1, offset: 0.35 },
+      { transform: `translate(${door.x}px, ${door.y}px) scale(0.7)`, opacity: 0 },
     ];
     [c.b, c.a].forEach((s, i) => {
       const node = astros.current[i === 0 ? 1 : 0];
@@ -705,7 +804,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
           fig.style.transform = `scaleX(${top.x >= crewPoint(s, T).x ? 1 : -1})`;
         }
         node.animate(
-          trackPath(s, to, T).map((p) => ({ transform: `translate3d(${p.x}px, ${p.y}px, 0)`, offset: p.offset })),
+          trackPath(s, to, T).map((p) => ({ transform: `translate(${p.x}px, ${p.y}px)`, offset: p.offset })),
           { duration: walkMs, fill: 'forwards' },
         );
       }
@@ -720,15 +819,23 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     });
   };
 
-  /** The other rockets and the drum's fittings go (all the rockets but `keep`). */
-  const clearDrum = (keep: number | null) => {
+  /** The wheel goes: all its rockets but `keep`, its panel, the heading and Random. */
+  const clearWheel = (keep: number | null) => {
+    const root = rootRef.current;
+    if (!root) return;
+    const fade = { duration: LAUNCH.fadeMs, fill: 'forwards' as const };
+    root.querySelectorAll<HTMLElement>('[data-chrome]').forEach((node) => node.animate([{ opacity: 1 }, { opacity: 0 }], fade));
+    rockets.current.forEach((r, i) => {
+      if (r && i !== keep) r.animate([{ opacity: r.style.opacity || '1' }, { opacity: 0 }], fade);
+    });
+  };
+
+  /** The structure goes (the towers, the clamps, the walkway, the ladder). */
+  const clearFittings = () => {
     const root = rootRef.current;
     if (!root) return;
     const fade = { duration: LAUNCH.fadeMs, fill: 'forwards' as const };
     root.querySelectorAll<HTMLElement | SVGElement>('[data-fitting]').forEach((node) => node.animate([{ opacity: 1 }, { opacity: 0 }], fade));
-    rockets.current.forEach((r, i) => {
-      if (r && i !== keep) r.animate([{ opacity: r.style.opacity || '1' }, { opacity: 0 }], fade);
-    });
   };
 
   const launch = (index: number) => {
@@ -742,11 +849,18 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     const text = suggestions[index];
     const finish = () => callbacks.current.onLaunch(text);
 
+    // the whole structure comes into view (with reduced motion it is simply there)
+    showStructure('full');
     if (reduced) {
       root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAUNCH.reducedMs, fill: 'forwards' });
       later(LAUNCH.reducedMs, finish);
       return;
     }
+    // the other rockets leave, the panel and the heading fade (then the panel's edge no longer cuts)
+    clearWheel(index);
+    later(LAUNCH.fadeMs, () => {
+      if (wheelLayer.current) wheelLayer.current.style.clipPath = 'none';
+    });
 
     const c = crew.current;
     c.boarding = true;
@@ -759,13 +873,13 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     later(tl.doorOpenAt, () => el.setAttribute('data-hatch-open', ''));
     later(tl.doorCloseAt, () => el.removeAttribute('data-hatch-open'));
 
-    // 3. the other rockets and the drum's fittings go
-    later(tl.fadeAt, () => clearDrum(index));
+    // 3. the structure goes
+    later(tl.fadeAt, clearFittings);
 
     // 4–8. it stands up, the tower docks, ignition, lift-off
     const { k, standY } = padPlace(L);
-    const upright = `translate3d(0, ${standY}px, 0) rotate(-90deg) scale(${k})`;
-    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate3d(0, ${out}px, 0) rotate(-90deg) scale(${k})`, standY, k, G.T, finish);
+    const upright = `translate(0px, ${standY}px) rotate(-90deg) scale(${k})`;
+    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate(0px, ${out}px) rotate(-90deg) scale(${k})`, standY, k, G.T, finish);
   };
 
   /** The typed sentence's launch (see LaunchBaseHandle): the text bar's rocket flies from the base. */
@@ -775,11 +889,12 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     if (reduced || busy.current || !root || !L || !G || !T || !barG || !barBox || !T.roof) return false;
     busy.current = true;
     wake();
-    // whatever the drum was doing, it stops: it is about to clear away
+    // whatever the wheel was doing, it stops: it is about to clear away
     anim.current = null;
     drag.current = null;
     rolling.current = false;
-    // the ladder is out (the crew may still be on their way up)
+    // the rest of the structure comes into view; the ladder is out (the crew may still be on their way up)
+    showStructure('full');
     roofOutRef.current = true;
     const room = barG.label.x1 - barG.label.x0;
     const fit = fitDrumLabel(text, room, { max: Math.round(barG.Tf * 0.52), min: LABEL_MIN }, measure);
@@ -787,7 +902,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     const box = { ...barBox };
     const dx = box.x + barG.W / 2 - L.rocket.cx;
     const dy = box.y + barG.H / 2 - L.centreY;
-    const at = (x: number, y: number, rz: number, s: number) => `translate3d(${x}px, ${y}px, 0) rotate(${rz}deg) scale(${s})`;
+    const at = (x: number, y: number, rz: number, s: number) => `translate(${x}px, ${y}px) rotate(${rz}deg) scale(${s})`;
     const v: Visitor = { g: barG, label: { text: fit.text, px: fit.px }, box, from: at(dx, dy, 0, 1), scale: pad.scale, body: pad.body };
     // (drawn now, in the bar's place, before the screen paints: the bar under it can go)
     flushSync(() => {
@@ -808,9 +923,12 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     later(tl.doorOpenAt, () => el.setAttribute('data-window-open', ''));
     later(tl.doorCloseAt, () => el.removeAttribute('data-window-open'));
 
-    // 3. the drum clears away (all its rockets: this one takes the centre) and it comes down to the pad
+    // 3. the wheel and the structure clear away (all its rockets: this one takes the centre) and it comes down to the pad
     const onPad = at(0, 0, 0, pad.scale);
-    later(tl.fadeAt, () => clearDrum(null));
+    later(tl.fadeAt, () => {
+      clearWheel(null);
+      clearFittings();
+    });
     later(tl.descendAt, () => {
       el.animate([{ transform: v.from }, { transform: onPad }], { duration: BAR_LAUNCH.descendMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
     });
@@ -833,6 +951,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   };
 
   // ── drawing ──────────────────────────────────────────────────────────────────────────────
+  const P = L?.panel;
   return (
     <div
       ref={rootRef}
@@ -845,11 +964,35 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       style={{ background: BASE_PAGE }}
     >
       <div data-safe-probe="" aria-hidden="true" className="pointer-events-none invisible absolute h-0 w-0 pb-[env(safe-area-inset-bottom)]" />
-      {L && G && track && scene && (
+      {L && P && G && track && scene && (
         <>
-          <Backdrop L={L} G={G} track={track} scene={scene} uid={uid} />
-          <div ref={drumLayer} className="absolute inset-0 z-10">
-            <ul role="list" aria-label="Rutinas sugeridas" aria-describedby={`${uid}-hint`} className="contents">
+          <Backdrop L={L} scene={scene} uid={uid} />
+          {/* the heading and the small round Random */}
+          <div data-chrome="" className="absolute z-[36] flex items-center justify-between gap-3" style={{ left: P.x + 4, right: L.width - P.x - P.w, top: L.head.y, height: L.head.h }}>
+            <p id={`${uid}-title`} className="truncate text-[15px] font-semibold text-white">
+              O elige una rutina hecha
+            </p>
+            <RandomButton onClick={random} />
+          </div>
+          {/* the wheel's panel, its selection band and the counter */}
+          <div
+            data-chrome=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-[5] border border-white/12 bg-[#161413]/62"
+            style={{ left: P.x, top: P.y, width: P.w, height: P.h, borderRadius: P.r }}
+          />
+          <div
+            data-chrome=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-[6] rounded-[14px] border-[1.2px] border-white/40 bg-white/8"
+            style={{ left: L.band.x0 - 2, width: L.band.x1 - L.band.x0 + 4, top: L.centreY - L.wheel.band, height: 2 * L.wheel.band }}
+          />
+          <div
+            ref={wheelLayer}
+            className="absolute inset-0 z-10"
+            style={{ clipPath: `inset(${P.y}px ${L.width - P.x - P.w}px ${L.height - P.y - P.h}px ${P.x}px round ${P.r}px)` }}
+          >
+            <ul role="list" aria-labelledby={`${uid}-title`} aria-describedby={`${uid}-hint`} className="contents">
               {suggestions.map((s, i) => (
                 <li key={i} className="contents">
                   <button
@@ -873,10 +1016,18 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
               ))}
             </ul>
           </div>
+          <span
+            ref={counterRef}
+            data-chrome=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-[12] text-[12px] font-semibold tabular-nums text-white/70"
+            style={{ right: L.width - P.x - P.w + 12, top: P.y + P.h - 24 }}
+          />
+          <Clamps L={L} G={G} />
           {fullTrack?.roof && barBox && barG && (
             <RoofLadder L={L} G={G} track={fullTrack} noseX={barBox.x + barG.body.x1} out={roofOut} uid={uid} />
           )}
-          <Foreground L={L} G={G} track={track} scene={scene} uid={uid} rails={rails} />
+          <Foreground L={L} G={G} track={track} />
           {/* the text bar's rocket, flying from the base (the typed sentence's launch) */}
           {visitor && (
             <div
@@ -904,10 +1055,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
               </div>
             ))}
           </div>
-          <RandomButton L={L} onClick={random} />
           <Gantry L={L} G={G} body={visitor?.body} />
           <p id={`${uid}-hint`} className="sr-only">
-            Desliza arriba o abajo, o usa las flechas, para girar el tambor. Toca el cohete del centro para despegar.
+            Desliza arriba o abajo, o usa las flechas, para girar la rueda. Toca el cohete del centro para despegar.
           </p>
         </>
       )}
@@ -916,9 +1066,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 }
 
 // ---------------------------------------------------------------------------------------------
-// The pieces of the base (static SVG; only the rails' marks, the clamps and the cars move). The
-// scene is "Amanecer" (approved 26-11-2026, fondos-base.html, variant A): numbers in launchDrum.ts
-// (baseScene), colours here.
+// The pieces of the base (static SVG; only the clamps and the cars move). The scene is "Amanecer"
+// (approved 26-11-2026, fondos-base.html, variant A): numbers in launchDrum.ts (baseScene), colours
+// in dawnScene.tsx.
 
 type Geo = ReturnType<typeof padRocketGeometry>;
 
@@ -927,20 +1077,13 @@ export const BASE_PAGE = DAWN.page;
 
 /**
  * Behind everything: the dawn sky (from the page's dark), the sun low on the horizon, two thin lit
- * clouds, the far skyline, the ground and its road with two lamps and a few cars passing (behind
- * the towers and the console), the drum's upper dotted arc and the crew walkway in steel.
+ * clouds, the far skyline, the ground and its road with two lamps and a few cars passing.
  */
-function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: CrewTrack; scene: BaseScene; uid: string }) {
+function Backdrop({ L, scene, uid }: { L: BaseLayout; scene: BaseScene; uid: string }) {
   const { width: W, height: H } = L;
   const { k, horizon: hz, road } = scene;
   const X = (x: number) => x * k;
   const Y = (y: number) => hz + (y - 235) * k; // a sketch y (horizon at 235) to the base
-  const wellX = L.tower.leftX + L.tower.w + 3;
-  const wellW = L.tower.rightX - 3 - wellX;
-  const rimTop = Math.max(10, L.centreY - L.radius * 0.95);
-  const walkX0 = L.rocket.left + G.body.x1;
-  const walkX1 = L.tower.rightX;
-  const railY = track.deckY - G.T * 0.55;
   const q = road.h / 20; // the sketch's road is 20 px
   return (
     <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0">
@@ -995,28 +1138,13 @@ function Backdrop({ L, G, track, scene, uid }: { L: BaseLayout; G: Geo; track: C
       <RoadLamp x={X(204)} top={road.top} q={q} />
       {/* a few cars, both ways, long gaps between them (CSS: pad-car-*; parked with reduced motion) */}
       <RoadCars W={W} top={road.top} q={q} />
-      <g data-fitting="">
-        {/* the drum's upper dotted arc */}
-        <path
-          d={`M${wellX + 6} ${rimTop + 18}Q${W / 2} ${rimTop - 14} ${wellX + wellW - 6} ${rimTop + 18}`}
-          stroke="rgba(255,255,255,0.4)"
-          strokeWidth={1.2}
-          strokeDasharray="3 5"
-          fill="none"
-        />
-        {/* the crew walkway, from the right tower to the hatch's side of the nose */}
-        <g stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate}>
-          <rect x={walkX0} y={track.deckY} width={walkX1 - walkX0} height={3.4} />
-          <path d={`M${walkX0 + 4} ${railY}H${walkX1}M${walkX0 + 4} ${railY}V${track.deckY}M${(walkX0 + walkX1) / 2} ${railY}V${track.deckY}`} fill="none" strokeWidth={0.9} />
-        </g>
-      </g>
     </svg>
   );
 }
 
 /**
  * The right tower's ladder reaching up to the text bar's top, and a gangway from the ladder over the
- * bar rocket's nose to its hull (like the base's walkway to a drum rocket). Folded into the tower
+ * bar rocket's nose to its hull (like the base's walkway to a wheel rocket). Folded into the tower
  * until the crew go up (`out`): the ladder slides up out of the tower's top (nothing of it shows
  * below that), then the gangway unfolds; back the other way once they are down.
  */
@@ -1079,58 +1207,62 @@ function towerPath(x: number, w: number, top: number, bottom: number): string {
   return d;
 }
 
-function Foreground({ L, G, track, scene, uid, rails }: { L: BaseLayout; G: Geo; track: CrewTrack; scene: BaseScene; uid: string; rails: React.RefObject<(SVGGElement | null)[]> }) {
+/**
+ * The structure, out of sight at rest (CSS: pad-st, shown by the base's data-structure): the left
+ * tower with its hose (for a launch), and the right tower with the crew's ladder and the walkway
+ * from it to the centred rocket's top (for a launch, and while the crew go up to the text bar).
+ */
+function Foreground({ L, G, track }: { L: BaseLayout; G: Geo; track: CrewTrack }) {
   const { width: W, height: H, tower: t } = L;
   const top = t.top + 6;
   const bottom = H;
-  // a slim rail down each tower's inner side, its light marks running while the drum turns
-  const railX = [t.leftX + t.w + 5, t.rightX - 5];
-  const railTop = top + 8;
-  const railBottom = scene.horizon - 2;
-  const marks: number[] = [];
-  for (let y = railTop - SCENE.railPitch; y < railBottom + SCENE.railPitch; y += SCENE.railPitch) marks.push(y);
-  const cy = L.centreY;
-  // the clamps: two hooks over and under the engine ring (left), a cradle at the antenna (right)
-  const ringX = L.rocket.left + G.ring.x + G.ring.w / 2;
-  const hullTop = cy - G.T / 2;
-  const hullBottom = cy + G.T / 2;
-  const leftEdge = t.leftX + t.w;
-  const noseEnd = L.rocket.left + G.W;
   const ladderX = track.ladderX;
   const rungs: number[] = [];
   for (let y = top + 8; y < bottom - 4; y += 7) rungs.push(y);
-  const c = scene.console;
+  const walkX0 = L.rocket.left + G.body.x1;
+  const walkX1 = t.rightX;
+  const railY = track.deckY - G.T * 0.55;
   return (
     <svg aria-hidden="true" data-fitting="" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 z-20">
-      <defs>
-        <clipPath id={`${uid}-rails`}>
-          <rect x={0} y={railTop} width={W} height={railBottom - railTop} />
-        </clipPath>
-      </defs>
-      {/* the towers, in dark steel */}
-      <SteelTower x={t.leftX} w={t.w} top={top} bottom={bottom} />
-      <SteelTower x={t.rightX} w={t.w} top={top} bottom={bottom} />
-      {/* the hose from the left tower down into the base */}
-      <path d={`M${t.leftX + t.w / 2} ${bottom - 7}Q${t.leftX + t.w + 8} ${bottom} ${L.rocket.left + 22} ${bottom - 6}`} fill="none" stroke={DAWN.steel} strokeWidth={1.2} />
-      {/* the rails and their marks */}
-      <path d={railX.map((x) => `M${x} ${railTop}V${railBottom}`).join('')} fill="none" stroke={DAWN.brace} strokeWidth={1.2} />
-      {railX.map((x, i) => (
-        <g key={x} clipPath={`url(#${uid}-rails)`}>
-          <g
-            ref={(node) => {
-              rails.current[i] = node;
-            }}
-          >
-            <path d={marks.map((y) => (i === 0 ? `M${x} ${y}h-4` : `M${x} ${y}h4`)).join('')} fill="none" stroke={DAWN.mark} strokeWidth={1.1} />
-          </g>
-        </g>
-      ))}
-      {/* the ladder on the right tower (light, to read on the steel) */}
-      <g stroke={DAWN.ladder} strokeWidth={0.9} fill="none">
-        <path d={`M${ladderX - 4} ${top + 2}V${bottom - 2}M${ladderX + 4} ${top + 2}V${bottom - 2}`} strokeWidth={1.2} />
-        <path d={rungs.map((y) => `M${ladderX - 4} ${y}H${ladderX + 4}`).join('')} />
+      <g className="pad-st pad-st-left">
+        <SteelTower x={t.leftX} w={t.w} top={top} bottom={bottom} />
+        {/* the hose from the left tower down into the base */}
+        <path d={`M${t.leftX + t.w / 2} ${bottom - 7}Q${t.leftX + t.w + 8} ${bottom} ${L.rocket.left + 22} ${bottom - 6}`} fill="none" stroke={DAWN.steel} strokeWidth={1.2} />
       </g>
-      {/* the clamps */}
+      <g className="pad-st pad-st-right">
+        <SteelTower x={t.rightX} w={t.w} top={top} bottom={bottom} />
+        {/* the ladder on the right tower (light, to read on the steel) */}
+        <g stroke={DAWN.ladder} strokeWidth={0.9} fill="none">
+          <path d={`M${ladderX - 4} ${top + 2}V${bottom - 2}M${ladderX + 4} ${top + 2}V${bottom - 2}`} strokeWidth={1.2} />
+          <path d={rungs.map((y) => `M${ladderX - 4} ${y}H${ladderX + 4}`).join('')} />
+        </g>
+        {/* the crew walkway, from the right tower to the hatch's side of the nose */}
+        <g stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate}>
+          <rect x={walkX0} y={track.deckY} width={walkX1 - walkX0} height={3.4} />
+          <path d={`M${walkX0 + 4} ${railY}H${walkX1}M${walkX0 + 4} ${railY}V${track.deckY}M${(walkX0 + walkX1) / 2} ${railY}V${track.deckY}`} fill="none" strokeWidth={0.9} />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * The two clamps either side of the selection band (the towers' inner edges, where the towers come
+ * for a launch): two hooks over and under the engine ring (left) and a cradle at the antenna
+ * (right). Shut on the centred rocket at rest; open while the wheel turns (the base's
+ * data-moving); they snap shut as it settles (CSS).
+ */
+function Clamps({ L, G }: { L: BaseLayout; G: Geo }) {
+  const { width: W, height: H } = L;
+  const cy = L.centreY;
+  const ringX = L.rocket.left + G.ring.x + G.ring.w / 2;
+  const hullTop = cy - G.T / 2;
+  const hullBottom = cy + G.T / 2;
+  const leftEdge = L.band.x0;
+  const rightEdge = L.band.x1;
+  const noseEnd = L.rocket.left + G.W;
+  return (
+    <svg aria-hidden="true" data-fitting="" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 z-20">
       <g stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate} strokeLinejoin="round">
         <g className="pad-hook-top">
           <path d={`M${leftEdge} ${hullTop - 9}H${ringX + 3}V${hullTop + 1}H${ringX - 3}V${hullTop - 4}H${leftEdge}Z`} />
@@ -1141,24 +1273,15 @@ function Foreground({ L, G, track, scene, uid, rails }: { L: BaseLayout; G: Geo;
           <circle cx={leftEdge + 4} cy={hullBottom + 6.5} r={1.1} fill={DAWN.steel} stroke="none" />
         </g>
         <g className="pad-cradle">
-          <path d={`M${t.rightX} ${cy - 3}H${noseEnd + 4}V${cy - 7}H${noseEnd - 2}V${cy - 5}M${t.rightX} ${cy + 3}H${noseEnd + 4}V${cy + 7}H${noseEnd - 2}V${cy + 5}`} />
-          <rect x={noseEnd + 2} y={cy - 3} width={t.rightX - noseEnd - 2} height={6} />
+          <path d={`M${rightEdge} ${cy - 3}H${noseEnd + 4}V${cy - 7}H${noseEnd - 2}V${cy - 5}M${rightEdge} ${cy + 3}H${noseEnd + 4}V${cy + 7}H${noseEnd - 2}V${cy + 5}`} />
+          <rect x={noseEnd + 2} y={cy - 3} width={Math.max(0, rightEdge - noseEnd - 2)} height={6} />
         </g>
-      </g>
-      {/* the Random console's two brackets to the right tower and its two legs on the ground */}
-      <g fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1.1}>
-        {c.brackets.map((y) => (
-          <rect key={y} x={c.x0} y={y - 1.7} width={c.x1 - c.x0} height={3.4} />
-        ))}
-        {c.legs.map((x) => (
-          <rect key={x} x={x - 1.7} y={c.legTop} width={3.4} height={H - c.legTop + 2} />
-        ))}
       </g>
     </svg>
   );
 }
 
-/** An astronaut, drawn with its feet at (0, 0); `data-mode` (stand, walk, climb) picks its moves. */
+/** An astronaut, drawn with its feet at (0, 0); `data-mode` (stand, walk, climb, hop, float, land) picks its moves. */
 function Astronaut({ scale, delay }: { scale: number; delay: number }) {
   const w = 18 * scale;
   const h = 22 * scale;
@@ -1183,51 +1306,28 @@ function Astronaut({ scale, delay }: { scale: number; delay: number }) {
 }
 
 /**
- * The red emergency button on its console: the mushroom in its yellow and black hazard ring on a
- * dark bolted plate (bolted to the right tower and standing on the ground: Foreground draws the
- * brackets and the legs), the word RANDOM in light letters under it.
+ * Random: a small round red button (the emergency mushroom in its yellow and black hazard ring)
+ * beside the heading, with the word «Random» before it. It spins the wheel like a roulette.
  */
-function RandomButton({ L, onClick }: { L: BaseLayout; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void }) {
-  const { x, y, w, h } = L.random;
+function RandomButton({ onClick }: { onClick: (e: React.MouseEvent<HTMLButtonElement>) => void }) {
   return (
     <button
       type="button"
       data-no-drag=""
-      data-fitting=""
       onClick={onClick}
       aria-label="Random: girar la ruleta"
-      className="pad-random absolute z-[35] cursor-pointer rounded-[8px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-      style={{ left: x, top: y, width: w, height: h }}
+      className="pad-random -mr-1 flex h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full pl-2 pr-1 text-[13px] font-medium text-white/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
     >
-      <svg width={w} height={h} viewBox="0 0 64 72" aria-hidden="true" className="absolute inset-0">
-        <rect x={1} y={1} width={62} height={70} rx={6} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1.1} />
-        {[
-          [7, 7],
-          [57, 7],
-          [7, 65],
-          [57, 65],
-        ].map(([cx, cy]) => (
-          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={1.1} fill={DAWN.steel} />
-        ))}
-        <g transform="translate(32 28) scale(0.95)">
-          <circle r={22} fill={DAWN.dark} />
-          <circle r={19.5} fill="none" stroke={DAWN.hazard} strokeWidth={4} strokeDasharray="5.1 5.1" />
-          <circle r={16} fill={DAWN.dark} />
-          <circle cy={2} r={13.5} fill="#a8241c" />
-          <g className="pad-dome">
-            <circle cy={-2} r={13.5} fill={C.red} stroke={DAWN.dark} strokeWidth={1.4} />
-            <ellipse cx={-5} cy={-7} rx={5} ry={2.6} fill={C.flameMid} transform="rotate(-28 -5 -7)" />
-          </g>
+      <span aria-hidden="true">Random</span>
+      <svg width={30} height={30} viewBox="-16 -16 32 32" aria-hidden="true">
+        <circle r={15} fill={DAWN.dark} />
+        <circle r={13} fill="none" stroke={DAWN.hazard} strokeWidth={3} strokeDasharray="3.4 3.4" />
+        <circle r={10.6} fill={DAWN.dark} />
+        <circle cy={1.4} r={9} fill="#a8241c" />
+        <g className="pad-dome">
+          <circle cy={-1.2} r={9} fill={C.red} stroke={DAWN.dark} strokeWidth={1} />
+          <ellipse cx={-3.3} cy={-4.6} rx={3.3} ry={1.7} fill={C.flameMid} transform="rotate(-28 -3.3 -4.6)" />
         </g>
-        <text
-          x={32}
-          y={62}
-          textAnchor="middle"
-          fill={DAWN.label}
-          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.3, fontFamily: 'var(--font-display), system-ui, sans-serif' }}
-        >
-          RANDOM
-        </text>
       </svg>
     </button>
   );
@@ -1237,7 +1337,7 @@ function RandomButton({ L, onClick }: { L: BaseLayout; onClick: (e: React.MouseE
 function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
   const { width: W, height: H, padY } = L;
   const k = Math.min(1, (padY - 10) / L.rocket.length);
-  // (the hull on the pad: a drum rocket's, or the text bar's rocket brought down to that length)
+  // (the hull on the pad: a wheel rocket's, or the text bar's rocket brought down to that length)
   const hull = (body ?? G.T) * k;
   const rocketTop = padY - L.rocket.length * k;
   const tw = Math.max(18, Math.round(L.tower.w * 1.15));

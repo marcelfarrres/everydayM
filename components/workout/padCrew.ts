@@ -6,11 +6,12 @@
  * "roof"). A position on the track is `s` px from the hatch (deck first, then ladder rungs, then
  * the roof), so they can never jump: they only ever walk or climb from where they are.
  *
- *   settled ──(drum moves)──▶ to the ladder, then up and down it while the drum turns
- *      ▲                                      │
- *      └──(drum settles)── down the ladder, along the new rocket's top, ready again
+ * While the wheel turns they stay where they stand on the centred rocket's top and hop: up as a
+ * rocket leaves the centre, down onto the next one as it arrives (`crewLift`); a fast or long spin
+ * keeps them up in the air, floating over the band; as the wheel settles they drop onto the chosen
+ * rocket, landing just as it stops (and the clamps shut).
  *
- *   settled ──(field focused)──▶ up the whole ladder, onto the bar's top, waiting there
+ *   settled ──(field focused)──▶ along the walkway, up the whole ladder, onto the bar's top, waiting there
  *      ▲                                      │
  *      └──(focus lost, not sent)── back down the ladder, to the centred rocket
  *
@@ -48,12 +49,9 @@ export const CREW = {
   rung: 7,
   /** never two step sounds closer than this, ms (at these speeds a stride is ~95 ms: no rattle) */
   soundGapMs: 150,
-  /** while the drum turns they go up and down between these shares of the tower's ladder */
-  climbHigh: 1,
-  climbLow: 0.35,
 } as const;
 
-export type CrewMode = 'stand' | 'walk' | 'climb';
+export type CrewMode = 'stand' | 'walk' | 'climb' | 'hop' | 'float' | 'land';
 
 /**
  * The track's spans, px: the deck (hatch to ladder), the tower's own ladder (`up`), the whole
@@ -146,10 +144,72 @@ export function crewMove(s: number, target: number, dtMs: number, t: CrewTrack, 
   return at;
 }
 
-/** The ladder target while the drum turns: up to the tower's top, then down to the low mark, and again. */
-export function climbTarget(goingUp: boolean, t: CrewTrack): number {
-  const { deck, up } = trackSpans(t);
-  return deck + up * (goingUp ? CREW.climbHigh : CREW.climbLow);
+// ---------------------------------------------------------------------------------------------
+// Hopping while the wheel turns
+
+export const HOP = {
+  /** a hop's top, in hull thicknesses above the rocket's top */
+  height: 0.5,
+  /** floating over the band (a fast or long spin), hull thicknesses, and its slow bob */
+  float: 0.8,
+  bob: 0.12,
+  bobMs: 900,
+  /** they take off for good between these speeds, steps per second */
+  airFrom: 4,
+  airFull: 9,
+  /** turning longer than this, ms (and not crawling: at least `longSpeed` steps/s), they stay up */
+  longMs: 900,
+  longSpeed: 1.5,
+  /** how fast they go up into the air and come back to hopping, per second */
+  rise: 7,
+  fall: 5,
+  /** they land this long before the wheel stops... exactly as it stops: the drop, ms */
+  dropMs: 200,
+  /** the second one hops this share of a step after the first */
+  lag: 0.2,
+  /** the landing's squash, ms */
+  landMs: 220,
+} as const;
+
+/** How much they want to be up in the air (0: hopping, 1: floating) at `speed` steps/s after `movingMs` of turning. */
+export function crewAirTarget(speed: number, movingMs: number): number {
+  const s = Math.abs(speed);
+  const fast = Math.max(0, Math.min(1, (s - HOP.airFrom) / (HOP.airFull - HOP.airFrom)));
+  const long = movingMs >= HOP.longMs && s >= HOP.longSpeed ? 1 : 0;
+  return Math.max(fast, long);
+}
+
+/** One frame of the air level toward `target` (smoothly: never a jump), `dtMs` long. */
+export function stepAir(air: number, target: number, dtMs: number): number {
+  const rate = target > air ? HOP.rise : HOP.fall;
+  const k = 1 - Math.exp((-rate * Math.max(0, dtMs)) / 1000);
+  return air + (target - air) * k;
+}
+
+/**
+ * How high above the centred rocket's top an astronaut is, px, for a hull `T` px thick: hopping
+ * with the wheel at `pos` (down on a rocket each time one is centred, up in between; `lag`: this
+ * one's delay, in steps), floating over the band as `air` goes to 1 (bobbing with the time `t`,
+ * ms), and coming down to land exactly as the wheel stops when it will stop in `remainingMs`
+ * (null: no end known, a finger is still on it).
+ */
+export function crewLift({ pos, lag = 0, air, t, remainingMs, T }: { pos: number; lag?: number; air: number; t: number; remainingMs: number | null; T: number }): number {
+  const f = pos - lag - Math.floor(pos - lag);
+  const hop = HOP.height * T * Math.sin(Math.PI * f);
+  const float = HOP.float * T + HOP.bob * T * Math.sin((2 * Math.PI * t) / HOP.bobMs);
+  const a = Math.max(0, Math.min(1, air));
+  let lift = hop * (1 - a) + float * a;
+  if (remainingMs !== null) {
+    const k = Math.max(0, Math.min(1, remainingMs / HOP.dropMs));
+    lift *= k * (2 - k); // eased: the drop speeds up into the landing
+  }
+  return Math.max(0, lift);
+}
+
+/** How a hopping astronaut looks at `lift` px (hull `T`): on the rocket, hopping, or floating. */
+export function hopMode(lift: number, air: number, T: number): CrewMode {
+  if (lift < 0.04 * T) return 'stand';
+  return air > 0.5 ? 'float' : 'hop';
 }
 
 /** How the astronaut at `s` looks while moving to `target`. */

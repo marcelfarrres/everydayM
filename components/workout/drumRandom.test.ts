@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SUGGESTIONS } from '@/lib/intent/suggestions';
 import { seeded } from '@/lib/routine/fixtures.test-helpers';
 import { randomLanding, stepsTo } from './drumRandom';
-import { centreIndex, rouletteSwapAt, wrapOffset } from './launchDrum';
+import { WHEEL, centreIndex, rouletteSwapAt, wrapOffset } from './launchDrum';
 
 const drum: string[] = SUGGESTIONS.slice(0, 9);
 
@@ -69,9 +69,9 @@ describe('Random', () => {
         const p = rouletteSwapAt(centre, steps, 9, index);
         expect(p).toBeGreaterThanOrEqual(0);
         expect(p).toBeLessThan(0.6);
-        // at that moment it is two steps or more from the centre (hidden)
+        // at that moment it is out of sight
         const ease = 1 - (1 - p) ** 3.2;
-        expect(Math.abs(wrapOffset(index, centre + steps * ease, 9))).toBeGreaterThanOrEqual(2);
+        expect(Math.abs(wrapOffset(index, centre + steps * ease, 9))).toBeGreaterThanOrEqual(WHEEL.unseenAt);
       }
     }
   });
