@@ -1,5 +1,7 @@
 import type { MusicStyle, MusicTrack } from '@/types/catalog';
-import { getAudioContext } from '@/lib/audio';
+import { getAudioContext, peekAudioContext } from '@/lib/audio';
+import { isAudioDebug, logAudio } from './audioLog';
+import { WATCHDOG_DELAYS_MS, WATCHDOG_POLL_MS, contextNeedsResume, pauseIsUnexpected, retryDelayMs, watchdogPlan } from './watchdog';
 import {
   DEFAULT_MUSIC_SETTINGS,
   RAMP_SECONDS,
@@ -31,6 +33,11 @@ import {
  * silence. So a host without CORS is detected (a HEAD request in CORS mode, and any load error)
  * and the music falls back to plain elements outside Web Audio: it plays, but on iPhone its
  * volume can't change any more.
+ *
+ * Under a talk the music is only ever lowered (setDucked: a gain ramp), never paused by this
+ * code. iPhone itself pauses the music element when the talk <video> starts with sound, and the
+ * system may suspend or interrupt the AudioContext: a watchdog (watchdog.ts) puts the music back
+ * while the workout runs, and shows «Activar sonido» (needsTap) if the browser wants a tap.
  */
 
 type Route = 'graph' | 'direct';
@@ -53,9 +60,10 @@ export interface MusicSnapshot extends MusicSettings {
   // `style` here is the style that plays: the chosen one, or null («Todas») when it has no tracks
   available: boolean; // the catalogue has at least one enabled track
   styles: MusicStyle[]; // the styles the menu offers ([]: no track has a style, no choice shown)
+  needsTap: boolean; // the browser won't bring the music back without a tap: the player shows «Activar sonido»
 }
 
-const SERVER_SNAPSHOT: MusicSnapshot = { ...DEFAULT_MUSIC_SETTINGS, available: false, styles: [] };
+const SERVER_SNAPSHOT: MusicSnapshot = { ...DEFAULT_MUSIC_SETTINGS, available: false, styles: [], needsTap: false };
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((u, i) => u === b[i]);
@@ -90,7 +98,14 @@ export class MusicEngine {
   private hidden = false; // tab hidden / screen locked
   private ended = false; // the routine reached its end screen (phone): faded out, the drums play alone
   private failures = 0;
-  private waitingForTap = false;
+  private waitingForTap = false; // the browser refused without a tap (play() or resume())
+  private needsTap = false; // ...and the player shows «Activar sonido»
+  private watchAttempts = 0; // the watchdog's recoveries in this episode
+  private watchTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchPoll: ReturnType<typeof setInterval> | null = null;
+  private watchedContext: AudioContext | null = null;
+  private kickReason = ''; // what woke the watchdog last (for the debug log)
+  private voiceAudible: () => boolean = () => false; // set by talkVideo.ts: a talk sounds right now
   private switching = false; // the style changed while playing: fading out before the new playlist
   private switchTimer: ReturnType<typeof setTimeout> | null = null;
   private muteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -141,6 +156,7 @@ export class MusicEngine {
       style: effectiveStyle(this.settings.style, this.tracks),
       available: this.urls.length > 0,
       styles: offeredStyles(this.tracks),
+      needsTap: this.needsTap,
     };
   }
 
@@ -210,7 +226,9 @@ export class MusicEngine {
       deck.el.pause();
     }
     this.waitingForTap = false;
+    this.watchAttempts = 0;
     this.sync(true);
+    if (this.active) this.kick('desbloqueo');
   }
 
   /** The player opened (true) or is going away (false: see stop()). */
@@ -223,12 +241,32 @@ export class MusicEngine {
     // Normally made in the "Empezar" tap; if not, try now (if refused, the next tap starts it).
     this.ensureDecks();
     this.sync(true);
+    this.watchPoll ??= setInterval(() => {
+      if (!this.watchTimer) this.watch();
+    }, WATCHDOG_POLL_MS);
+    this.kick('reproductor abierto');
   }
 
   setPaused(paused: boolean) {
     if (paused === this.paused) return;
     this.paused = paused;
     this.sync(true);
+    if (!paused) this.kick('reanudar');
+  }
+
+  /**
+   * Something may have stopped the music (a talk started or ended, the system paused the
+   * element, the context changed state): look again soon, and bring it back if it should sound.
+   */
+  kick(reason: string) {
+    if (!this.active) return;
+    this.kickReason = reason; // (the log shows it only if the check then has to act)
+    this.scheduleWatch(WATCHDOG_DELAYS_MS[0]);
+  }
+
+  /** talkVideo.ts tells whether a talk is sounding right now (a safety net for the ducking). */
+  setVoiceProbe(probe: () => boolean) {
+    this.voiceAudible = probe;
   }
 
   /**
@@ -269,11 +307,15 @@ export class MusicEngine {
     // Left in the middle of a style change: the next routine plays the new style.
     if (switching) this.adoptPlaylist(this.currentPlaylist());
     this.applyGain(0);
+    this.watchAttempts = 0;
+    this.setNeedsTap(false);
   }
 
+  /** A talk speaks (true) or stopped (false): the music only goes down and up, it is never paused for it. */
   setDucked(ducked: boolean) {
     if (ducked === this.ducked) return;
     this.ducked = ducked;
+    logAudio(ducked ? 'música baja (voz)' : 'música sube');
     this.applyGain(RAMP_SECONDS);
     this.emitDucked();
   }
@@ -297,8 +339,17 @@ export class MusicEngine {
 
   /** For checks in development: what the engine is doing right now. */
   debugState() {
-    const decks = this.decks?.map((d) => ({ src: d.el.currentSrc, paused: d.el.paused, time: d.el.currentTime, track: d.track }));
+    const decks = this.decks?.map((d) => ({
+      src: d.el.currentSrc,
+      paused: d.el.paused,
+      time: d.el.currentTime,
+      readyState: d.el.readyState,
+      track: d.track,
+    }));
     return {
+      needsTap: this.needsTap,
+      watchAttempts: this.watchAttempts,
+      wanted: this.shouldPlay(),
       route: this.route,
       active: this.active,
       paused: this.paused,
@@ -310,7 +361,7 @@ export class MusicEngine {
       switching: this.switching,
       tracks: this.urls.length,
       gain: this.gain?.gain.value ?? null,
-      contextState: getAudioContext()?.state ?? null,
+      contextState: peekAudioContext()?.state ?? null,
       live: this.live,
       decks,
     };
@@ -389,6 +440,13 @@ export class MusicEngine {
       this.gain.gain.value = 0;
       this.gain.connect(ctx.destination);
     }
+    if (ctx && this.watchedContext !== ctx) {
+      this.watchedContext = ctx;
+      ctx.addEventListener('statechange', () => {
+        logAudio(`contexto → ${ctx.state}`);
+        if (contextNeedsResume(ctx.state)) this.kick(`contexto ${ctx.state}`);
+      });
+    }
     this.decks = [this.createDeck(), this.createDeck()];
     this.live = 0;
     return this.decks;
@@ -413,7 +471,20 @@ export class MusicEngine {
     el.addEventListener('playing', () => {
       this.failures = 0;
       this.lastPlayed = deck.track;
+      logAudio('música playing');
     });
+    // iPhone pauses this element by itself when a talk <video> starts with sound: bring it back.
+    el.addEventListener('pause', () => {
+      const live = this.decks !== null && deck === this.decks[this.live];
+      if (!live) return;
+      const unexpected = pauseIsUnexpected({ live, wanted: this.shouldPlay() });
+      logAudio(unexpected ? 'música pause (no pedida)' : 'música pause');
+      if (unexpected) this.kick('pausa no pedida');
+    });
+    if (isAudioDebug()) {
+      el.addEventListener('stalled', () => logAudio('música stalled'));
+      el.addEventListener('waiting', () => logAudio('música waiting'));
+    }
     return deck;
   }
 
@@ -485,9 +556,78 @@ export class MusicEngine {
   private play(deck: Deck) {
     getAudioContext(); // resume it if the system suspended it
     deck.el.play().catch((err: unknown) => {
+      logAudio(`música play() rechazado: ${err instanceof DOMException ? err.name : 'error'}`);
       if (isNotAllowed(err)) this.waitForTap();
       // AbortError (paused or src changed meanwhile) needs nothing
     });
+  }
+
+  // ── The watchdog (rules in watchdog.ts) ──
+
+  private scheduleWatch(ms: number) {
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    this.watchTimer = setTimeout(() => {
+      this.watchTimer = null;
+      this.watch();
+    }, ms);
+  }
+
+  /** Look at the music and the context; bring the music back if it should sound and doesn't. */
+  private watch() {
+    if (!this.active) return;
+    const deck = this.decks?.[this.live];
+    const ctx = peekAudioContext();
+    const plan = watchdogPlan({
+      wanted: this.shouldPlay(),
+      gaveUp: this.failures > this.urls.length * 2,
+      route: this.route,
+      context: ctx?.state ?? null,
+      musicPlaying: deck !== undefined && deck.track !== null && !deck.el.paused,
+      attempts: this.watchAttempts,
+      refused: this.waitingForTap,
+      ducked: this.ducked,
+      voiceAudible: this.voiceAudible(),
+    });
+    if (plan.restoreLevel) {
+      logAudio('vigía: la música seguía baja sin voz');
+      this.setDucked(false);
+    }
+    switch (plan.action) {
+      case 'idle':
+      case 'ok':
+        this.watchAttempts = 0;
+        this.kickReason = '';
+        if (plan.action === 'ok') {
+          this.waitingForTap = false; // it sounds again: no tap is owed any more
+          this.setNeedsTap(false);
+        }
+        return;
+      case 'ask-tap':
+        if (!this.needsTap) logAudio('vigía: hace falta un toque');
+        this.waitForTap();
+        return;
+      case 'recover': {
+        this.watchAttempts += 1;
+        const why = this.kickReason ? ` (${this.kickReason})` : '';
+        logAudio(`vigía: intento ${this.watchAttempts}${plan.resumeContext ? ' resume()' : ''}${plan.playMusic ? ' play()' : ''}${why}`);
+        this.kickReason = '';
+        if (plan.resumeContext && ctx) {
+          ctx.resume().catch((err: unknown) => {
+            logAudio(`resume() rechazado: ${err instanceof DOMException ? err.name : 'error'}`);
+            if (isNotAllowed(err)) this.waitForTap();
+          });
+        }
+        if (plan.playMusic) this.sync();
+        // and look again, to confirm or to try once more
+        this.scheduleWatch(retryDelayMs(this.watchAttempts));
+      }
+    }
+  }
+
+  private setNeedsTap(needsTap: boolean) {
+    if (needsTap === this.needsTap) return;
+    this.needsTap = needsTap;
+    this.emit();
   }
 
   private preloadOther() {
@@ -538,6 +678,7 @@ export class MusicEngine {
         () => true,
         () => false,
       );
+      void check.then((ok) => logAudio(`CORS de la música: ${ok ? 'sí' : 'NO'}`));
       this.corsChecks.set(url, check);
     }
     return check;
@@ -547,6 +688,7 @@ export class MusicEngine {
   private fallBackToDirect() {
     if (this.route === 'direct') return;
     this.route = 'direct';
+    logAudio('música sin Web Audio (directa)');
     if (!this.decks) return; // created direct on the first tap
     const playing = this.decks[this.live].track;
     const upcoming = this.decks[1 - this.live].track;
@@ -563,6 +705,8 @@ export class MusicEngine {
 
   /** The browser refused to start the music without a tap: start it on the next one. */
   private waitForTap() {
+    // While the player is open it says so («Activar sonido»); any tap anywhere also does it.
+    if (this.active) this.setNeedsTap(true);
     if (this.waitingForTap) return;
     this.waitingForTap = true;
     const resume = () => {
@@ -578,17 +722,23 @@ export class MusicEngine {
 
   private onVisibility = () => {
     this.hidden = document.visibilityState === 'hidden';
+    logAudio(this.hidden ? 'página oculta' : 'página visible');
     // Hidden: let it go quietly (the browser would suspend it anyway). Visible: pick up again.
     this.sync(true);
+    if (!this.hidden) this.kick('página visible');
   };
 
   private clearTimers() {
     if (this.muteTimer) clearTimeout(this.muteTimer);
     if (this.volumeTimer) clearInterval(this.volumeTimer);
     if (this.switchTimer) clearTimeout(this.switchTimer);
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    if (this.watchPoll) clearInterval(this.watchPoll);
     this.muteTimer = null;
     this.volumeTimer = null;
     this.switchTimer = null;
+    this.watchTimer = null;
+    this.watchPoll = null;
   }
 
   /** Move the music level to where it should be, over `seconds`. `level` overrides the target. */

@@ -30,7 +30,10 @@ En Vercel nunca se configuran `STUDIO_ENABLED`, `BUNNY_STORAGE_KEY` ni `STUDIO_S
 Cómo funciona (código en `lib/audio/`):
 
 - Al tocar **Empezar** se desbloquea todo lo que luego sonará, en el mismo toque (`unlockPlayerAudio`): se despierta el `AudioContext` compartido, arranca la música y se «ceba» el único `<video>` que reproduce todos los vídeos hablados (luego solo cambia su `src`). Un `<video>` nuevo con sonido sería rechazado en Safari del iPhone.
-- La música pasa por Web Audio (`<audio>` → `GainNode` → altavoz) porque el iPhone ignora `audio.volume`. Mientras suena un vídeo hablado, la música baja al 25 % con rampas de 0,3 s y vuelve al acabar.
+- La música pasa por Web Audio (`<audio>` → `GainNode` → altavoz) porque el iPhone ignora `audio.volume`. Mientras suena un vídeo hablado, la música baja al 25 % con rampas de 0,3 s y vuelve al acabar. Nuestro código solo la **baja**: nunca la pausa por un vídeo hablado.
+- **El iPhone sí la pausa** (WebKit, también Chrome en iOS): cuando un `<video>` empieza a sonar, iOS pausa cualquier otro audio de la página que esté sonando, la música incluida (en WebKit, un «vídeo con sonido» no puede sonar a la vez que otro audio; volver a tocar la música no pausa el vídeo). Antes nadie la volvía a poner y por eso **la música se callaba en el primer vídeo hablado y no volvía**. Ahora hay un **vigía** (`lib/audio/watchdog.ts`, reglas puras con pruebas) que, mientras el entrenamiento va y no está en pausa, mira la música cuando empieza o acaba un vídeo hablado, cuando la música se pausa sin pedirlo, cuando el `AudioContext` pasa a `suspended`/`interrupted`, al volver a la pantalla y cada 2 s: si debería sonar y no suena, reanuda el contexto y la vuelve a poner (hasta 4 intentos, de 0,15 s a 1,8 s). Si el navegador no deja sin un toque, sale **Activar sonido** arriba a la izquierda (y cualquier toque en la pantalla la devuelve). También sube la música si se hubiera quedado baja sin voz.
+- El `<video>` de los vídeos hablados solo se «ceba» (play + pausa) dentro de un toque de verdad. Cuando el creador del móvil empieza el entrenamiento solo (sin tocar **Empezar**), ya se cebó en el último toque y no se vuelve a hacer: un play fuera del toque no desbloquea nada y pausaba la música recién empezada.
+- La voz va directa al altavoz. Con `?voicegraph=1` en la dirección (prueba) va por el mismo `AudioContext` que la música (`crossOrigin="anonymous"` y un `MediaElementAudioSourceNode`); así el fundido de la voz funciona también en iPhone, pero **no evita** que iOS pause la música (sigue siendo un vídeo con sonido) y, si el contexto se interrumpe, la voz también calla. Por eso no está puesta por defecto.
 - Si el servidor de los archivos (Bunny) no envía cabeceras CORS, Web Audio no puede leerlos: la app lo detecta y toca la música directamente. Suena, pero **en iPhone el volumen y la bajada durante los vídeos hablados dejan de funcionar**. Por eso hay que activar CORS en la pull zone (ver `docs/MUDANZA-BUNNY.md`).
 - Con la pantalla bloqueada o la app en segundo plano, la música se para; al volver, sigue sola.
 - Silenciar y volumen están en «···» y se recuerdan en el dispositivo (`localStorage`).
@@ -46,12 +49,22 @@ Lo que solo se puede comprobar en un iPhone de verdad (Safari y la app):
 1. Crea una rutina y toca **Empezar** → la música suena en menos de 1 s.
 2. «···» → mueve **Volumen** → cambia el volumen (si no cambia, faltan las cabeceras CORS en Bunny).
 3. «···» → **Música** apagada → se calla en 0,3 s. Encendida → vuelve.
-4. Llega un descanso largo con vídeo hablado → cuando se abren las nubes se oye la voz y la música baja; al terminar, la música sube.
+4. Llega un descanso largo con vídeo hablado → cuando se abren las nubes se oye la voz y la música **sigue sonando, más baja** (puede cortarse un instante, menos de medio segundo, mientras el vigía la vuelve a poner); al terminar, la música sube. Pruébalo también con el creador del móvil (el entrenamiento que empieza solo, sin **Empezar**).
 5. Si en lugar de la voz aparece **Activar sonido**, tócalo → se oyen la voz y la música. (Que aparezca es el caso de reserva; anótalo.)
 6. Pausa → música y vídeo se paran; reanuda → siguen.
 7. Bloquea la pantalla 10 s y desbloquea → la música sigue sola (o con el primer toque).
 8. «···» → **Salir** → silencio total.
 9. Cierra y vuelve a abrir → el volumen y el silencio elegidos se mantienen.
+
+**Panel de depuración del sonido (`?audiodebug=1`).** Abre la app con `?audiodebug=1` al final de la dirección (por ejemplo `https://…/?audiodebug=1`) y empieza un entrenamiento: arriba a la izquierda sale un recuadro pequeño de texto verde (no tapa los toques) con:
+
+- `ctx`: el estado del `AudioContext` (`running`, `suspended`, `interrupted`), si la música va por Web Audio (`graph`) o directa, y su nivel (`gain`: 0,40 normal; 0,10 bajo la voz con el volumen por defecto).
+- La música: `playing`/`PAUSED`, el segundo (`t`) y `rs` (`readyState`, 4 = cargada).
+- `deseada` (debería sonar), `baja` (bajo la voz), `pausa`, `oculta`, `vigía` (intentos en curso) y `toque` (si está pidiendo «Activar sonido»).
+- La voz: `direct` o `graph`, `playing`/`paused`, `MUDA` si sonó sin sonido.
+- Los últimos 8 sucesos con la hora: la música (`playing`, `pause`, `pause (no pedida)`, `stalled`, `play() rechazado`), el contexto (`contexto → …`), la voz (`playing`, `pause`, `ended`, `error`), lo que hace el vigía (`intento 1 play() (voz empieza)`, `hace falta un toque`) y la prueba de CORS.
+
+Sin el parámetro no se pinta nada ni se escucha nada de más. Si algo falla en el iPhone, una captura de pantalla de ese recuadro justo después del fallo dice qué ha pasado. Para probar la voz por Web Audio: `?audiodebug=1&voicegraph=1`.
 
 ## Probarla ya en tu iPhone (gratis, sin App Store)
 

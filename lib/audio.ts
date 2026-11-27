@@ -17,7 +17,8 @@ export function getAudioContext(): AudioContext | null {
   if (!sharedAudioCtx) {
     sharedAudioCtx = new AudioCtx();
   }
-  if (sharedAudioCtx.state === 'suspended') {
+  // `interrupted` is WebKit's own state (a call, Siri, another app's sound...): resume it too.
+  if (sharedAudioCtx.state === 'suspended' || sharedAudioCtx.state === 'interrupted') {
     sharedAudioCtx.resume().catch(() => {});
   }
   return sharedAudioCtx;
