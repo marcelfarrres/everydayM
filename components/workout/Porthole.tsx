@@ -19,7 +19,7 @@ const NEUTRAL = '/marcel-ready-poster.webp';
 const DEBOUNCE_MS = 260;
 const FADE_MS = 320;
 // the soft edge: solid in the middle, fading out to nothing at the rim
-const FEATHER = 'radial-gradient(circle closest-side, #000 42%, transparent 100%)';
+const FEATHER = 'radial-gradient(circle closest-side, #000 56%, transparent 100%)';
 
 export function Porthole({ clip, neutral, className = '' }: { clip: Exercise | null; neutral: boolean; className?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);

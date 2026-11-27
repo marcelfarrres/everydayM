@@ -24,11 +24,11 @@ import { useRocketWidth } from '@/components/workout/player/hooks';
 import { CREATOR, ChoiceRocket, LaunchRocket, RiseIn, WaitingRocket, launchRocket } from '@/components/workout/CreatorRocket';
 import { HOP, riseKeyframes, waitingEngine } from '@/components/workout/rocketFlight';
 import { launchedUntil } from '@/components/workout/rocketHandoff';
-import { barLines } from '@/components/workout/rocketShape';
 import { PadRocket } from '@/components/workout/PadRocket';
-import { NoseCarry, NoseCrane, type NoseSpot } from '@/components/workout/NoseCarry';
+import { NoseCarry, NoseCrane, noseCraneReach, type NoseSpot } from '@/components/workout/NoseCarry';
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
 import { LaunchBase, useTextMeasure, type LaunchHold } from '@/components/workout/LaunchBase';
+import { fitDrumLabel } from '@/components/workout/drumLabel';
 import { Porthole } from '@/components/workout/Porthole';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
@@ -181,6 +181,8 @@ const subscribeDesktop = (onChange: () => void) => {
 };
 // phone: what the empty bar says (the slogan above asks the question)
 const PHONE_PLACEHOLDER = '¿Qué entrenamos hoy?';
+/** The sentence in the nose never goes below this size, px (then it is cut with «…»). */
+const NOSE_TEXT_MIN = 13;
 
 function groupRole(intent: RoutineIntent, ids: MuscleId[]): GroupRole {
   const hits = intent.muscles.filter((m) => ids.includes(m.id));
@@ -373,8 +375,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // and the bar must never feed that back)
   const [barWidth, setBarWidth] = useState<number | null>(null);
   const barPx = barWidth ?? rocketWidth - 12;
-  // it grows a line at a time as the sentence wraps (up to PAD_BAR.MAX_LINES; then it scrolls inside)
-  const [lines, setLines] = useState(1);
+  // (phone: the sentence in the nose always stays on one line: smaller, then cut with «…»)
+  const lines = 1;
   // suggestions at random, chosen in the browser (the server, and hydration, use the first ones)
   const suggestions = useSyncExternalStore(subscribeNoop, browserSuggestions, () => SERVER_SUGGESTIONS);
 
@@ -394,6 +396,13 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [carry, setCarry] = useState<{ from: { left: number; top: number }; text: string } | null>(null);
   const [noseSpot, setNoseSpot] = useState<NoseSpot | null>(null);
   const measureText = useTextMeasure(pageRef);
+  // the sentence in the nose: as big as fits on its one line (down to NOSE_TEXT_MIN), then cut with
+  // «…» (keeping its minutes, as on the wheel) while it is not being typed in (while typing, the
+  // field scrolls to the caret)
+  const noseText = useMemo(
+    () => (text.trim() ? fitDrumLabel(text, bar.textWidth - 2, { max: PAD_BAR.TEXT_PX, min: NOSE_TEXT_MIN }, measureText) : null),
+    [text, bar.textWidth, measureText],
+  );
   const placeholderPx = useMemo(
     () => fitLabel(PHONE_PLACEHOLDER, bar.textWidth - 2, { max: PAD_BAR.TEXT_PX, min: PAD_BAR.PLACEHOLDER_MIN }, measureText).px,
     [bar.textWidth, measureText],
@@ -478,44 +487,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     return () => controls.stop();
   }, [counting, minutes, reducedMotion]);
 
-  // Phone: how many lines the sentence takes in the bar (measured as it is typed, without the
-  // field's own height).
-  const measureLines = (field: HTMLTextAreaElement) => {
-    if (window.matchMedia('(min-width: 64rem)').matches) return;
-    const height = field.style.height;
-    field.style.height = '0px';
-    const next = barLines(field.scrollHeight);
-    field.style.height = height;
-    setLines(next);
-  };
-  // ...and once the sentence has been set from elsewhere (the voice, a suggestion, "Cambiar")
-  const remeasure = () =>
-    requestAnimationFrame(() => {
-      const field = document.getElementById('routine-prompt');
-      if (field instanceof HTMLTextAreaElement) measureLines(field);
-    });
-
-  // ...and each new line (or one less) lands with a "¡pam!": down at once, and a little shake.
-  const shownLines = useRef(lines);
-  useLayoutEffect(() => {
-    const node = barRef.current;
-    if (shownLines.current === lines) return;
-    const more = lines > shownLines.current;
-    shownLines.current = lines;
-    if (!node || reducedMotion || window.matchMedia('(min-width: 64rem)').matches) return;
-    const pam = node.animate(
-      [
-        { transform: `translateY(${more ? -7 : 4}px) scale(1, ${more ? 1.04 : 0.97})`, easing: 'cubic-bezier(0.5, 0, 0.9, 0.5)' },
-        { transform: 'translateY(3px) scale(1.01, 0.95)', offset: 0.3, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' },
-        { transform: 'translate(-2px, 0px)', offset: 0.48 },
-        { transform: 'translate(2px, 0px)', offset: 0.62 },
-        { transform: 'translate(-1px, 0px)', offset: 0.78 },
-        { transform: 'none' },
-      ],
-      { duration: 380 },
-    );
-    return () => pam.cancel();
-  }, [lines, reducedMotion]);
 
   // Phone: the bar's own width, whenever the sentence view is up.
   useLayoutEffect(() => {
@@ -774,7 +745,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     }
     setClipDone(false);
     setBarRises(true);
-    remeasure();
     // (phone: whatever was being built or taking off is dropped, the base starts afresh)
     if (finaleRef.current) setBaseKey((k) => k + 1);
     gateRef.current = null;
@@ -926,7 +896,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           .join(' ')
           .trim(),
       );
-      remeasure();
     };
     recognition.onend = () => setListening(false);
     recognition.onerror = () => setListening(false);
@@ -970,6 +939,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     '--ctl-t': `${bar.ctlTop}px`,
     '--disc': `${2 * bar.discR}px`,
     '--ph-px': `${placeholderPx}px`,
+    '--txt-px': `${noseText?.px ?? PAD_BAR.TEXT_PX}px`,
     // the field: as many lines as the bar holds, centred in its hull
     '--txt-h': `${bar.fieldHeight}px`,
     '--txt-t': `${bar.fieldTop}px`,
@@ -1115,9 +1085,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             e.preventDefault();
             submit(text);
           }}
-          // (phone, while typing: its height held in px, and the base's 40dvh with it)
-          style={heldHeight !== null && !desktop ? ({ height: `${heldHeight}px`, '--pad-dvh': `${heldHeight / 100}px` } as CSSProperties) : undefined}
-          className={`mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pb-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))] ${
+          // (phone: what the nose and its crane take, for the height's sharing in .start-fit; while
+          // typing, its height held in px, and the base's share with it)
+          style={
+            desktop
+              ? undefined
+              : ({ '--bar-room': `${Math.round(bar.height + noseCraneReach(bar.g) + 12)}px`, ...(heldHeight !== null ? { height: `${heldHeight}px`, '--pad-dvh': `${heldHeight / 100}px` } : {}) } as CSSProperties)
+          }
+          className={`start-fit mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pb-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))] ${
             view !== 'ask' ? 'asm-leave max-lg:pointer-events-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30' : ''
           }`}
           aria-hidden={view !== 'ask' ? true : undefined}
@@ -1132,7 +1107,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           </motion.h1>
 
           {/* phone: the slogan over the dark page, and Marcel in the porthole behind it */}
-          <h1 className={`relative z-10 mt-1 text-[clamp(1.9rem,9.6vw,2.75rem)] font-semibold leading-[1.04] tracking-[-0.03em] text-white transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
+          <h1 className={`relative z-10 mt-1 shrink-0 text-[length:var(--slogan-px)] font-semibold leading-[1.04] tracking-[-0.03em] text-white transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
             ¿Te quieres
             <br />
             poner como
@@ -1140,12 +1115,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             <span className="text-heat">un cohete?</span>
           </h1>
           <div className={`relative min-h-0 flex-1 transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
-            <Porthole
-              clip={standIn}
-              neutral={typing || text.trim() !== ''}
-              // (a little up and never down to the crane's arm over the bar: its visible part stays above it)
-              className="absolute left-1/2 top-[calc(50%-3.25rem)] aspect-square h-[min(calc(100%+5rem),88vw,calc(111%+53px))] -translate-x-1/2 -translate-y-1/2"
-            />
+            {/* (between the slogan and the crane's arm over the nose, clear of both, as big as fits) */}
+            <div className="absolute inset-x-0 top-[6px] flex items-center justify-center" style={{ bottom: Math.round(noseCraneReach(bar.g) + 6) }}>
+              <Porthole clip={standIn} neutral={typing || text.trim() !== ''} className="relative aspect-square h-[min(100%,88vw)] shrink-0" />
+            </div>
           </div>
 
           {/* on a phone the bar is the rocket: the field is its hull, "send" sits at the front */}
@@ -1167,11 +1140,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             <textarea
               id="routine-prompt"
               rows={1}
+              // (phone: one line, never wrapped; it scrolls to the caret)
+              wrap={desktop ? undefined : 'off'}
               maxLength={500}
               value={text}
               onChange={(e) => {
                 setText(e.target.value);
-                measureLines(e.target);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1197,8 +1171,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 }, 250);
               }}
               placeholder={desktop ? 'Hombros, 20 minutos' : PHONE_PLACEHOLDER}
-              className="field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-x-hidden max-lg:overflow-y-auto max-lg:rounded-lg max-lg:py-[10px] max-lg:leading-6 max-lg:caret-heat max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:placeholder:text-[length:var(--ph-px)] max-lg:placeholder:text-[#888780] max-lg:focus-visible:bg-ink/[0.04]"
+              className={`field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-hidden max-lg:whitespace-pre max-lg:rounded-lg max-lg:py-[10px] max-lg:text-[length:var(--txt-px)] max-lg:leading-6 max-lg:caret-heat max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:placeholder:text-[length:var(--ph-px)] max-lg:placeholder:text-[#888780] max-lg:focus-visible:bg-ink/[0.04] ${noseText?.cut && !typing ? 'max-lg:text-transparent' : ''}`}
             />
+            {/* (phone: too long for its line even at its smallest, it shows cut with «…» while not typed in) */}
+            {!desktop && noseText?.cut && !typing && (
+              <span aria-hidden="true" className="pointer-events-none absolute left-[var(--txt-l)] top-[var(--txt-t)] h-[var(--txt-h)] w-[var(--txt-w)] overflow-hidden whitespace-pre py-[10px] text-[length:var(--txt-px)] font-medium leading-6 text-ink lg:hidden">
+                {noseText.text}
+              </span>
+            )}
             {speechSupported && (
               <button
                 type="button"

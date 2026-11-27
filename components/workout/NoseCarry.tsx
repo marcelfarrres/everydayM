@@ -101,6 +101,9 @@ export function NoseCarry({
   );
 }
 
+/** How far the crane's arm reaches above the nose bar's top, px (its top edge, the red light's too). */
+export const noseCraneReach = (g: PadRocketGeometry) => Math.max(0, 44 - g.body.top);
+
 /**
  * The first page's crane holding the nose you write in (phone): its arm comes in from the right
  * edge just above the bar, a trolley over the middle, a short cable and a spreader bar with two

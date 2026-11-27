@@ -254,6 +254,9 @@ export const SCENE = {
   panelMin: 2.9,
   /** room under the launch pad for the lit flame, in hull thicknesses */
   flameRoom: 1.15,
+  /** on a short base the centred rocket is at most the panel's room / this tall, and never thinner than minBody px */
+  bodyFit: 2.4,
+  minBody: 24,
 } as const;
 
 /**
@@ -264,12 +267,14 @@ export const SCENE = {
  */
 export function baseLayout(width: number, height: number, safeBottom = 0): BaseLayout {
   const W = Math.max(280, width);
-  const Hb = Math.max(200, height);
+  const Hb = Math.max(160, height);
   const tw = Math.round(Math.min(22, Math.max(14, W * 0.05)));
   const edge = 6;
   const tower = { w: tw, leftX: edge, rightX: W - edge - tw, top: 8, bottom: Hb - 4 };
   const inner = edge + tw + 6;
-  const body = Math.round(Math.min(42, Math.max(30, (W - 2 * inner) * 0.13)));
+  // (on a short base the rockets get thinner, so the five still show on the wheel)
+  const room = Hb - SCENE.headH - SCENE.headGap - 8;
+  const body = Math.round(Math.min(42, Math.max(30, (W - 2 * inner) * 0.13), Math.max(SCENE.minBody, room / (rocketBoxHeight(1) * SCENE.bodyFit))));
   // room on the left for the centred rocket's flame (lit at half: half a hull long), clear of the tower
   const left = inner + Math.round(body * 0.5);
   const length = W - inner - left;

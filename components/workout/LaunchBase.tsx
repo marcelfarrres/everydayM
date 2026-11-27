@@ -815,7 +815,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      className="relative z-20 h-[clamp(236px,calc(var(--pad-dvh,1dvh)*40),380px)] w-full touch-none select-none text-ink"
+      className="relative z-20 h-[var(--base-h,clamp(236px,calc(var(--pad-dvh,1dvh)*40),380px))] w-full touch-none select-none text-ink"
       // (the page's own dark: the dawn sky starts in it, so the base is no separate block)
       style={{ background: BASE_PAGE }}
     >

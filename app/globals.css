@@ -809,6 +809,26 @@ body {
   }
 }
 
+/* the start screen (phone): how its height is shared. The slogan a little smaller on a short
+   screen (never under 28 px); the porthole wants 28 % of the height (at most 60 % of the width, at
+   least 150 px); the nose and its crane take --bar-room (set by the page); the rocket base gets its
+   40 % only if all that fits, else it gives way (down to 160 px: its rockets shrink) before the
+   porthole does; the porthole then takes whatever is left between the slogan and the crane's arm.
+   --pad-dvh: the height held while the keyboard is up. */
+.start-fit {
+  --start-dvh: var(--pad-dvh, 1dvh);
+  --slogan-px: clamp(28px, min(9.6vw, calc(var(--start-dvh) * 4.6)), 44px);
+  --porthole-want: clamp(150px, min(60vw, calc(var(--start-dvh) * 28)), 240px);
+  --base-h: clamp(
+    160px,
+    min(
+      calc(var(--start-dvh) * 40),
+      calc(var(--start-dvh) * 100 - 4rem - env(safe-area-inset-top) - 4px - var(--slogan-px) * 3.12 - var(--bar-room, 124px) - var(--porthole-want) - 12px)
+    ),
+    380px
+  );
+}
+
 /* the minutes' tank (phone): the hook's ring breathes; until the first drag the level's two
    chevrons pulse in turn (after it has shown by itself that it slides) */
 .tank-ring {
