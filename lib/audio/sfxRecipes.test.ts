@@ -47,6 +47,12 @@ describe('sound table', () => {
         'separate',
         'slowMo',
         'towerDock',
+        'engineStart',
+        'hookGrab',
+        'truckRoll',
+        'liftWhir',
+        'spark',
+        'veilWhoosh',
       ].sort(),
     );
     expect(sfxCategory('beep')).toBe('alert');

@@ -49,8 +49,11 @@ export type { SfxLoopName, SfxName, SfxOneShot } from './sfxRecipes';
  * "Empezar") every call is a harmless no-op.
  */
 
+/** The most a single play may be raised over its own level (the bus's limiter keeps the sum from clipping). */
+export const SFX_GAIN_MAX = 3;
+
 export interface PlaySfxOptions {
-  /** Extra level for this play, 0..1 (default 1). */
+  /** Extra level for this play (default 1): under 1 softer; up to SFX_GAIN_MAX louder (the creator, where no music plays). */
   gain?: number;
   /** Called inside a tap: may wake the AudioContext itself (e.g. `ignite` on a rocket-button). */
   gesture?: boolean;
@@ -330,7 +333,7 @@ export function playSfx(name: SfxOneShot, opts: PlaySfxOptions = {}): void {
 
     const recording = sampleFor(name);
     const vary = variation(recipe.vary);
-    const extra = Math.min(1, Math.max(0, opts.gain ?? 1));
+    const extra = Math.min(SFX_GAIN_MAX, Math.max(0, opts.gain ?? 1));
     const output = ctx.createGain();
     output.gain.value = (recording ? recording.sample.gain : recipe.gain) * vary.gain * extra;
     output.connect(b.categories[recipe.category]);

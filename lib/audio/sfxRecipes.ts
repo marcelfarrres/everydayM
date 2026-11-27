@@ -33,7 +33,13 @@ export type SfxOneShot =
   | 'metalStep'
   | 'ladderStep'
   | 'buttonThunk'
-  | 'towerDock';
+  | 'towerDock'
+  | 'engineStart'
+  | 'hookGrab'
+  | 'truckRoll'
+  | 'liftWhir'
+  | 'spark'
+  | 'veilWhoosh';
 
 export type SfxLoopName = 'slowMo' | 'drumRoll';
 
@@ -338,6 +344,81 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
       { kind: 'tone', wave: 'triangle', freq: 787, gain: 0.3, env: { attack: 0.002, decay: 0.14 } },
       { kind: 'noise', filter: 'bandpass', freq: 1500, q: 2, gain: 0.6, env: { attack: 0.001, decay: 0.04 } },
       { kind: 'tone', wave: 'sine', freq: 95, freqEnd: 60, gain: 0.7, env: { attack: 0.002, decay: 0.14 } },
+    ],
+  },
+
+  // The creator (phone): no music plays there, so these carry the mood. Synthesised only (no
+  // files); their levels in the creator: lib/audio/creatorSfx.ts.
+
+  // A rocket's engine coming to life (the wheel settles on it, the typing bar takes focus): a low
+  // rumble that swells and settles in ~0.6 s, a breath of hiss on top. Never a clean high tone.
+  engineStart: {
+    category: 'ambient',
+    gain: 0.34,
+    maxVoices: 1,
+    minGap: 0.45,
+    vary: { pitch: 1, gain: 0.15 },
+    layers: [
+      { kind: 'noise', filter: 'lowpass', freq: 180, freqEnd: 420, gain: 0.9, env: { attack: 0.16, hold: 0.12, decay: 0.3 } },
+      { kind: 'tone', wave: 'sawtooth', freq: 46, freqEnd: 62, gain: 0.32, env: { attack: 0.14, hold: 0.1, decay: 0.3 } },
+      { kind: 'tone', wave: 'triangle', freq: 92, freqEnd: 120, gain: 0.3, env: { attack: 0.12, hold: 0.08, decay: 0.28 } },
+      { kind: 'noise', filter: 'bandpass', freq: 1100, freqEnd: 700, q: 1.2, at: 0.06, gain: 0.16, env: { attack: 0.1, decay: 0.3 } },
+    ],
+  },
+  // The crane's hook takes a piece: a bright clang of steel on steel, a little ring after it.
+  hookGrab: {
+    category: 'ambient',
+    gain: 0.3,
+    maxVoices: 1,
+    minGap: 0.25,
+    vary: { pitch: 1.2, gain: 0.15 },
+    layers: [
+      { kind: 'tone', wave: 'triangle', freq: 523, gain: 0.5, env: { attack: 0.001, decay: 0.2 } },
+      { kind: 'tone', wave: 'triangle', freq: 1367, gain: 0.22, env: { attack: 0.001, decay: 0.12 } },
+      { kind: 'noise', filter: 'bandpass', freq: 2400, q: 3, gain: 0.55, env: { attack: 0.001, decay: 0.025 } },
+      { kind: 'tone', wave: 'sine', freq: 130, freqEnd: 90, gain: 0.45, env: { attack: 0.002, decay: 0.1 } },
+    ],
+  },
+  // The truck rolling in along the road: a low growl of tyres and engine, rising then gone.
+  truckRoll: {
+    category: 'ambient',
+    gain: 0.22,
+    maxVoices: 1,
+    minGap: 0.6,
+    layers: [
+      { kind: 'noise', filter: 'lowpass', freq: 260, freqEnd: 160, gain: 0.9, env: { attack: 0.25, hold: 0.25, decay: 0.4 } },
+      { kind: 'tone', wave: 'sawtooth', freq: 58, freqEnd: 44, gain: 0.22, env: { attack: 0.2, hold: 0.2, decay: 0.4 } },
+    ],
+  },
+  // The truck's scissor lift raising a piece: a short motor whirr going up.
+  liftWhir: {
+    category: 'ambient',
+    gain: 0.18,
+    maxVoices: 1,
+    minGap: 0.4,
+    layers: [
+      { kind: 'tone', wave: 'sawtooth', freq: 140, freqEnd: 230, gain: 0.35, env: { attack: 0.05, hold: 0.3, decay: 0.12 } },
+      { kind: 'noise', filter: 'bandpass', freq: 900, freqEnd: 1500, q: 2, gain: 0.4, env: { attack: 0.05, hold: 0.3, decay: 0.12 } },
+    ],
+  },
+  // A bolt's sparks: a short crackle (on top of the bolt's clack).
+  spark: {
+    category: 'ambient',
+    gain: 0.14,
+    maxVoices: 2,
+    minGap: 0.08,
+    vary: { pitch: 2, gain: 0.3 },
+    layers: [{ kind: 'noise', filter: 'highpass', freq: 3500, gain: 0.8, env: { attack: 0.001, decay: 0.03 }, repeat: { count: 4, every: 0.035, fade: 0.7 } }],
+  },
+  // The white screen closing over everything: a soft airy swell.
+  veilWhoosh: {
+    category: 'ambient',
+    gain: 0.2,
+    maxVoices: 1,
+    minGap: 1,
+    layers: [
+      { kind: 'noise', filter: 'bandpass', freq: 500, freqEnd: 2400, q: 0.7, gain: 0.8, env: { attack: 0.35, hold: 0.1, decay: 0.5 } },
+      { kind: 'tone', wave: 'triangle', freq: 220, freqEnd: 330, gain: 0.12, env: { attack: 0.3, decay: 0.5 } },
     ],
   },
 };
