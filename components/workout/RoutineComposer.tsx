@@ -36,7 +36,8 @@ import { creatorJoke, type CreatorSend } from '@/lib/intent/creatorJoke';
 import { CreatorJoke, jokeOrigin, type ActiveJoke } from '@/components/workout/CreatorJoke';
 import { playSfx } from '@/lib/audio/sfx';
 import { unlockPlayerAudio } from '@/lib/audio/unlock';
-import { AssemblyScene } from '@/components/workout/AssemblyScene';
+import { AssemblyScene, type Take } from '@/components/workout/AssemblyScene';
+import { LoosePiece } from '@/components/workout/AssemblyRocket';
 import { FINALE_SENTENCE, LaunchFinale, type FinalePhase } from '@/components/workout/LaunchFinale';
 import { openVeil, type Veil } from '@/components/workout/whiteVeil';
 import { LAUNCH } from '@/components/workout/launchDrum';
@@ -44,6 +45,7 @@ import type { Outfit } from '@/components/workout/PortholePerson';
 import {
   FINALE,
   PAGE_DAY,
+  TAKE,
   finaleSentence,
   shownMinutes,
   fittedTarget,
@@ -288,6 +290,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // Phone: the questions build the routine's rocket (AssemblyScene) and it then takes off by itself
   const [skipped, setSkipped] = useState(false);
   const [assembled, setAssembled] = useState(false);
+  // phone: the answer's piece on its way to the rocket (the next question waits until it is bolted)
+  const [pending, setPending] = useState<(Take & { taken: boolean }) | null>(null);
   // what the sentence was understood as (Gemini, or the local parser), for the pieces' labels
   const [heard, setHeard] = useState<RoutineIntent | null>(null);
   const [finale, setFinale] = useState<Finale | null>(null);
@@ -658,6 +662,45 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     if (last) void build(next, !isPhone());
   };
 
+  /**
+   * Phone: an answer tapped as its piece (`el`, the loose piece's button). That very piece goes to
+   * the rocket (AssemblyScene takes it from its place); the next question comes once it is bolted
+   * (pieceFitted). With reduced motion it simply appears in place and the next question follows.
+   */
+  const answerWith = (patch: Partial<RoutineIntent>, piece: PieceId, el: HTMLElement, label: string) => {
+    if (pending) return;
+    const last = asked + 1 >= questions.length;
+    if (last) lastTap();
+    const next = { ...answers, ...patch };
+    setAnswers(next);
+    if (reducedMotion) setAsked(asked + 1);
+    else {
+      const box = (el.querySelector('svg[data-piece]') ?? el).getBoundingClientRect();
+      setPending({ piece, rect: { left: box.left, top: box.top }, label, taken: false });
+    }
+    if (last) void build(next, false);
+  };
+  const pieceTaken = useCallback((piece: PieceId) => {
+    setPending((p) => (p && p.piece === piece && !p.taken ? { ...p, taken: true } : p));
+  }, []);
+  const nextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (nextTimer.current) clearTimeout(nextTimer.current);
+  }, []);
+  const pendingRef = useRef(pending);
+  useLayoutEffect(() => {
+    pendingRef.current = pending;
+  });
+  const pieceFitted = useCallback((piece: PieceId) => {
+    if (pendingRef.current?.piece !== piece) return;
+    // a beat with the piece on, then the next question
+    if (nextTimer.current) clearTimeout(nextTimer.current);
+    nextTimer.current = setTimeout(() => {
+      setAsked((a) => a + 1);
+      setPending(null);
+    }, TAKE.beatMs);
+  }, []);
+
   /** `show`: the build-up of the ready view (the computer, "Cambiar"); without it (phone), it is built out of sight. */
   const build = async (extra: Partial<RoutineIntent>, show = true) => {
     jokeFired.current = false; // the next routine created may be teased again
@@ -724,6 +767,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     launching.current = false;
     setSkipped(false);
     setAssembled(false);
+    setPending(null);
+    if (nextTimer.current) clearTimeout(nextTimer.current);
     setView('ask');
   };
 
@@ -905,7 +950,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // Phone: the questions build the rocket in the dawn (AssemblyScene); the sky's step follows the pieces
   const phoneQuestions = view === 'questions' && !desktop;
   const questionIds = questions.map((q) => q.id);
-  const fitted = fittedTarget(questionIds, asked, skipped);
+  // (an answer whose piece is on its way counts: the pieces known after it come once it is on)
+  const answeredCount = asked + (pending ? 1 : 0);
+  const fitted = fittedTarget(questionIds, answeredCount, skipped);
   const sky = skyStep(fitted);
   // the sky is still dark at the top (light text) on the phone's first view and the first steps
   const darkTop = (phoneAsk && finale?.path !== 'C') || (phoneQuestions && !skyInk(sky));
@@ -1198,17 +1245,21 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           </div>
         </form>
       ) : phoneQuestions ? (
-        // phone: the questions on the left; on the right the routine's rocket is built, a piece per
-        // answer, in the dawn that turns to day; then it takes off by itself
+        // phone: the questions on the left, their answers as the very pieces they fit; on the right
+        // the routine's rocket is built, a piece per answer, in the dawn that turns to day; then it
+        // takes off by itself
         <AssemblyScene
           target={fitted}
-          modes={pieceModes(questionIds, asked)}
+          modes={pieceModes(questionIds, answeredCount)}
           labels={pieceLabels}
           sky={sky}
           outfit={sky as Outfit}
           finale={finale?.path !== 'B' ? 'none' : finale.phase === 'read' ? 'read' : finale.phase === 'wait' ? 'none' : 'launch'}
           onAssembled={onAssembled}
           onLiftOff={liftOff}
+          take={pending}
+          onTaken={pieceTaken}
+          onFitted={pieceFitted}
         >
           {(L, ink) =>
             finale?.path === 'B' && finaleText ? (
@@ -1223,72 +1274,84 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 {finaleText}
               </motion.p>
             ) : skipped || asked >= questions.length ? null : (
-              <div className="flex flex-col gap-5 pt-2">
+              <div className="flex flex-col gap-5">
                 <div style={{ minHeight: L.column.titleMin }}>
                   <AnimatePresence mode="wait" initial={false}>
                     {questions
                       .filter((_, i) => i === asked)
                       .map((q) => (
-                        <motion.h1
+                        <motion.div
                           key={q.id}
                           initial={reducedMotion ? false : { opacity: 0, x: 40 }}
                           animate={{ opacity: 1, x: 0 }}
                           exit={reducedMotion ? undefined : { opacity: 0, x: -40 }}
                           transition={{ duration: 0.45, ease: EASE }}
                           style={{ maxWidth: L.column.titleWidth }}
-                          className={`text-balance text-[clamp(2.25rem,8vw,4rem)] font-semibold leading-[1] tracking-[-0.035em] transition-colors duration-[1200ms] ${ink ? 'text-ink' : 'text-white'}`}
                         >
-                          {q.title}
-                        </motion.h1>
+                          <h1
+                            className={`text-balance text-[clamp(2.45rem,8vw,4rem)] font-semibold leading-[1] tracking-[-0.035em] transition-colors duration-[1200ms] ${ink ? 'text-ink' : 'text-white'}`}
+                          >
+                            {q.title}
+                          </h1>
+                          {/* what to do: the pieces are the answers */}
+                          <p className={`mt-2.5 text-[15px] font-medium transition-colors duration-[1200ms] ${ink ? 'text-ink/65' : 'text-white/80'}`}>
+                            {q.id === 'minutes' ? 'Elige y toca la pieza' : 'Toca una pieza'}
+                          </p>
+                        </motion.div>
                       ))}
                   </AnimatePresence>
                 </div>
                 {questions[asked]?.id === 'minutes' ? (
-                  <div className="rounded-3xl bg-white p-4 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.5)]">
-                    <MinutesSlider wrap value={draftMinutes} onChange={setDraftMinutes} preview={shapeFor(draftMinutes)} />
-                  </div>
+                  <>
+                    <div className={`rounded-3xl bg-white p-4 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.5)] transition-opacity duration-300 ${pending ? 'opacity-0' : ''}`}>
+                      <MinutesSlider wrap value={draftMinutes} onChange={setDraftMinutes} preview={shapeFor(draftMinutes)} />
+                    </div>
+                    {/* the minutes' piece itself: its words follow the slider; a tap fits it */}
+                    <LoosePiece
+                      piece="minutes"
+                      L={L}
+                      label={`${draftMinutes} min`}
+                      measure={measureText}
+                      index={0}
+                      hidden={pending?.piece === 'minutes' && pending.taken}
+                      onClick={(e) => {
+                        if (pending || tease({ kind: 'minutes', minutes: draftMinutes }, e.currentTarget)) return;
+                        answerWith({ targetMinutes: draftMinutes }, 'minutes', e.currentTarget, `${draftMinutes} min`);
+                      }}
+                    />
+                  </>
                 ) : questions[asked] ? (
-                  // each option is a rocket, one above the other; the one tapped takes off
-                  <RiseIn key={questions[asked].id} delay={Math.min(hop, 300)} className="flex flex-col items-start gap-3">
-                    {questions[asked].options.map((option) => (
-                      <ChoiceRocket
-                        key={option.label}
-                        text={option.label}
-                        room={L.column.right - L.column.left}
-                        minChars={Math.max(...questions[asked].options.map((o) => o.label.length))}
-                        onClick={(e) => {
-                          const q = questions[asked];
-                          const difficulty = q.id === 'intensity' ? option.patch.difficulty : undefined;
-                          if (difficulty !== undefined && tease({ kind: 'intensity', difficulty }, e.currentTarget)) return;
-                          answer(option.patch, e.currentTarget);
-                        }}
-                      />
-                    ))}
-                  </RiseIn>
+                  <div key={questions[asked].id} className="flex flex-col items-start gap-3">
+                    {questions[asked].options.map((option, i) => {
+                      const q = questions[asked];
+                      const piece: PieceId = q.id === 'intensity' ? 'engine' : 'blocks';
+                      const mine = pending?.label === option.label;
+                      return (
+                        <LoosePiece
+                          key={option.label}
+                          piece={piece}
+                          L={L}
+                          label={option.label}
+                          measure={measureText}
+                          index={i}
+                          hidden={mine && pending?.taken}
+                          faded={Boolean(pending) && !mine}
+                          onClick={(e) => {
+                            if (pending) return;
+                            const difficulty = q.id === 'intensity' ? option.patch.difficulty : undefined;
+                            if (difficulty !== undefined && tease({ kind: 'intensity', difficulty }, e.currentTarget)) return;
+                            answerWith(option.patch, piece, e.currentTarget, option.label);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
                 ) : null}
-                {/* on the minutes the rocket waits for the tap: it is the "Seguir" button */}
-                {questions[asked]?.id === 'minutes' && (
-                  <WaitingRocket
-                    key={asked}
-                    ref={waitRef}
-                    riseDelay={hop}
-                    label="Seguir"
-                    room={L.column.right - L.column.left}
-                    onClick={() => {
-                      if (tease({ kind: 'minutes', minutes: draftMinutes }, waitRef.current)) return;
-                      answer({ targetMinutes: draftMinutes });
-                    }}
-                    flame={minutesEngine(draftMinutes).flame}
-                    shake={minutesEngine(draftMinutes).shake}
-                    pullUp={24}
-                  />
-                )}
-                {asked < questions.length && (
+                {!pending && (
                   <button
                     type="button"
                     onClick={() => {
                       lastTap();
-                      launchQuestion(true);
                       setSkipped(true);
                       void build(answers, false);
                     }}

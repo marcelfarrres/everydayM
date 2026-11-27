@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   FINALE,
   PIECES,
+  PIECE_UNITS,
   QUICK,
+  TAKE,
   TAKEOFF,
+  TITLE_ROOM,
   TRUCK,
+  answerHulls,
   assemblyLayout,
   finaleSentence,
   fitMs,
@@ -18,6 +22,7 @@ import {
   shownMinutes,
   skyInk,
   skyStep,
+  takeTimeline,
   truckTimeline,
   zoomLines,
 } from '@/components/workout/assembly';
@@ -127,6 +132,30 @@ describe('the layout', () => {
     }
   });
 
+  it('makes the porthole bigger where the width allows, never nearer the title than its widest word', () => {
+    const L = at(390, 844);
+    expect(L.porthole.r).toBeGreaterThanOrEqual(66);
+    for (const [w, h] of [
+      [390, 844],
+      [320, 568],
+      [320, 700],
+    ]) {
+      const M = at(w, h);
+      expect(M.column.titleWidth).toBeGreaterThanOrEqual(TITLE_ROOM);
+    }
+  });
+
+  it('makes the answer pieces long enough for their words at 15 px, shortening the nose first', () => {
+    const want = answerHulls(36);
+    expect(want.blocks).toBeGreaterThan(PIECE_UNITS.blocks * 36 - 0.01);
+    const L = at(390, 844);
+    expect(L.squeeze).toBe(1);
+    expect(L.pieces.blocks.hull).toBeCloseTo(answerHulls(L.T).blocks, 0);
+    expect(L.pieces.nose.hull).toBeLessThanOrEqual(PIECE_UNITS.nose * L.T + 0.1);
+    // a tall enough 320 px screen needs no squeeze at all
+    expect(at(320, 700).squeeze).toBe(1);
+  });
+
   it('puts the window on the nose, under the crane', () => {
     const L = at(390, 844);
     expect(L.window.y).toBeGreaterThan(L.pieces.nose.top);
@@ -172,6 +201,20 @@ describe('the timelines', () => {
     expect(t.placedAt).toBeGreaterThan(t.bolts[1]);
     expect(t.lower[0]).toBe(t.placedAt);
     expect(t.driveOut[0]).toBe(t.lower[1]);
+    expect(t.endAt).toBe(t.driveOut[1]);
+  });
+
+  it('takes a tapped piece to its place in under 3 s, then the next question after a beat', () => {
+    const t = takeTimeline();
+    expect(t.fly[0]).toBeGreaterThanOrEqual(0);
+    expect(t.lift[0]).toBeGreaterThanOrEqual(t.fly[1]);
+    expect(t.lift[0]).toBeGreaterThanOrEqual(t.driveIn[1]);
+    expect(t.dockAt).toBe(t.lift[1]);
+    expect(t.bolts[0]).toBeGreaterThan(t.dockAt);
+    expect(t.placedAt).toBeGreaterThan(t.bolts[1]);
+    expect(t.placedAt).toBeGreaterThanOrEqual(2600);
+    expect(t.placedAt).toBeLessThanOrEqual(3000);
+    expect(t.nextAt).toBe(t.placedAt + TAKE.beatMs);
     expect(t.endAt).toBe(t.driveOut[1]);
   });
 

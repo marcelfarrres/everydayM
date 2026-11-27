@@ -783,3 +783,21 @@ body {
     animation: none !important;
   }
 }
+
+/* the creator's loose pieces (the answers, phone): a gentle bob while they wait to be chosen */
+.asm-bob {
+  animation: asm-bob 1.8s ease-in-out infinite alternate;
+}
+@keyframes asm-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asm-bob {
+    animation: none;
+  }
+}

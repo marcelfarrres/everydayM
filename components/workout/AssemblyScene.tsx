@@ -14,11 +14,13 @@ import {
   SKY_MS,
   SKY_STEPS,
   TAKEOFF,
+  TAKE,
   TRUCK,
   assemblyLayout,
   liftFor,
   padHull,
   skyInk,
+  takeTimeline,
   truckTimeline,
   zoomLines,
   type AssemblyLayout,
@@ -60,17 +62,28 @@ interface AssemblySceneProps {
   onAssembled: () => void;
   /** the rocket lifts off: where its pad is on the screen */
   onLiftOff: (pad: { x: number; y: number }) => void;
+  /**
+   * the answer's piece, tapped in the column: its box on the screen and its words. The scene takes
+   * that very piece from there (`onTaken`: it draws it now, the column hides its own) onto the
+   * truck's lift and up into place.
+   */
+  take?: Take | null;
+  onTaken?: (piece: PieceId) => void;
+  /** a piece is on and bolted */
+  onFitted?: (piece: PieceId) => void;
   /** the left column: the questions (or the finale's sentence); `ink`: dark text (the sky is light) */
   children: (L: AssemblyLayout, ink: boolean) => ReactNode;
 }
 
-type Moving = { piece: PieceId; mode: FitMode };
+export type Take = { piece: PieceId; rect: { left: number; top: number }; label: string };
+
+type Moving = { piece: PieceId; mode: FitMode; from?: { x: number; y: number }; label?: string };
 
 const EASE_DRIVE = 'cubic-bezier(0.25, 0.7, 0.3, 1)';
 const EASE_LIFT = 'cubic-bezier(0.45, 0, 0.3, 1)';
 const STEEL = DAWN.steel;
 
-export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAssembled, onLiftOff, children }: AssemblySceneProps) {
+export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAssembled, onLiftOff, take = null, onTaken, onFitted, children }: AssemblySceneProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -111,11 +124,17 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
   const modesRef = useRef(modes);
   const placedRef = useRef(placed);
   const layoutRef = useRef(L);
+  const takeRef = useRef(take);
+  const handlers = useRef({ onTaken, onFitted });
   useLayoutEffect(() => {
     targetRef.current = target;
     modesRef.current = modes;
     layoutRef.current = L;
+    takeRef.current = take;
+    handlers.current = { onTaken, onFitted };
   });
+  // the truck is free (the last one has driven off)
+  const truckFree = useRef<Promise<void>>(Promise.resolve());
 
   const alive = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -162,13 +181,101 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
     );
   };
 
-  const place = () => {
+  const place = (piece: PieceId) => {
     placedRef.current += 1;
     setPlaced(placedRef.current);
     setMoving(null);
+    handlers.current.onFitted?.(piece);
+  };
+
+  /** The answer's piece, from where it was tapped in the column, onto the lift and up into place. */
+  const fitTaken = async (piece: PieceId, from: Take) => {
+    const Lx = layoutRef.current;
+    const root = rootRef.current;
+    if (!Lx || !root) return;
+    const lift = liftFor(Lx, piece);
+    const box = root.getBoundingClientRect();
+    const at = { x: from.rect.left - box.left, y: from.rect.top - box.top };
+    setTruckLift(lift);
+    const shown = onPage();
+    setMoving({ piece, mode: 'truck', from: at, label: from.label });
+    await shown;
+    // (it waits where it was while the last truck is still driving off)
+    await truckFree.current;
+    const fly = flyRef.current;
+    const truck = truckRef.current;
+    const platform = liftRef.current;
+    const scissor = scissorRef.current;
+    if (!alive.current || !fly || !truck || !platform || !scissor) {
+      if (alive.current) place(piece);
+      return;
+    }
+    const t = takeTimeline();
+    const b = Lx.pieces[piece];
+    // lying at `at` (its box len × box), it turns upright and stands on the lift under its place
+    const dx = Lx.cx - (at.x + b.len / 2);
+    const dy = b.top + b.len / 2 + lift - (at.y + Lx.box / 2);
+    const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
+    const outTo = Lx.W - Lx.truck.stopLeft + 16;
+    truck.style.visibility = 'visible';
+    const drive = truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: 'translateX(0px)' }], { duration: t.driveIn[1], easing: EASE_DRIVE, fill: 'both' });
+    const span = t.lift[1] - t.fly[0];
+    const off = (ms: number) => Math.min(1, Math.max(0, (ms - t.fly[0]) / span));
+    const travel = fly.animate(
+      [
+        { transform: 'translate(0px, 0px) rotate(0deg)', easing: 'cubic-bezier(0.4, 0, 0.6, 1)' },
+        { transform: `translate(${(dx * 0.5).toFixed(1)}px, ${(dy * 0.5 - 36).toFixed(1)}px) rotate(-50deg)`, offset: off(t.fly[0] + (t.fly[1] - t.fly[0]) * 0.5), easing: 'cubic-bezier(0.3, 0, 0.4, 1)' },
+        { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(-90deg)`, offset: off(t.fly[1]) },
+        { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(-90deg)`, offset: off(t.lift[0]), easing: EASE_LIFT },
+        { transform: `translate(${dx.toFixed(1)}px, ${(dy - lift).toFixed(1)}px) rotate(-90deg)` },
+      ],
+      { delay: t.fly[0], duration: span, fill: 'both' },
+    );
+    const up = { delay: t.lift[0], duration: t.lift[1] - t.lift[0], easing: EASE_LIFT, fill: 'both' as const };
+    const raise = platform.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], up);
+    const open = scissor.animate([{ transform: 'scaleY(0.04)' }, { transform: 'scaleY(1)' }], up);
+
+    await sleep(t.dockAt);
+    if (!alive.current) return;
+    playSfx('towerDock');
+    setBolting(true);
+    await sleep(t.bolts[0] - t.dockAt);
+    if (!alive.current) return;
+    spark();
+    playSfx('clack');
+    await sleep(t.bolts[1] - t.bolts[0]);
+    if (!alive.current) return;
+    spark();
+    playSfx('clack');
+    await sleep(t.placedAt - t.bolts[1]);
+    if (!alive.current) return;
+    travel.cancel();
+    place(piece);
+    setBolting(false);
+
+    // the lift comes down and the truck drives off (the next piece may already come meanwhile)
+    const down = { duration: TAKE.lowerMs, easing: EASE_LIFT, fill: 'both' as const };
+    const lower = platform.animate([{ transform: `translateY(${-lift}px)` }, { transform: 'translateY(0px)' }], down);
+    const close = scissor.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.04)' }], down);
+    const away = truck.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${outTo}px)` }], {
+      delay: TAKE.lowerMs,
+      duration: TAKE.driveOutMs,
+      easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)',
+      fill: 'both',
+    });
+    truckFree.current = sleep(t.endAt - t.placedAt).then(() => {
+      truck.style.visibility = 'hidden';
+      [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
+    });
   };
 
   const fitPiece = async (piece: PieceId, mode: FitMode) => {
+    const from = takeRef.current;
+    if (mode === 'truck' && from && from.piece === piece) {
+      await fitTaken(piece, from);
+      return;
+    }
+    if (mode === 'truck') await truckFree.current;
     const Lx = layoutRef.current;
     if (!Lx) return;
     const lift = liftFor(Lx, piece);
@@ -191,7 +298,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
       playSfx('clack');
       await sleep(QUICK.boltMs);
       if (!alive.current) return;
-      place();
+      place(piece);
       await sleep(QUICK.gapMs);
       return;
     }
@@ -200,7 +307,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
     const platform = liftRef.current;
     const scissor = scissorRef.current;
     if (!truck || !platform || !scissor) {
-      place();
+      place(piece);
       return;
     }
     const tl = truckTimeline();
@@ -234,7 +341,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
     playSfx('clack');
     await sleep(tl.placedAt - tl.bolts[1]);
     if (!alive.current) return;
-    place();
+    place(piece);
     setBolting(false);
 
     // the lift comes down and the truck drives off
@@ -252,6 +359,8 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
     [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
   };
   useLayoutEffect(() => {
+    // (the answer's piece is drawn here now: the column hides its own, before the screen paints)
+    if (moving?.from) handlers.current.onTaken?.(moving.piece);
     if (!moving || !committed.current) return;
     const done = committed.current;
     committed.current = null;
@@ -360,10 +469,21 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
           <MechanicsPlatform L={L} y={L.platform[seamPiece]} bolting={bolting} reduced={reduced} />
           <Truck L={L} lift={truckLift} truckRef={truckRef} liftRef={liftRef} scissorRef={scissorRef} />
           {/* the piece on its way (on the truck, or sliding up into place) */}
-          {moving && (
-            <div ref={flyRef} className="pointer-events-none absolute inset-0 z-[12]">
-              <RocketPiece piece={moving.piece} L={L} label={labels[moving.piece]} measure={measure} />
+          {moving?.from ? (
+            // the answer's piece, lying where it was tapped: it turns upright on its way to the lift
+            <div
+              ref={flyRef}
+              className="pointer-events-none absolute z-[21] [transform-origin:50%_50%]"
+              style={{ left: moving.from.x, top: moving.from.y, width: L.pieces[moving.piece].len, height: L.box }}
+            >
+              <RocketPiece piece={moving.piece} L={L} label={moving.label ?? labels[moving.piece]} measure={measure} lying className="block" />
             </div>
+          ) : (
+            moving && (
+              <div ref={flyRef} className="pointer-events-none absolute inset-0 z-[12]">
+                <RocketPiece piece={moving.piece} L={L} label={labels[moving.piece]} measure={measure} />
+              </div>
+            )
           )}
           {/* the rocket: what is on, and the dashed outlines of what is to come */}
           <div ref={stackRef} className="pointer-events-none absolute inset-0 z-[13]">

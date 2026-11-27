@@ -10,7 +10,7 @@
 
 import { NOSE } from '@/components/workout/rocketPaths';
 import { barOnPad, baseLayout } from '@/components/workout/launchDrum';
-import { padBarLayout } from '@/components/workout/padRocketShape';
+import { estimateTextWidth, padBarLayout } from '@/components/workout/padRocketShape';
 
 // ---------------------------------------------------------------------------------------------
 // The pieces, and which go on when
@@ -120,12 +120,38 @@ export function padHull(width: number, height: number, safeBottom = 0): number {
 }
 
 /** The pieces' hulls, in hull thicknesses (the engine's nozzle, the nose's cone and antenna on top). */
-export const PIECE_UNITS = { nozzle: 0.36, engine: 2.2, blocks: 2.4, minutes: 1.9, nose: 3.6 } as const;
+export const PIECE_UNITS = { nozzle: 0.36, engine: 2.2, blocks: 3.9, minutes: 1.9, nose: 3.4 } as const;
 /** The nose cone and its antenna with the light, in hull thicknesses. */
 export const NOSE_TIP = NOSE.len + NOSE.antenna + 2 * NOSE.light;
 
-/** A label written along a piece: as big as the rockets' labels (about half the hull), never under this. */
-export const LABEL = { share: 0.5, min: 10 } as const;
+/**
+ * A label written along a piece: the creator's option text (15 px semibold), the same on the loose
+ * piece and once it is on the rocket; smaller only on a thin hull (share of it) or a short piece.
+ */
+export const LABEL = { px: 15, share: 0.62, min: 10 } as const;
+
+/** The longest answer each piece carries (the minutes follow the slider: up to «40 min»). */
+export const ANSWER_LABELS = { minutes: '40 min', blocks: 'Los que encajen', engine: 'Media' } as const;
+/** The nose's hull never gets shorter than this, in hull thicknesses (it gives first on a short screen). */
+export const NOSE_MIN = 1.8;
+
+/**
+ * The pieces' hulls, px, for a hull `T` px thick: at least their units, and long enough for their
+ * longest answer at the options' size (a little generous: the estimate of the text's width).
+ */
+export function answerHulls(T: number): Record<PieceId, number> {
+  const words = (text: string) => estimateTextWidth(text, LABEL.px);
+  return {
+    nose: PIECE_UNITS.nose * T,
+    minutes: Math.max(PIECE_UNITS.minutes * T, words(ANSWER_LABELS.minutes) + 0.44 * T),
+    blocks: Math.max(PIECE_UNITS.blocks * T, words(ANSWER_LABELS.blocks) + 0.44 * T),
+    // (the engine's words start after its livery: ring, red band, checker)
+    engine: Math.max(PIECE_UNITS.engine * T, words(ANSWER_LABELS.engine) + 1.07 * T),
+  };
+}
+
+/** The widest word of a question's title at its size, px: the porthole never comes nearer the title than this. */
+export const TITLE_ROOM = 190;
 
 // ---------------------------------------------------------------------------------------------
 // Where everything stands
@@ -217,16 +243,31 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
   const towerX = W - edge - tw;
   const cx = r1(towerX - Math.max(12, 0.5 * T) - T / 2);
 
-  // the rocket's length, shortened if the porthole and the crane would not fit above it
-  const hulls = PIECE_UNITS.engine + PIECE_UNITS.blocks + PIECE_UNITS.minutes + PIECE_UNITS.nose;
+  // the rocket's length: the answers' pieces long enough for their words at the options' size
+  // (ANSWER_LABELS); if the porthole and the crane would not fit above it, the nose gives first,
+  // then the porthole, and only then every piece alike
   const fixed = (PIECE_UNITS.nozzle + NOSE_TIP) * T;
   const RIM = 11;
   const minR = 26;
-  const above = 8 + 2 * (minR + RIM) + 8 + 30 * u + 14; // header gap, porthole, gap, cable and jib
-  const room = padTop - header - above - fixed;
-  const squeeze = Math.max(0.6, Math.min(1, room / (hulls * T)));
-  const len = (units: number) => r1(units * squeeze * T);
-  const hull = { engine: len(PIECE_UNITS.engine), blocks: len(PIECE_UNITS.blocks), minutes: len(PIECE_UNITS.minutes), nose: len(PIECE_UNITS.nose) };
+  const left = W >= 640 ? 32 : 20;
+  // the porthole as big as the width allows, never nearer the title than its widest word
+  const wantR = Math.max(minR, Math.min(Math.round(0.177 * W), Math.floor((W - 12 - left - 10 - TITLE_ROOM) / 2) - RIM));
+  const crane = 6 + 6 + 28 * u; // the gaps round the porthole, the cable and the jib
+  const want = answerHulls(T);
+  const answers = want.minutes + want.blocks + want.engine;
+  const roomFor = (R: number) => padTop - header - crane - 2 * (R + RIM) - fixed;
+  let nose = want.nose;
+  let fitR = wantR;
+  let squeeze = 1;
+  if (roomFor(fitR) < answers + nose) nose = Math.max(NOSE_MIN * T, roomFor(fitR) - answers);
+  if (roomFor(fitR) < answers + nose) fitR = Math.max(minR, Math.floor((padTop - header - crane - fixed - answers - nose) / 2) - RIM);
+  if (roomFor(fitR) < answers + nose) squeeze = Math.max(0.6, roomFor(fitR) / (answers + nose));
+  const hull = {
+    engine: r1(want.engine * squeeze),
+    blocks: r1(want.blocks * squeeze),
+    minutes: r1(want.minutes * squeeze),
+    nose: r1(nose * squeeze),
+  };
   const engineLen = r1(PIECE_UNITS.nozzle * T + hull.engine);
   const noseLen = r1(hull.nose + NOSE_TIP * T);
   const engineTop = r1(padTop - engineLen);
@@ -244,27 +285,26 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
 
   // the crane: its arm over the rocket's top, the cable down to the antenna's light
   const rocketTop = noseTop;
-  const cableLen = Math.round(26 * u);
+  const cableLen = Math.round(18 * u);
   const jibH = Math.max(7, Math.round(10 * u));
   const jibY = Math.round(rocketTop - cableLen - jibH);
   const jibX0 = Math.round(Math.max(W * 0.42, cx - 3.2 * T));
   const tower = { x: towerX, w: tw, top: jibY - 2, bottom: foreTop + 2 };
 
   // the porthole: top right, between the header and the crane
-  const space = jibY - 8 - (header + 6);
-  const R = Math.max(minR, Math.min(Math.round(0.15 * W), Math.floor(space / 2) - RIM));
+  const space = jibY - 6 - (header + 6);
+  const R = Math.max(minR, Math.min(wantR, Math.floor(space / 2) - RIM));
   const porthole: Circle = { x: Math.round(W - 12 - R - RIM), y: Math.round(header + 6 + RIM + R), r: R };
 
   // the questions' column: left of the rocket (its fins and the left mechanic), the title also left of the porthole
-  const left = W >= 640 ? 32 : 20;
   const right = Math.round(cx - box / 2 - 12);
   const portholeLeft = porthole.x - R - RIM;
   const column = {
     left,
     right,
-    top: header + 4,
+    top: header + 20,
     titleWidth: Math.max(120, Math.min(right, portholeLeft - 10) - left),
-    titleMin: Math.max(0, Math.round(porthole.y + R + RIM + 10 - (header + 4))),
+    titleMin: Math.max(0, Math.round(porthole.y + R + RIM + 12 - (header + 20))),
   };
 
   // the sun, climbing (the sketch's positions on its 390 × 844, against the horizon)
@@ -391,6 +431,51 @@ export function truckTimeline(): TruckTimeline {
 
 /** A piece that goes on quickly (known, or «Saltar»): it slides up into place, a clack, ms. */
 export const QUICK = { riseMs: 360, boltMs: 160, gapMs: 120 } as const;
+
+/**
+ * An answer: the very piece tapped in the column goes onto the truck's lift and up into its place,
+ * ms from the moment the truck is free. The truck drives in meanwhile; the piece turns upright on
+ * its way to the lift; the lift raises it; it docks and is bolted (placed: about 2.7 s); the next
+ * question comes a beat later, while the truck lowers its lift and drives off.
+ */
+export const TAKE = { driveInMs: 850, flyAt: 120, flyMs: 1150, liftAt: 1350, liftMs: 750, boltGapMs: 90, boltMs: 520, beatMs: 280, lowerMs: 300, driveOutMs: 750 } as const;
+
+export interface TakeTimeline {
+  driveIn: [number, number];
+  /** from the column onto the lift, turning upright */
+  fly: [number, number];
+  lift: [number, number];
+  dockAt: number;
+  bolts: [number, number];
+  placedAt: number;
+  /** the next question */
+  nextAt: number;
+  lower: [number, number];
+  driveOut: [number, number];
+  endAt: number;
+}
+
+export function takeTimeline(): TakeTimeline {
+  const t = TAKE;
+  const flyEnd = t.flyAt + t.flyMs;
+  const liftAt = Math.max(t.liftAt, flyEnd, t.driveInMs);
+  const dockAt = liftAt + t.liftMs;
+  const bolt1 = dockAt + t.boltGapMs;
+  const bolt2 = bolt1 + Math.round(t.boltMs / 2);
+  const placedAt = dockAt + t.boltGapMs + t.boltMs;
+  return {
+    driveIn: [0, t.driveInMs],
+    fly: [t.flyAt, flyEnd],
+    lift: [liftAt, dockAt],
+    dockAt,
+    bolts: [bolt1, bolt2],
+    placedAt,
+    nextAt: placedAt + t.beatMs,
+    lower: [placedAt, placedAt + t.lowerMs],
+    driveOut: [placedAt + t.lowerMs, placedAt + t.lowerMs + t.driveOutMs],
+    endAt: placedAt + t.lowerMs + t.driveOutMs,
+  };
+}
 
 /** From the start of a piece's fitting to when the next one may start, ms. */
 export function fitMs(mode: FitMode): number {

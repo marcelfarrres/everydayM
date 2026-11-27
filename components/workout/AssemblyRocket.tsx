@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 import { PAD_COLORS as C, fitLabel, type MeasureText } from '@/components/workout/padRocketShape';
 import { AntennaPart, FinsPart, FlameLayers, NosePart, NozzlePart, RivetsPart, TailPart, WindowPart } from '@/components/workout/RocketParts';
 import { NOSE, f1, tailLivery } from '@/components/workout/rocketPaths';
@@ -29,7 +29,7 @@ function labelRoom(piece: PieceId, L: AssemblyLayout): { x0: number; x1: number 
 /** The label as written on `piece`: as big as fits (about half the hull at most), cut with "…" if it must. */
 export function pieceLabel(piece: PieceId, L: AssemblyLayout, text: string, measure: MeasureText) {
   const room = labelRoom(piece, L);
-  const fit = fitLabel(text, room.x1 - room.x0, { max: Math.round(LABEL.share * L.T), min: LABEL.min }, measure);
+  const fit = fitLabel(text, room.x1 - room.x0, { max: Math.min(LABEL.px, Math.round(LABEL.share * L.T)), min: LABEL.min }, measure);
   return { ...fit, x: (room.x0 + room.x1) / 2 };
 }
 
@@ -40,6 +40,7 @@ export function RocketPiece({
   measure,
   ghost = false,
   ghostLight = false,
+  lying = false,
   className = '',
   style,
 }: {
@@ -51,6 +52,8 @@ export function RocketPiece({
   ghost?: boolean;
   /** the outline in white (on the dark sky) instead of ink */
   ghostLight?: boolean;
+  /** drawn lying (nose or top to the right), in its own box len × box, where its parent puts it: a loose piece */
+  lying?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -69,7 +72,12 @@ export function RocketPiece({
   const rivetGap = f1(0.2 * T);
   const text = ghost ? null : pieceLabel(piece, L, label, measure);
 
-  const frame = (children: ReactNode) => (
+  const frame = (children: ReactNode) =>
+    lying ? (
+      <svg aria-hidden="true" width={b.len} height={Hb} viewBox={`0 0 ${b.len} ${Hb}`} className={className} style={{ overflow: 'visible', ...style }} data-piece={piece}>
+        {children}
+      </svg>
+    ) : (
     <svg
       aria-hidden="true"
       width={Hb}
@@ -82,7 +90,7 @@ export function RocketPiece({
       {/* lying (x along the hull from its tail end, y across), turned nose up */}
       <g transform={`translate(0 ${b.len}) rotate(-90)`}>{children}</g>
     </svg>
-  );
+    );
 
   if (ghost) {
     const dash = `${f1(sw * 3)} ${f1(sw * 2.5)}`;
@@ -153,5 +161,53 @@ export function RocketPiece({
         </text>
       )}
     </>,
+  );
+}
+
+/**
+ * An answer of the creator's questions as the very piece it fits (phone): a loose hull segment
+ * (the minutes, the blocks) or the engine, lying so its words read across, the same drawing and
+ * size as on the rocket. A tap fits it: the page hands its box to the assembly scene, which flies
+ * that piece (drawn the same, in the same spot) onto the truck's lift. It bobs gently while it
+ * waits (asm-bob, staggered by `index`; still with reduced motion).
+ */
+export function LoosePiece({
+  piece,
+  L,
+  label,
+  measure,
+  index,
+  onClick,
+  hidden = false,
+  faded = false,
+}: {
+  piece: PieceId;
+  L: AssemblyLayout;
+  label: string;
+  measure: MeasureText;
+  index: number;
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  /** it has gone to the rocket (the scene draws it now) */
+  hidden?: boolean;
+  /** another piece was chosen: it fades away */
+  faded?: boolean;
+}) {
+  const b = L.pieces[piece];
+  // a hull segment has no fins: its button is the hull and a little air, not the fins' bands
+  const trim = piece === 'engine' ? 0 : Math.max(0, L.finH - 8);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={faded || hidden}
+      aria-label={label}
+      data-loose={piece}
+      className={`relative shrink-0 cursor-pointer rounded-lg transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-[0.98] motion-reduce:transition-none ${faded ? 'opacity-0' : ''}`}
+      style={{ width: b.len, height: L.box - 2 * trim, visibility: hidden ? 'hidden' : undefined }}
+    >
+      <span className="asm-bob pointer-events-none absolute left-0" style={{ top: -trim, animationDelay: `${-index * 0.45}s` }}>
+        <RocketPiece piece={piece} L={L} label={label} measure={measure} lying className="block" />
+      </span>
+    </button>
   );
 }
