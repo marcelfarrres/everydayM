@@ -543,6 +543,34 @@ export const FINALE = { readMs: 3500, smokeMs: 1100, whiteMs: 1400, veilFadeMs: 
 export const TAKEOFF = { igniteLeadMs: 500, liftMs: 1500 } as const;
 
 // ---------------------------------------------------------------------------------------------
+// The typed sentence's nose, carried by the crane from the first page to the questions
+
+/** The crane lifts the nose (`liftPx` in `liftMs`), then turns it upright and carries it to its place (`carryMs`); a beat (`holdMs`) and the scene's own nose takes over. */
+export const NOSE_CARRY = { liftMs: 450, liftPx: 34, carryMs: 950, holdMs: 60 } as const;
+
+/**
+ * Where the carried nose ends: the bar's nose drawing (`W` × `H`, lying, nose to the right, its
+ * hull `T` thick, its box's top-left at `left`, `top` on the screen) turned upright about its
+ * centre and shrunk so its hull is the questions' nose's (`to.T`), its antenna's light at `to.top`
+ * on the centre line `to.cx`; and how much of it is cut from its flat end (`clipLeft`, in the
+ * drawing's own px) so it is exactly as long as that nose (`to.len`).
+ */
+export function noseCarryEnd(
+  from: { left: number; top: number; W: number; H: number; T: number },
+  to: { cx: number; top: number; len: number; T: number },
+): { transform: string; scale: number; clipLeft: number } {
+  const s = from.T > 0 ? to.T / from.T : 1;
+  const c = { x: from.left + from.W / 2, y: from.top + from.H / 2 };
+  const tx = to.cx - c.x;
+  const ty = to.top + (s * from.W) / 2 - c.y;
+  return {
+    transform: `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) rotate(-90deg) scale(${s.toFixed(4)})`,
+    scale: s,
+    clipLeft: Math.max(0, from.W - to.len / s),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
 // The crane chooses and hooks (the blocks and the intensity questions)
 
 /**

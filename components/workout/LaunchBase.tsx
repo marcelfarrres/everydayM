@@ -4,30 +4,23 @@ import {
   useCallback,
   useEffect,
   useId,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
-  type Ref,
-  type RefObject,
 } from 'react';
-import { flushSync } from 'react-dom';
 import { useReducedMotion } from 'motion/react';
 import { PadRocket } from '@/components/workout/PadRocket';
-import { PAD_COLORS as C, padRocketGeometry, type LabelFit, type PadRocketGeometry } from '@/components/workout/padRocketShape';
+import { PAD_COLORS as C, padRocketGeometry, type LabelFit } from '@/components/workout/padRocketShape';
 import { useTextMeasure } from '@/components/workout/textMeasure';
 import { fitDrumLabel } from '@/components/workout/drumLabel';
 import { stepsTo, type RandomLanding } from '@/components/workout/drumRandom';
 import {
-  BAR_LAUNCH,
   LAUNCH,
   WHEEL,
   animSpeed,
-  barLaunchTimeline,
-  barOnPad,
   baseLayout,
   baseScene,
   centreIndex,
@@ -52,7 +45,6 @@ import {
 import {
   CREW,
   HOP,
-  barRoof,
   boardingPlan,
   crewAirTarget,
   crewFacing,
@@ -61,10 +53,6 @@ import {
   crewMove,
   crewPoint,
   hopMode,
-  onRoof,
-  remapOnTrack,
-  roofSpot,
-  roofStands,
   stepAir,
   stepSoundDue,
   stepsCrossed,
@@ -94,12 +82,8 @@ import { BASE_DAY } from '@/components/workout/assembly';
  * stands up, the launch tower slides in and docks, ignition, lift-off; then `onLaunch` (the creator
  * carries on exactly as when a suggestion was picked).
  *
- * The text bar above the base (the sentence's rocket) is part of the show: while its field has
- * focus (`crewUp`) the right tower rises into view with its ladder, the ladder telescopes up to the
- * bar and the crew climb onto the bar's top to wait there (the tower sinks away again once they
- * are back down); a typed sentence (`launchBar`, through the ref) takes off with the same launch:
- * the rest of the structure comes, the crew get in through its round window, it comes down to the
- * pad while the wheel clears away, stands up, the tower docks, lift-off.
+ * (The typed sentence no longer takes off from here: the page's crane carries its nose to the
+ * questions. The crew stay with the wheel's chosen rocket.)
  *
  * Performance: nothing here re-renders per frame. One requestAnimationFrame loop (running only
  * while something moves) writes transforms, opacity and the outer rockets' blur through refs; a
@@ -129,13 +113,6 @@ interface LaunchBaseProps {
   onSwap?: (index: number, text: string) => void;
   /** the launched rocket is out of sight: go on with this suggestion */
   onLaunch: (suggestion: string) => void;
-  /** the sentence's field has focus: the crew climb onto the text bar's top and wait there */
-  crewUp?: boolean;
-  /** the text bar (its box), its rocket's geometry, and how far that rocket reaches left of the box, px */
-  barRef?: RefObject<HTMLElement | null>;
-  barG?: PadRocketGeometry;
-  barHang?: number;
-  ref?: Ref<LaunchBaseHandle>;
 }
 
 /** A launch held on the pad: where its rocket's window and top will be on the screen once it stands there, and in how long. */
@@ -145,30 +122,10 @@ export interface LaunchHold {
   uprightInMs: number;
 }
 
-export interface LaunchBaseHandle {
-  /**
-   * The typed sentence takes off from the base with the text bar's rocket; `onGone` once it is out
-   * of sight. False when it cannot (reduced motion, no base on screen, a launch already going):
-   * the caller then flies it as before.
-   */
-  launchBar: (text: string, onGone: () => void) => boolean;
-}
-
-/** The text bar's rocket while it flies from the base: its drawing, label, start and size on the pad. */
-interface Visitor {
-  g: PadRocketGeometry;
-  label: { text: string; px: number };
-  /** its box's top-left in the base when it starts (the bar's place) */
-  box: { x: number; y: number };
-  from: string;
-  scale: number;
-  body: number;
-}
-
 type Anim = { from: number; to: number; t0: number; dur: number; ease: (p: number) => number };
 type Drag = { id: number; y0: number; pos0: number; lastY: number; lastT: number; v: number; moved: boolean };
-/** How much of the structure is in sight: none (at rest), the right tower with its ladder (the bar's field has focus), all (a launch). */
-type Structure = '' | 'ladder' | 'full';
+/** How much of the structure is in sight: none (at rest), all (a launch). */
+type Structure = '' | 'full';
 
 const LABEL_MIN = 11;
 const clockNow = () => performance.now();
@@ -179,7 +136,7 @@ const FLICK_STALE_MS = 90;
 // (the labels are measured in the page's font: textMeasure.ts, shared with the creator's bar)
 export { useTextMeasure };
 
-export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap, liftGate, onLiftOff, crewUp = false, barRef, barG, barHang = 0, ref }: LaunchBaseProps) {
+export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart, onLaunch, onRandom, onSwap, liftGate, onLiftOff }: LaunchBaseProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -226,51 +183,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   }, [L, G]);
   const gap = G ? Math.round(G.T * 0.6) : 20;
 
-  // ── the text bar above the base: where its rocket is, in the base (no transforms: offsets) ──
-  const [barBox, setBarBox] = useState<{ x: number; y: number } | null>(null);
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    const bar = barRef?.current;
-    if (!root || !bar || !L) return;
-    const read = () => {
-      let x: number;
-      let y: number;
-      if (bar.offsetParent && bar.offsetParent === root.offsetParent) {
-        x = bar.offsetLeft - root.offsetLeft;
-        y = bar.offsetTop - root.offsetTop;
-      } else {
-        const a = bar.getBoundingClientRect();
-        const b = root.getBoundingClientRect();
-        x = a.left - b.left;
-        y = a.top - b.top;
-      }
-      // (the base draws inside its border: its top border is 2 px)
-      x -= barHang + root.clientLeft;
-      y -= root.clientTop;
-      setBarBox((old) => (old && old.x === x && old.y === y ? old : { x, y }));
-    };
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(bar);
-    ro.observe(root);
-    return () => ro.disconnect();
-  }, [L, barRef, barHang, crewUp]);
-  const roof = useMemo(
-    () => (track && barBox && barG ? barRoof(barBox.x, barBox.y, { bodyTop: barG.body.top, stroke: barG.stroke, noseX: barG.body.x1 }, track.ladderTop, gap) : null),
-    [track, barBox, barG, gap],
-  );
-  // the whole track (the base's, and the bar's top once it is measured)
-  const fullTrack: CrewTrack | null = useMemo(() => (track ? { ...track, roof } : null), [track, roof]);
   const trackRef = useRef<CrewTrack | null>(null);
-  // the ladder's extension and the bar's gangway are out (they telescope up while the crew go there)
-  const [roofOut, setRoofOut] = useState(false);
-  const roofOutRef = useRef(false);
-  const crewUpRef = useRef(crewUp);
-  const [visitor, setVisitor] = useState<Visitor | null>(null);
   // a launch: the panel no longer cuts (freed), and only the launched rocket is left (kept)
   const [freed, setFreed] = useState(false);
   const [kept, setKept] = useState<number | null>(null);
-  const visitorRef = useRef<HTMLDivElement>(null);
 
   // ── the moving parts, through refs ───────────────────────────────────────────────────────
   const pos = useRef(centre);
@@ -419,19 +335,18 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       const c = crew.current;
       const T = trackRef.current;
       if (T && G && !c.boarding && !reduced) {
-        // up on the bar while its field has focus (once the ladder is out); else on the centred rocket
-        const stands = crewUpRef.current && roofOutRef.current ? roofStands(T, gap) : null;
-        const tA = stands ? stands.a : Math.max(T.standA, c.b + gap);
+        // on the centred rocket, at their places
+        const tA = Math.max(T.standA, c.b + gap);
         const prevA = c.a;
         c.a = crewMove(c.a, tA, dt, T);
-        const tB = stands ? Math.max(0, Math.min(stands.b, c.a - gap)) : T.standB;
+        const tB = T.standB;
         const prevB = c.b;
         c.b = crewMove(c.b, tB, dt, T);
         if (c.a !== prevA) c.facingA = crewFacing(prevA, c.a, T, c.facingA);
         if (c.b !== prevB) c.facingB = crewFacing(prevB, c.b, T, c.facingB);
-        // waiting: facing each other (on the rocket A looks left, B right; on the bar the other way round)
-        if (Math.abs(c.a - tA) < 0.01) c.facingA = onRoof(c.a, T) ? 1 : -1;
-        if (Math.abs(c.b - tB) < 0.01) c.facingB = onRoof(c.b, T) ? -1 : 1;
+        // waiting: facing each other (A looks left, B right)
+        if (Math.abs(c.a - tA) < 0.01) c.facingA = -1;
+        if (Math.abs(c.b - tB) < 0.01) c.facingB = 1;
         // a footstep per stride on the walkways, a rung per rung on the ladder (the pair: one sound,
         // and never a rattle: CREW.soundGapMs between two)
         const was = crewPoint(prevA, T);
@@ -442,10 +357,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
         }
         // on the centred rocket while the wheel turns: they hop from rocket to rocket (up in the air
         // if it goes fast or long), and land as it settles
-        const { deck, up } = trackSpans(T);
+        const { deck } = trackSpans(T);
         // (the hull ends at the nose's base: from there the walkway runs to the tower)
         const hullEnd = L ? L.rocket.left + G.body.x1 - T.hatchX : deck;
-        const onRocket = !stands && !crewUpRef.current && c.a <= hullEnd + 0.5 && c.b <= hullEnd + 0.5;
+        const onRocket = c.a <= hullEnd + 0.5 && c.b <= hullEnd + 0.5;
         let liftA = 0;
         let liftB = 0;
         if (onRocket && isMoving) {
@@ -467,18 +382,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
         const modeB = liftB > 0 || (onRocket && isMoving) ? hopMode(liftB, c.air, G.T) : landing ? 'land' : crewMode(c.b, tB, T);
         paintCrew(modeA, modeB, liftA, liftB);
         if (Math.abs(c.a - tA) > 0.01 || Math.abs(c.b - tB) > 0.01 || landing) active = true;
-        // the right tower with its ladder is in sight while the crew are off the rocket (it sinks away once they are back on it)
-        const away = c.a > hullEnd + 0.5 || c.b > hullEnd + 0.5;
-        if (!busy.current) showStructure(crewUpRef.current || away ? 'ladder' : '');
-        // both back below the tower's top and not wanted up there: the ladder's extension folds away
-        if (!crewUpRef.current && roofOutRef.current && c.a <= deck + up + 0.5 && c.b <= deck + up + 0.5) {
-          roofOutRef.current = false;
-          setRoofOut(false);
-        }
       }
       if (active) raf.current = requestAnimationFrame((t) => frameRef.current?.(t));
     },
-    [paintWheel, paintCrew, settle, gap, reduced, G, L, showStructure],
+    [paintWheel, paintCrew, settle, gap, reduced, G, L],
   );
 
   useLayoutEffect(() => {
@@ -510,32 +417,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     [kick, reduced, startMoving],
   );
 
-  // the track changed (the bar grew a line, the bar was measured): everyone stays where they stand
-  useLayoutEffect(() => {
-    const prev = trackRef.current;
-    trackRef.current = fullTrack;
-    if (!fullTrack || !prev) return;
-    const c = crew.current;
-    c.a = remapOnTrack(c.a, prev, fullTrack);
-    c.b = remapOnTrack(c.b, prev, fullTrack);
-    if (!c.boarding) paintCrew('stand', 'stand');
-    kick();
-  }, [fullTrack, paintCrew, kick]);
-
-  // the field took or lost focus: the ladder telescopes up at once (it folds once they are down)
-  useEffect(() => {
-    crewUpRef.current = crewUp;
-    if (crewUp && roof && !roofOutRef.current) {
-      roofOutRef.current = true;
-      setRoofOut(true);
-    }
-    // (reduced motion: the crew stay put, the tower simply shows while the field has focus)
-    if (reduced && !busy.current) showStructure(crewUp ? 'ladder' : '');
-    kick();
-  }, [crewUp, roof, kick, reduced, showStructure]);
-
   // first paint, and again whenever the layout changes (resize, fonts)
   useLayoutEffect(() => {
+    trackRef.current = track;
     if (!L || !track) return;
     paintWheel();
     if (!moving.current) setLive(centreIndex(pos.current, n));
@@ -916,68 +800,6 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate(0px, ${out}px) rotate(-90deg) scale(${k})`, standY, k, G.T, finish, { box: G, window: G.window, scale: k });
   };
 
-  /** The typed sentence's launch (see LaunchBaseHandle): the text bar's rocket flies from the base. */
-  const launchBar = (text: string, onGone: () => void): boolean => {
-    const root = rootRef.current;
-    const T = trackRef.current;
-    if (reduced || busy.current || !root || !L || !G || !T || !barG || !barBox || !T.roof) return false;
-    busy.current = true;
-    wake();
-    // whatever the wheel was doing, it stops: it is about to clear away
-    anim.current = null;
-    drag.current = null;
-    rolling.current = false;
-    // the rest of the structure comes into view; the ladder is out (the crew may still be on their way up)
-    showStructure('full');
-    roofOutRef.current = true;
-    const room = barG.label.x1 - barG.label.x0;
-    const fit = fitDrumLabel(text, room, { max: Math.round(barG.Tf * 0.52), min: LABEL_MIN }, measure);
-    const pad = barOnPad(L, barG.W, barG.T);
-    const box = { ...barBox };
-    const dx = box.x + barG.W / 2 - L.rocket.cx;
-    const dy = box.y + barG.H / 2 - L.centreY;
-    const at = (x: number, y: number, rz: number, s: number) => `translate(${x}px, ${y}px) rotate(${rz}deg) scale(${s})`;
-    const v: Visitor = { g: barG, label: { text: fit.text, px: fit.px }, box, from: at(dx, dy, 0, 1), scale: pad.scale, body: pad.body };
-    // (drawn now, in the bar's place, before the screen paints: the bar under it can go)
-    flushSync(() => {
-      setRoofOut(true);
-      setVisitor(v);
-    });
-    const el = visitorRef.current;
-    if (!el) return true;
-
-    const c = crew.current;
-    c.boarding = true;
-    const door = roofSpot(box.x + barG.window.cx, T);
-    const plan = boardingPlan(c.a, c.b, T, BAR_LAUNCH.maxWalkMs, door);
-    const tl = barLaunchTimeline(plan.walkMs);
-
-    // 1. the crew walk (or hurry) over the bar's top to its round window, 2. it opens, they get in, it closes
-    boardCrew(T, door, plan.walkMs, tl.hopAt, { x: box.x + barG.window.cx, y: box.y + barG.window.cy }, G.T);
-    later(tl.doorOpenAt, () => el.setAttribute('data-window-open', ''));
-    later(tl.doorCloseAt, () => el.removeAttribute('data-window-open'));
-
-    // 3. the wheel and the structure clear away (all its rockets: this one takes the centre) and it comes down to the pad
-    const onPad = at(0, 0, 0, pad.scale);
-    later(tl.fadeAt, () => {
-      clearWheel(null);
-      clearFittings();
-    });
-    later(tl.descendAt, () => {
-      el.animate([{ transform: v.from }, { transform: onPad }], { duration: BAR_LAUNCH.descendMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
-    });
-
-    // 4–8. as every launch
-    const { k, standY } = padPlace(L);
-    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body, onGone, { box: barG, window: barG.window, scale: k * pad.scale });
-    return true;
-  };
-  const launchBarRef = useRef(launchBar);
-  useLayoutEffect(() => {
-    launchBarRef.current = launchBar;
-  });
-  useImperativeHandle(ref, () => ({ launchBar: (text, onGone) => launchBarRef.current(text, onGone) }), []);
-
   const onRocket = (index: number) => {
     if (suppressClick.current || busy.current || rolling.current) return;
     if (index === centreIndex(pos.current, n) && !moving.current && !anim.current) launch(index);
@@ -1061,25 +883,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
             style={{ right: L.width - P.x - P.w + 12, top: P.y + P.h - 24 }}
           />
           <Clamps L={L} G={G} />
-          {fullTrack?.roof && barBox && barG && (
-            <RoofLadder L={L} G={G} track={fullTrack} noseX={barBox.x + barG.body.x1} out={roofOut} uid={uid} />
-          )}
           <Foreground L={L} G={G} track={track} />
-          {/* the text bar's rocket, flying from the base (the typed sentence's launch) */}
-          {visitor && (
-            <FlightBox height={L.height} className="z-[25]">
-            <div
-              ref={visitorRef}
-              aria-hidden="true"
-              className="pad-visitor pointer-events-none absolute z-[25] [transform-origin:50%_50%]"
-              style={{ left: L.rocket.cx - visitor.g.W / 2, top: L.centreY - visitor.g.H / 2, width: visitor.g.W, height: visitor.g.H, transform: visitor.from }}
-            >
-              <span className="pad-shake pointer-events-none absolute inset-0">
-                <PadRocket g={visitor.g} label={visitor.label} flame={0.3} parts={{ hatch: false }} windowDoor />
-              </span>
-            </div>
-            </FlightBox>
-          )}
           {/* the crew: one pair, living in the base */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-30" data-crew="">
             {[0, 1].map((i) => (
@@ -1094,7 +898,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
               </div>
             ))}
           </div>
-          <Gantry L={L} G={G} body={visitor?.body} />
+          <Gantry L={L} G={G} />
           <p id={`${uid}-hint`} className="sr-only">
             Desliza arriba o abajo, o usa las flechas, para girar la rueda. Toca el cohete del centro para despegar.
           </p>
@@ -1190,55 +994,6 @@ function Backdrop({ L, scene, uid }: { L: BaseLayout; scene: BaseScene; uid: str
   );
 }
 
-/**
- * The right tower's ladder reaching up to the text bar's top, and a gangway from the ladder over the
- * bar rocket's nose to its hull (like the base's walkway to a wheel rocket). Folded into the tower
- * until the crew go up (`out`): the ladder slides up out of the tower's top (nothing of it shows
- * below that), then the gangway unfolds; back the other way once they are down.
- */
-function RoofLadder({ L, G, track, noseX, out, uid }: { L: BaseLayout; G: Geo; track: CrewTrack; noseX: number; out: boolean; uid: string }) {
-  const roof = track.roof;
-  if (!roof) return null;
-  const { width: W, height: H } = L;
-  const towerTop = L.tower.top + 6;
-  const x = track.ladderX;
-  const railY = roof.deckY - G.T * 0.55;
-  // from the handrail above the bar's top down into the tower (clipped at the tower's top)
-  const y0 = railY;
-  const y1 = towerTop + 10;
-  const rungs: number[] = [];
-  for (let y = towerTop + 1; y > roof.deckY + 1; y -= 7) rungs.push(y);
-  const walkX0 = Math.min(noseX, x - 8);
-  return (
-    <svg
-      aria-hidden="true"
-      data-fitting=""
-      data-roof-out={out ? '' : undefined}
-      width={W}
-      height={H}
-      viewBox={`0 0 ${W} ${H}`}
-      className="pointer-events-none absolute inset-0 z-[15]"
-      style={{ overflow: 'visible' }}
-    >
-      <defs>
-        <clipPath id={`${uid}-ext`}>
-          <rect x={x - 12} y={y0 - 4000} width={24} height={4000 + towerTop + 4 - y0} />
-        </clipPath>
-      </defs>
-      <g clipPath={`url(#${uid}-ext)`}>
-        <g className="pad-ext" stroke={DAWN.ladder} strokeWidth={0.9} fill="none" style={{ ['--pad-ext' as string]: `${y1 - y0 + 4}px` }}>
-          <path d={`M${x - 4} ${y0}V${y1}M${x + 4} ${y0}V${y1}`} strokeWidth={1.2} />
-          <path d={rungs.map((y) => `M${x - 4} ${y}H${x + 4}`).join('')} />
-        </g>
-      </g>
-      <g className="pad-gangway" stroke={DAWN.steel} strokeWidth={1} fill={DAWN.plate} style={{ transformOrigin: `${x + 4}px ${roof.deckY}px` }}>
-        <rect x={walkX0} y={roof.deckY} width={x + 4 - walkX0} height={3.4} />
-        <path d={`M${walkX0 + 4} ${railY}H${x}M${walkX0 + 4} ${railY}V${roof.deckY}M${(walkX0 + x) / 2} ${railY}V${roof.deckY}`} fill="none" strokeWidth={0.9} />
-      </g>
-    </svg>
-  );
-}
-
 /** A lattice tower's outline path (the launch tower's): frame, X bracing. */
 function towerPath(x: number, w: number, top: number, bottom: number): string {
   const bay = Math.round(w * 1.4);
@@ -1258,7 +1013,7 @@ function towerPath(x: number, w: number, top: number, bottom: number): string {
 /**
  * The structure, out of sight at rest (CSS: pad-st, shown by the base's data-structure): the left
  * tower with its hose (for a launch), and the right tower with the crew's ladder and the walkway
- * from it to the centred rocket's top (for a launch, and while the crew go up to the text bar).
+ * from it to the centred rocket's top (both for a launch).
  */
 function Foreground({ L, G, track }: { L: BaseLayout; G: Geo; track: CrewTrack }) {
   const { width: W, height: H, tower: t } = L;
@@ -1382,11 +1137,10 @@ function RandomButton({ onClick }: { onClick: (e: React.MouseEvent<HTMLButtonEle
 }
 
 /** The launch tower and its pad, in the same dark steel: off to the left until the launch, when it slides in and docks. */
-function Gantry({ L, G, body }: { L: BaseLayout; G: Geo; body?: number }) {
+function Gantry({ L, G }: { L: BaseLayout; G: Geo }) {
   const { width: W, height: H, padY } = L;
   const k = Math.min(1, (padY - 10) / L.rocket.length);
-  // (the hull on the pad: a wheel rocket's, or the text bar's rocket brought down to that length)
-  const hull = (body ?? G.T) * k;
+  const hull = G.T * k;
   const rocketTop = padY - L.rocket.length * k;
   const tw = Math.max(18, Math.round(L.tower.w * 1.15));
   const cx = L.rocket.cx;

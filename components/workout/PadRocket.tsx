@@ -23,6 +23,8 @@ export interface PadRocketParts {
   hatch?: boolean;
   window?: boolean;
   antenna?: boolean;
+  /** the nozzle and the tail's livery (off: only the hull and the nose, its flat end in a collar) */
+  tail?: boolean;
 }
 
 export interface PadRocketProps {
@@ -33,11 +35,6 @@ export interface PadRocketProps {
   flame?: number;
   /** the crew hatch open (also `data-hatch-open` on any ancestor) */
   hatchOpen?: boolean;
-  /**
-   * the round window is a door the crew can get in by: it swings open (`data-window-open` on any
-   * ancestor) on the dark cabin behind it (the text bar's rocket when it flies from the base)
-   */
-  windowDoor?: boolean;
   parts?: PadRocketParts;
   className?: string;
   style?: CSSProperties;
@@ -45,10 +42,10 @@ export interface PadRocketProps {
 
 const FONT = 'var(--font-display), var(--font-geist-sans), system-ui, sans-serif';
 
-export function PadRocket({ g, label, flame = 0, hatchOpen = false, windowDoor = false, parts = {}, className = '', style }: PadRocketProps) {
+export function PadRocket({ g, label, flame = 0, hatchOpen = false, parts = {}, className = '', style }: PadRocketProps) {
   const { T, Tf, cy, stroke: sw } = g;
   const { x0, x1, top, bottom } = g.body;
-  const show = { flame: true, fins: true, hatch: true, window: true, antenna: true, ...parts };
+  const show = { flame: true, fins: true, hatch: true, window: true, antenna: true, tail: true, ...parts };
   const lit = Math.min(1, Math.max(0, flame));
 
   const inner = { top: top + sw / 2, bottom: bottom - sw / 2 };
@@ -75,7 +72,7 @@ export function PadRocket({ g, label, flame = 0, hatchOpen = false, windowDoor =
         </g>
       )}
       <g stroke={C.ink} strokeLinejoin="round">
-        <NozzlePart x0={x0} xm={0} cy={cy} Tf={Tf} sw={sw} />
+        {show.tail && <NozzlePart x0={x0} xm={0} cy={cy} Tf={Tf} sw={sw} />}
         {show.fins && <FinsPart fin={g.fin} top={top} bottom={bottom} sw={sw} />}
         <g data-part="hull">
           <rect x={x0} y={top} width={f1(x1 - x0 + 1)} height={T} rx={f1(Math.min(5, 0.09 * Tf))} fill={C.hull} strokeWidth={sw} />
@@ -83,7 +80,12 @@ export function PadRocket({ g, label, flame = 0, hatchOpen = false, windowDoor =
           <rect x={x0 + sw / 2} y={g.belly.dark} width={f1(x1 - x0)} height={f1(inner.bottom - g.belly.dark)} fill={C.shadeDark} stroke="none" />
           <path d={`M${f1(g.label.x0)} ${f1(top + 0.12 * Tf)}H${f1(g.seam.x - 0.1 * Tf)}`} stroke={C.shadeDark} strokeWidth={1} fill="none" />
         </g>
-        <TailPart ring={g.ring} band={g.band} checker={g.checker} top={top} T={T} inner={inner} sw={sw} />
+        {show.tail ? (
+          <TailPart ring={g.ring} band={g.band} checker={g.checker} top={top} T={T} inner={inner} sw={sw} />
+        ) : (
+          // the nose piece's flat end, in its collar
+          <rect data-part="collar" x={f1(x0 - 3)} y={f1(top + 4)} width={7} height={f1(T - 8)} rx={1.5} fill={C.shadeDark} strokeWidth={sw * 0.75} />
+        )}
         <RivetsPart seamX={g.seam.x} rivetX={g.seam.x + 0.04 * Tf + g.seam.rivetW / 2} inner={inner} r={rivetR} gap={rivetGap} inset={0.12 * Tf} />
         {show.hatch && hatch && (
           <g data-part="hatch">
@@ -109,17 +111,7 @@ export function PadRocket({ g, label, flame = 0, hatchOpen = false, windowDoor =
           </g>
         )}
         <NosePart x1={x1} top={top} bottom={bottom} cy={cy} T={T} Tf={Tf} sw={sw} />
-        {show.window &&
-          (windowDoor ? (
-            <g>
-              <circle cx={w.cx} cy={w.cy} r={w.r} fill={C.ink} stroke="none" />
-              <g className="pad-window" style={{ transformOrigin: `${f1(w.cx - w.r)}px ${w.cy}px` }}>
-                <WindowPart w={w} sw={sw} />
-              </g>
-            </g>
-          ) : (
-            <WindowPart w={w} sw={sw} />
-          ))}
+        {show.window && <WindowPart w={w} sw={sw} />}
         {show.antenna && <AntennaPart x0={g.antenna.x0} x1={g.antenna.x1} light={g.antenna.light} cy={cy} Tf={Tf} sw={sw} />}
       </g>
       {label && label.text && (

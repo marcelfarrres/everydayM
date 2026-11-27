@@ -389,13 +389,8 @@ body {
 .pad-drum-rocket[data-live] [data-rocket-flame] {
   transform: scale(0.5, 0.8) !important;
 }
-.pad-drum-rocket[data-ignite] [data-rocket-flame],
-.pad-visitor[data-ignite] [data-rocket-flame] {
+.pad-drum-rocket[data-ignite] [data-rocket-flame] {
   transform: scale(1.2, 1.1) !important;
-}
-/* the text bar's rocket flying from the base keeps its own flame until ignition */
-.pad-visitor [data-rocket-flame] {
-  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 .pad-flicker {
   animation: pad-flicker 0.11s ease-in-out infinite alternate;
@@ -413,8 +408,7 @@ body {
   animation: rw-shake 0.12s linear infinite;
   --rw-amp: 0.45;
 }
-.pad-drum-rocket[data-ignite] .pad-shake,
-.pad-visitor[data-ignite] .pad-shake {
+.pad-drum-rocket[data-ignite] .pad-shake {
   animation: rw-shake 0.08s linear infinite;
   --rw-amp: 1.1;
 }
@@ -424,31 +418,6 @@ body {
 }
 [data-hatch-open] .pad-door {
   transform: scaleX(0.14);
-}
-/* the text bar's round window swings open the same way, on the dark cabin */
-.pad-window {
-  transition: transform 150ms ease-in-out;
-}
-[data-window-open] .pad-window {
-  transform: scaleX(0.14);
-}
-/* the right tower's ladder telescopes up to the text bar (field focused), then its gangway unfolds
-   over the bar's nose; back: the gangway folds, then the ladder slides down into the tower */
-.pad-ext {
-  transform: translateY(var(--pad-ext, 0px));
-  transition: transform 280ms cubic-bezier(0.3, 0.7, 0.3, 1) 160ms;
-}
-[data-roof-out] .pad-ext {
-  transform: none;
-  transition-delay: 0ms;
-}
-.pad-gangway {
-  transform: scaleX(0);
-  transition: transform 200ms cubic-bezier(0.3, 0.7, 0.3, 1);
-}
-[data-roof-out] .pad-gangway {
-  transform: scaleX(1);
-  transition-delay: 240ms;
 }
 /* the clamps either side of the wheel's band open while it turns, and snap shut on the rocket it
    settles on («pum»: a quick overshoot into the hull) */
@@ -480,8 +449,7 @@ body {
     opacity 180ms ease-out,
     transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1.04);
 }
-[data-structure='full'] .pad-st,
-[data-structure='ladder'] .pad-st-right {
+[data-structure='full'] .pad-st {
   opacity: 1;
   transform: none;
 }
@@ -702,7 +670,6 @@ body {
   .pad-flicker,
   .pad-drum-rocket[data-live] .pad-shake,
   .pad-drum-rocket[data-ignite] .pad-shake,
-  .pad-visitor[data-ignite] .pad-shake,
   .pad-astro .pad-leg,
   .pad-astro .pad-arm,
   .pad-astro .pad-head,
@@ -715,9 +682,6 @@ body {
   .pad-hook-bottom,
   .pad-cradle,
   .pad-dome,
-  .pad-window,
-  .pad-ext,
-  .pad-gangway,
   .pad-st {
     transition: none;
   }

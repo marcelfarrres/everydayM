@@ -230,6 +230,9 @@ export const PAD_BAR = {
   PLACEHOLDER_MIN: 11,
 } as const;
 
+/** The nose-only bar: its field starts this many fin-thicknesses into the hull, after the flat end's collar. */
+export const NOSE_BAR = { textIn: 0.34, collar: 7 } as const;
+
 export interface PadBarLayout {
   g: PadRocketGeometry;
   /** the bar's own box (the rocket reaches `hangLeft` beyond its left edge), px */
@@ -254,9 +257,11 @@ export function padBarThickness(lines: number, tf: number): number {
 
 /**
  * The text bar `barWidth` px wide (the form's width): the rocket, the field from right after the
- * checker strip to the microphone, the microphone and "send" in the front of the hull.
+ * checker strip to the microphone, the microphone and "send" in the front of the hull. `nose`
+ * (phone, the first page): the bar is only a rocket's NOSE piece (no tail: PadRocket's
+ * `parts.tail` off), so the field starts right after its flat end.
  */
-export function padBarLayout(barWidth: number, lines: number, speech: boolean): PadBarLayout {
+export function padBarLayout(barWidth: number, lines: number, speech: boolean, { nose = false }: { nose?: boolean } = {}): PadBarLayout {
   const tf = Math.round(Math.min(46, Math.max(36, barWidth * 0.128)));
   const T = padBarThickness(lines, tf);
   const length = barWidth + PAD_BAR.HANG_LEFT + PAD_BAR.HANG_RIGHT;
@@ -267,7 +272,7 @@ export function padBarLayout(barWidth: number, lines: number, speech: boolean): 
   const discCx = g.seam.x - 0.06 * tf - discR;
   const sendLeft = round1(discCx - PAD_BAR.SEND_W / 2 - hang);
   const micLeft = speech ? round1(sendLeft - PAD_BAR.MIC_W) : null;
-  const textLeft = round1(g.label.x0 - hang);
+  const textLeft = round1((nose ? g.body.x0 + NOSE_BAR.textIn * tf : g.label.x0) - hang);
   const textRight = (micLeft ?? sendLeft) - 2;
   const lineCount = Math.min(PAD_BAR.MAX_LINES, Math.max(1, Math.round(lines)));
   const fieldHeight = lineCount * PAD_BAR.LINE + 2 * PAD_BAR.PAD;

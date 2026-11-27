@@ -39,7 +39,8 @@ export type SfxOneShot =
   | 'truckRoll'
   | 'liftWhir'
   | 'spark'
-  | 'veilWhoosh';
+  | 'veilWhoosh'
+  | 'hookCreak';
 
 export type SfxLoopName = 'slowMo' | 'drumRoll';
 
@@ -409,6 +410,19 @@ export const SFX_RECIPES: Record<SfxOneShot, OneShotRecipe> = {
     minGap: 0.08,
     vary: { pitch: 2, gain: 0.3 },
     layers: [{ kind: 'noise', filter: 'highpass', freq: 3500, gain: 0.8, env: { attack: 0.001, decay: 0.03 }, repeat: { count: 4, every: 0.035, fade: 0.7 } }],
+  },
+  // The first page's crane taking the nose's weight (the typing bar gets focus): a small, low,
+  // dry creak of steel, rubbing up and down. Subtle.
+  hookCreak: {
+    category: 'ambient',
+    gain: 0.16,
+    maxVoices: 1,
+    minGap: 0.6,
+    vary: { pitch: 1.5, gain: 0.2 },
+    layers: [
+      { kind: 'tone', wave: 'sawtooth', freq: 120, freqEnd: 82, gain: 0.3, env: { attack: 0.02, hold: 0.06, decay: 0.12 } },
+      { kind: 'noise', filter: 'bandpass', freq: 900, freqEnd: 650, q: 6, gain: 0.5, env: { attack: 0.01, decay: 0.05 }, repeat: { count: 3, every: 0.055, fade: 0.75 } },
+    ],
   },
   // The white screen closing over everything: a soft airy swell.
   veilWhoosh: {

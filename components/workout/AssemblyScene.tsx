@@ -8,6 +8,7 @@ import { RocketPiece } from '@/components/workout/AssemblyRocket';
 import { PortholePerson, type Outfit } from '@/components/workout/PortholePerson';
 import { PortholeFrame, ZoomLinesSvg } from '@/components/workout/PortholeFrame';
 import { DressSequence } from '@/components/workout/DressSequence';
+import type { NoseSpot } from '@/components/workout/NoseCarry';
 import { Mechanic, MECHANIC } from '@/components/workout/player/Mechanic';
 import { useTextMeasure } from '@/components/workout/textMeasure';
 import {
@@ -86,6 +87,10 @@ interface AssemblySceneProps {
   onFitted?: (piece: PieceId) => void;
   /** the loose pieces of this kind wait in the column to be chosen: the crane's hook drifts over them */
   picking?: PieceId | null;
+  /** the typed sentence's nose is still being carried here by the crane (drawn by the page): not drawn yet */
+  noseHidden?: boolean;
+  /** where the nose hangs, on the screen (for the page's carried nose to land on) */
+  onNose?: (spot: NoseSpot) => void;
   /** the left column: the questions (or the finale's sentence); `ink`: dark text (the sky is light) */
   children: (L: AssemblyLayout, ink: boolean) => ReactNode;
 }
@@ -98,7 +103,7 @@ const EASE_DRIVE = 'cubic-bezier(0.25, 0.7, 0.3, 1)';
 const EASE_LIFT = 'cubic-bezier(0.45, 0, 0.3, 1)';
 const STEEL = DAWN.steel;
 
-export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, picking = null, children }: AssemblySceneProps) {
+export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, picking = null, noseHidden = false, onNose, children }: AssemblySceneProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -136,6 +141,17 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     const T = padHull(size.w, size.h, size.bottom);
     return assemblyLayout(size.w, size.h, T, size.top, size.bottom);
   }, [size]);
+  // where the nose hangs, for the page's carried nose
+  const onNoseRef = useRef(onNose);
+  useLayoutEffect(() => {
+    onNoseRef.current = onNose;
+  });
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!L || !root) return;
+    const b = root.getBoundingClientRect();
+    onNoseRef.current?.({ cx: b.left + L.cx, top: b.top + L.pieces.nose.top, len: L.pieces.nose.len, T: L.T });
+  }, [L]);
 
   // ── the pieces going on, one at a time ───────────────────────────────────────────────────
   const [placed, setPlaced] = useState(() => Math.max(1, Math.min(PIECES.length, target)));
@@ -743,7 +759,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
           <div ref={stackRef} className="pointer-events-none absolute inset-0 z-[13]">
             <div className="asm-shake absolute inset-0">
               {PIECES.map((piece, i) =>
-                i < shownPlaced ? (
+                piece === 'nose' && noseHidden ? null : i < shownPlaced ? (
                   <RocketPiece key={piece} piece={piece} L={L} label={labels[piece]} measure={measure} />
                 ) : moving?.piece === piece ? null : (
                   <RocketPiece key={piece} piece={piece} L={L} label="" measure={measure} ghost ghostLight={!ink} />

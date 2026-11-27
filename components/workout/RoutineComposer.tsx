@@ -26,8 +26,9 @@ import { HOP, riseKeyframes, waitingEngine } from '@/components/workout/rocketFl
 import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { barLines } from '@/components/workout/rocketShape';
 import { PadRocket } from '@/components/workout/PadRocket';
+import { NoseCarry, NoseCrane, type NoseSpot } from '@/components/workout/NoseCarry';
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
-import { LaunchBase, useTextMeasure, type LaunchBaseHandle, type LaunchHold } from '@/components/workout/LaunchBase';
+import { LaunchBase, useTextMeasure, type LaunchHold } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
@@ -385,7 +386,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   // Phone, first view: the bar is the new rocket (PadRocket), its field from right after the
   // checker strip to the microphone; the placeholder as big as fits there.
-  const bar = useMemo(() => padBarLayout(barPx, lines, speechSupported), [barPx, lines, speechSupported]);
+  // (phone: the bar is a rocket's nose piece, hanging from the crane)
+  const bar = useMemo(() => padBarLayout(barPx, lines, speechSupported, { nose: true }), [barPx, lines, speechSupported]);
+  // ...and once sent, that nose is carried by the crane to the questions' rocket (NoseCarry): from
+  // where it was, to where the scene's nose hangs (the scene tells: noseSpot)
+  const [carry, setCarry] = useState<{ from: { left: number; top: number }; text: string } | null>(null);
+  const [noseSpot, setNoseSpot] = useState<NoseSpot | null>(null);
   const measureText = useTextMeasure(pageRef);
   const placeholderPx = useMemo(
     () => fitLabel(PHONE_PLACEHOLDER, bar.textWidth - 2, { max: PAD_BAR.TEXT_PX, min: PAD_BAR.PLACEHOLDER_MIN }, measureText).px,
@@ -405,8 +411,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // (--pad-dvh) until the field is left. (Not testable without a real phone keyboard.)
   const formRef = useRef<HTMLFormElement>(null);
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
-  // ...the rocket base: the typed sentence takes off from it (LaunchBase's launchBar)
-  const baseRef = useRef<LaunchBaseHandle>(null);
   // ...the drum of suggestions: which one is centred (kept across "Cambiar"), and its stand-in clip
   const [drumCentre, setDrumCentre] = useState(0);
   const launching = useRef(false);
@@ -549,35 +553,23 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     launching.current = false;
     // a sentence the user wrote (not a suggestion) that asks for too little: teased, nothing flies
     if (!picked && !launched && tease({ kind: 'sentence', prompt }, barRef.current)) return;
-    // phone, a typed sentence that already says it all (path C): it takes off from the base as
-    // always, held on the pad until the routine is ready and its sentence read, then the finale
-    if (!picked && !launched && isPhone() && questionsFor(prompt).length === 0) {
-      beginAuto(prompt, true);
-      if (baseRef.current?.launchBar(prompt, () => goOn(prompt, true))) {
-        launching.current = true;
-        if (blurTimer.current) clearTimeout(blurTimer.current);
-        const field = document.getElementById('routine-prompt');
-        if (field instanceof HTMLElement) field.blur();
-        if (barRef.current) barRef.current.style.visibility = 'hidden';
-        return;
-      }
-      // nothing flies from the base (reduced motion): the finale goes on by itself
-      updateFinale({ viaBase: false });
-      setHop(launchRocket(barRef.current, { ms: HOP.launchMs, text: prompt }));
-      return;
-    }
-    // phone: the typed sentence takes off from the rocket base with the same launch as a
-    // suggestion's (the crew board the bar's rocket, it comes down to the pad, lift-off); the next
-    // step comes once it is out of sight
-    if (!picked && !launched && baseRef.current?.launchBar(prompt, () => goOn(prompt, true))) {
-      launching.current = true;
+    // phone: the typed sentence is the nose itself: the crane carries it to the questions' rocket
+    // (whatever it says: what it already says goes on by itself there), the keyboard closes
+    if (!picked && !launched && isPhone()) {
       if (blurTimer.current) clearTimeout(blurTimer.current);
-      // the keyboard closes (the field keeps "typing" meanwhile: the crew are boarding)
       const field = document.getElementById('routine-prompt');
       if (field instanceof HTMLElement) field.blur();
-      // the bar's rocket is the one flying now (drawn by the base, in the bar's place)
-      if (barRef.current) barRef.current.style.visibility = 'hidden';
+      setTyping(false);
+      setHeldHeight(null);
+      const nose = barRef.current?.querySelector<SVGSVGElement>('svg[data-nose-bar]');
+      if (nose && !reducedMotion) {
+        const r = nose.getBoundingClientRect();
+        setCarry({ from: { left: r.left, top: r.top }, text: prompt });
+        // (the bar itself goes: the carried copy is the nose now)
+        if (barRef.current) barRef.current.style.visibility = 'hidden';
+      }
       understand(prompt);
+      goOn(prompt, true);
       return;
     }
     // what takes off (phone): the suggestion picked, or else the bar with the sentence; the next
@@ -626,18 +618,20 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     void build({}, false);
   };
 
-  /** On to the questions, or straight to the build. `fromBase`: the bar's own launch from the base has just ended. */
-  const goOn = (prompt: string, fromBase: boolean) => {
-    if (fromBase) {
-      launching.current = false;
-      setHop(0);
-      setTyping(false);
-      setHeldHeight(null);
-    }
+  /**
+   * On to the questions, or straight to the build. `typed` (phone): a typed sentence always goes on
+   * to the questions' scene, even with nothing to ask (its pieces then go on by themselves).
+   */
+  const goOn = (prompt: string, typed = false) => {
     // (phone, path C: the finale is already under way)
     if (finaleRef.current) return;
     const pending = questionsFor(prompt);
-    if (pending.length > 0) {
+    if (pending.length > 0 || (typed && isPhone())) {
+      // (nothing to ask: this tap was the creator's last; the routine is built behind the assembly)
+      if (pending.length === 0) {
+        lastTap();
+        void build({}, false);
+      }
       setQuestions(pending);
       setAnswers({});
       setAsked(0);
@@ -1145,7 +1139,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             <Porthole
               clip={standIn}
               neutral={typing || text.trim() !== ''}
-              className="absolute left-1/2 top-1/2 aspect-square h-[min(calc(100%+7rem),88vw)] -translate-x-1/2 -translate-y-1/2"
+              // (a little up and never down to the crane's arm over the bar: its visible part stays above it)
+              className="absolute left-1/2 top-[calc(50%-2.5rem)] aspect-square h-[min(calc(100%+5rem),88vw,calc(125%+25px))] -translate-x-1/2 -translate-y-1/2"
             />
           </div>
 
@@ -1155,10 +1150,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             style={barVars}
             className={`flex items-end gap-2 rounded-[28px] bg-white p-2 pl-5 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.35)] max-lg:relative max-lg:-mx-2 max-lg:mb-3 max-lg:block max-lg:h-[var(--bar-h)] max-lg:shrink-0 max-lg:rounded-none max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none ${dayC ? 'max-lg:opacity-0 max-lg:transition-opacity max-lg:duration-700' : ''}`}
           >
+            {/* (phone: the nose piece you write in, hanging from the crane) */}
+            {!desktop && <NoseCrane g={bar.g} hang={bar.hangLeft} width={barPx} reach={12} />}
             <PadRocket
               g={bar.g}
-              flame={text.trim() ? 0.3 : 0}
-              parts={{ hatch: false }}
+              parts={{ flame: false, fins: false, hatch: false, tail: false }}
               className="pointer-events-none absolute left-[var(--fig-l)] top-0 lg:hidden"
             />
             <label htmlFor="routine-prompt" className="sr-only">
@@ -1181,8 +1177,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               }}
               onFocus={() => {
                 if (blurTimer.current) clearTimeout(blurTimer.current);
-                // (phone: the bar's rocket comes to life; inside the tap, so the sound may wake)
-                if (!typing && !window.matchMedia(DESKTOP).matches) creatorSfx('engineStart', { gesture: true });
+                // (phone: the crane holding the nose creaks a little; inside the tap, so the sound may wake)
+                if (!typing && !window.matchMedia(DESKTOP).matches) creatorSfx('noseCreak', { gesture: true });
                 setTyping(true);
                 // (phone: hold the page's height before the keyboard can squeeze it)
                 const form = formRef.current;
@@ -1251,11 +1247,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           <div className="-mx-5 shrink-0 sm:-mx-8 lg:hidden">
             <LaunchBase
               key={baseKey}
-              ref={baseRef}
-              crewUp={typing || joke !== null}
-              barRef={barRef}
-              barG={bar.g}
-              barHang={bar.hangLeft}
               suggestions={drum}
               initialIndex={drumCentre}
               onCentre={setDrumCentre}
@@ -1288,6 +1279,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         // the routine's rocket is built, a piece per answer, in the dawn that turns to day; then it
         // takes off by itself
         <AssemblyScene
+          noseHidden={carry !== null}
+          onNose={setNoseSpot}
           target={fitted}
           modes={pieceModes(questionIds, answeredCount)}
           labels={pieceLabels}
@@ -1703,6 +1696,20 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             onClick={start}
           />
         </div>
+      )}
+
+      {/* phone: the typed sentence's nose, carried by the crane to the questions' rocket */}
+      {carry && noseSpot && !desktop && (
+        <NoseCarry
+          from={carry.from}
+          g={bar.g}
+          text={carry.text}
+          textLeft={bar.textLeft + bar.hangLeft}
+          textTop={bar.fieldTop + PAD_BAR.PAD}
+          textWidth={bar.textWidth}
+          to={noseSpot}
+          onDone={() => setCarry(null)}
+        />
       )}
 
       <CreatorJoke joke={joke} shakeTarget={pageRef} onDone={() => setJoke(null)} />

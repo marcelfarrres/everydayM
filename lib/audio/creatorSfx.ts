@@ -18,6 +18,8 @@ export interface CreatorCue {
 }
 
 export const CREATOR_SFX = {
+  // the first page: the crane holding the nose you write in creaks as the bar takes focus
+  noseCreak: { sound: 'hookCreak', level: 1, gapMs: 800 },
   // the start screen's wheel
   wheelTick: { sound: 'drumClick', level: 1.6, gapMs: 60 },
   clampShut: { sound: 'towerDock', level: 1.5, gapMs: 250 },
@@ -41,6 +43,8 @@ export const CREATOR_SFX = {
   bolt: { sound: 'clack', level: 1.5 },
   spark: { sound: 'spark', level: 1 },
   quickPiece: { sound: 'clack', level: 1.3 },
+  // the minutes' tank: a small click as its level settles on each mark
+  levelClick: { sound: 'drumClick', level: 1.4, gapMs: 50 },
   // the white screen
   veil: { sound: 'veilWhoosh', level: 1, gapMs: 1000 },
 } as const satisfies Record<string, CreatorCue>;

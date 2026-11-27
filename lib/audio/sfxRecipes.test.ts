@@ -53,6 +53,7 @@ describe('sound table', () => {
         'liftWhir',
         'spark',
         'veilWhoosh',
+        'hookCreak',
       ].sort(),
     );
     expect(sfxCategory('beep')).toBe('alert');

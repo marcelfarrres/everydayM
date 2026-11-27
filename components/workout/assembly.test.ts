@@ -3,6 +3,7 @@ import {
   BIG_RIM,
   DRESS,
   FINALE,
+  NOSE_CARRY,
   PIECES,
   PIECE_UNITS,
   QUICK,
@@ -20,6 +21,7 @@ import {
   igniteAt,
   joinNames,
   liftFor,
+  noseCarryEnd,
   padHull,
   pieceBottom,
   pickPoses,
@@ -369,5 +371,24 @@ describe('the crane picking an answer', () => {
       expect(L.pick.x0).toBeLessThan(L.jib.x0);
       expect(L.pick.parkY).toBeGreaterThan(L.jib.y + L.jib.h);
     }
+  });
+});
+
+describe('the typed nose carried to the questions', () => {
+  it('ends upright on the questions nose: its tip on the line at the top, as thick and as long', () => {
+    const from = { left: 10, top: 500, W: 380, H: 70, T: 40 };
+    const to = { cx: 313, top: 290, len: 160, T: 32 };
+    const end = noseCarryEnd(from, to);
+    expect(end.scale).toBeCloseTo(0.8, 6);
+    // the drawing's right end (its antenna's light) lands on the target's top, on its centre line
+    const c = { x: from.left + from.W / 2, y: from.top + from.H / 2 };
+    const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(end.transform)!;
+    const tip = { x: c.x + Number(m[1]), y: c.y + Number(m[2]) - (end.scale * from.W) / 2 };
+    expect(tip.x).toBeCloseTo(to.cx, 0);
+    expect(tip.y).toBeCloseTo(to.top, 0);
+    // what is left once its flat end is cut is the nose's length
+    expect((from.W - end.clipLeft) * end.scale).toBeCloseTo(to.len, 6);
+    expect(noseCarryEnd(from, { ...to, len: 999 }).clipLeft).toBe(0);
+    expect(NOSE_CARRY.liftMs + NOSE_CARRY.carryMs).toBeLessThan(1800);
   });
 });
