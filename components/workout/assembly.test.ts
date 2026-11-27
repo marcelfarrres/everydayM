@@ -56,12 +56,7 @@ describe('which pieces go on', () => {
     expect(fittedTarget(['minutes'], 1)).toBe(4);
   });
 
-  it('«Saltar, decide tú» brings every remaining piece', () => {
-    expect(fittedTarget(ALL, 0, true)).toBe(4);
-    expect(fittedTarget(ALL, 1, true)).toBe(4);
-  });
-
-  it('brings answered pieces by truck, known or skipped ones quickly', () => {
+  it('brings answered pieces by truck, known ones quickly', () => {
     expect(pieceModes(ALL, 0)).toEqual({ nose: 'quick', minutes: 'quick', blocks: 'quick', engine: 'quick' });
     expect(pieceModes(ALL, 2)).toEqual({ nose: 'quick', minutes: 'truck', blocks: 'truck', engine: 'quick' });
     expect(pieceModes(['minutes', 'rounds'], 2)).toEqual({ nose: 'quick', minutes: 'truck', blocks: 'truck', engine: 'quick' });

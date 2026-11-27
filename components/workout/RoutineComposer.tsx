@@ -288,7 +288,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [stage, setStage] = useState(0); // 0 thinking · 1 minutes · 2 muscles · 3 exercises · 4 ready
   const [tray, setTray] = useState<Tray>(null);
   // Phone: the questions build the routine's rocket (AssemblyScene) and it then takes off by itself
-  const [skipped, setSkipped] = useState(false);
   const [assembled, setAssembled] = useState(false);
   // phone: the answer's piece on its way to the rocket (the next question waits until it is bolted)
   const [pending, setPending] = useState<(Take & { taken: boolean }) | null>(null);
@@ -626,7 +625,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       setQuestions(pending);
       setAnswers({});
       setAsked(0);
-      setSkipped(false);
       setAssembled(false);
       setView('questions');
       return;
@@ -765,7 +763,6 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     gateRef.current = null;
     updateFinale(null);
     launching.current = false;
-    setSkipped(false);
     setAssembled(false);
     setPending(null);
     if (nextTimer.current) clearTimeout(nextTimer.current);
@@ -952,7 +949,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const questionIds = questions.map((q) => q.id);
   // (an answer whose piece is on its way counts: the pieces known after it come once it is on)
   const answeredCount = asked + (pending ? 1 : 0);
-  const fitted = fittedTarget(questionIds, answeredCount, skipped);
+  const fitted = fittedTarget(questionIds, answeredCount);
   const sky = skyStep(fitted);
   // the sky is still dark at the top (light text) on the phone's first view and the first steps
   const darkTop = (phoneAsk && finale?.path !== 'C') || (phoneQuestions && !skyInk(sky));
@@ -1272,7 +1269,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               >
                 {finaleText}
               </motion.p>
-            ) : skipped || asked >= questions.length ? null : (
+            ) : asked >= questions.length ? null : (
               <div className="flex flex-col gap-5">
                 <div style={{ minHeight: L.column.titleMin }}>
                   <AnimatePresence mode="wait" initial={false}>
@@ -1346,19 +1343,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                     })}
                   </div>
                 ) : null}
-                {!pending && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      lastTap();
-                      setSkipped(true);
-                      void build(answers, false);
-                    }}
-                    className={`self-start rounded-full bg-white/85 px-3.5 py-2 text-[15px] font-medium text-ink/75 underline decoration-ink/25 underline-offset-4 hover:text-ink ${focusRing}`}
-                  >
-                    Saltar, decide tú
-                  </button>
-                )}
+                {/* (no «Saltar» on the phone: whoever is here decides) */}
               </div>
             )
           }

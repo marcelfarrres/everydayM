@@ -23,7 +23,7 @@ export type QuestionId = 'minutes' | 'rounds' | 'intensity';
 /** The piece each question brings. */
 export const PIECE_OF: Record<QuestionId, PieceId> = { minutes: 'minutes', rounds: 'blocks', intensity: 'engine' };
 
-/** How a piece goes on: brought by the truck (an answer), or quickly (known from the sentence, or «Saltar»). */
+/** How a piece goes on: brought by the truck (an answer), or quickly (known from the sentence). */
 export type FitMode = 'truck' | 'quick';
 
 const isQuestion = (id: string): id is QuestionId => id === 'minutes' || id === 'rounds' || id === 'intensity';
@@ -31,11 +31,9 @@ const isQuestion = (id: string): id is QuestionId => id === 'minutes' || id === 
 /**
  * How many pieces may be on, from the top: the nose, and every piece after it that is known (the
  * sentence said it) or already answered, up to the first one still waiting for its answer.
- * `questions`: the ids asked, in order; `answered`: how many of them have been answered;
- * `skipped`: «Saltar, decide tú» (everything goes on).
+ * `questions`: the ids asked, in order; `answered`: how many of them have been answered.
  */
-export function fittedTarget(questions: readonly string[], answered: number, skipped = false): number {
-  if (skipped) return PIECES.length;
+export function fittedTarget(questions: readonly string[], answered: number): number {
   const open = new Set(questions.slice(Math.max(0, answered)).filter(isQuestion).map((q) => PIECE_OF[q]));
   let n = 1;
   for (const piece of PIECES.slice(1)) {
@@ -51,7 +49,6 @@ export function pieceModes(questions: readonly string[], answered: number): Reco
   questions.forEach((q, i) => {
     if (isQuestion(q) && i < answered) modes[PIECE_OF[q]] = 'truck';
   });
-  // («Saltar» answers nothing: what was still open comes the quick way; what was answered keeps its truck)
   return modes;
 }
 
@@ -433,7 +430,7 @@ export function truckTimeline(): TruckTimeline {
   };
 }
 
-/** A piece that goes on quickly (known, or «Saltar»): it slides up into place, a clack, ms. */
+/** A piece that goes on quickly (known from the sentence): it slides up into place, a clack, ms. */
 export const QUICK = { riseMs: 360, boltMs: 160, gapMs: 120 } as const;
 
 /**
