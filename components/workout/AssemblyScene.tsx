@@ -6,9 +6,13 @@ import { PAD_COLORS as C } from '@/components/workout/padRocketShape';
 import { DAWN, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
 import { RocketPiece } from '@/components/workout/AssemblyRocket';
 import { PortholePerson, type Outfit } from '@/components/workout/PortholePerson';
+import { PortholeFrame, ZoomLinesSvg } from '@/components/workout/PortholeFrame';
+import { DressSequence } from '@/components/workout/DressSequence';
 import { Mechanic, MECHANIC } from '@/components/workout/player/Mechanic';
 import { useTextMeasure } from '@/components/workout/textMeasure';
 import {
+  BIG_RIM,
+  DRESS,
   PIECES,
   QUICK,
   SKY_MS,
@@ -17,13 +21,15 @@ import {
   TAKE,
   TRUCK,
   assemblyLayout,
+  bigPorthole,
   liftFor,
   padHull,
+  portholeTimeline,
   skyInk,
   takeTimeline,
   truckTimeline,
-  zoomLines,
   type AssemblyLayout,
+  type Circle,
   type FitMode,
   type PieceId,
 } from '@/components/workout/assembly';
@@ -39,8 +45,11 @@ import { playSfx } from '@/lib/audio/sfx';
  * The sky climbs a step with every piece; the big porthole at the top is the rocket's own window
  * seen close up (two dashed zoom lines join them), with a little person getting ready inside.
  *
- * The finale (`finale: 'launch'`): the porthole shrinks back into the window, the crane lets go
- * and pulls its arm into the tower, ignition, lift-off (`onLiftOff`: the page covers it in smoke).
+ * The ending (`ending`, once the routine is built and its sentence goes up in the column): the
+ * porthole comes down, large, to the empty corner where the pieces were, and the last change of
+ * clothes plays in it (DressSequence); meanwhile the crane lets go and pulls its arm into the
+ * tower; the porthole shrinks back along the zoom lines into the window and the rocket lifts off
+ * as it arrives (`onLiftOff`: the page covers it in smoke). Times: portholeTimeline.
  *
  * Numbers in assembly.ts. Moving things: transforms and opacity only (Web Animations, cancelled
  * once done, so nothing holds the parked rocket); React renders only when a piece goes on.
@@ -55,9 +64,10 @@ interface AssemblySceneProps {
   labels: Record<PieceId, string>;
   /** the sky's step, 0 (dawn) to 3 (full day) */
   sky: number;
+  /** what he wears in the porthole during the questions (the last change is the ending's) */
   outfit: Outfit;
-  /** `launch`: take off now */
-  finale: 'none' | 'read' | 'launch';
+  /** the ending: the big porthole, the last change of clothes, lift-off (stays true after it) */
+  ending: boolean;
   /** all four pieces are on (and bolted) */
   onAssembled: () => void;
   /** the rocket lifts off: where its pad is on the screen */
@@ -83,7 +93,7 @@ const EASE_DRIVE = 'cubic-bezier(0.25, 0.7, 0.3, 1)';
 const EASE_LIFT = 'cubic-bezier(0.45, 0, 0.3, 1)';
 const STEEL = DAWN.steel;
 
-export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAssembled, onLiftOff, take = null, onTaken, onFitted, children }: AssemblySceneProps) {
+export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, children }: AssemblySceneProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -393,67 +403,99 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
     onAssembled();
   }, [shownPlaced, moving, onAssembled]);
 
-  // ── the take-off ─────────────────────────────────────────────────────────────────────────
+  // ── the ending: the big porthole, the last change of clothes, lift-off ─────────────────────
   const stackRef = useRef<HTMLDivElement>(null);
   const portholeRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<SVGSVGElement>(null);
   const cableRef = useRef<SVGGElement>(null);
   const jibRef = useRef<SVGGElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
+  // the porthole's big place in the corner, and when the ending started (performance time)
+  const [end, setEnd] = useState<{ big: Circle | null; startAt: number } | null>(null);
   const liftOffRef = useRef(onLiftOff);
   useLayoutEffect(() => {
     liftOffRef.current = onLiftOff;
   });
   useEffect(() => {
-    if (finale !== 'launch' || reduced) return;
+    if (!ending || reduced) return;
     const root = rootRef.current;
     const Lx = layoutRef.current;
     if (!root || !Lx) return;
     const anims: Animation[] = [];
     const own: ReturnType<typeof setTimeout>[] = [];
     const at = (ms: number, fn: () => void) => own.push(setTimeout(fn, ms));
-    const p = Lx.porthole;
-    const s = (Lx.window.r + 1.5) / (p.r + Lx.rim);
-    const into = `translate(${Lx.window.x - p.x}px, ${Lx.window.y - p.y}px) scale(${s.toFixed(4)})`;
-    const ph = portholeRef.current;
-    if (ph) {
-      anims.push(
-        ph.animate(
-          [
-            { transform: 'none', opacity: 1 },
-            { transform: into, opacity: 1, offset: 0.86 },
-            { transform: into, opacity: 0 },
-          ],
-          { duration: TAKEOFF.portholeMs, easing: 'cubic-bezier(0.5, 0, 0.3, 1)', fill: 'forwards' },
-        ),
-      );
-    }
-    if (zoomRef.current) anims.push(zoomRef.current.animate([{ opacity: 1 }, { opacity: 0 }], { duration: TAKEOFF.portholeMs, fill: 'forwards' }));
-    at(TAKEOFF.cableAt, () => {
-      if (cableRef.current) anims.push(cableRef.current.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.02)' }], { duration: TAKEOFF.cableMs, easing: 'ease-in', fill: 'forwards' }));
+    // where the pieces were: under the sentence, left of the rocket, above the road
+    const box = root.getBoundingClientRect();
+    const sentence = columnRef.current?.firstElementChild;
+    const below = sentence ? sentence.getBoundingClientRect().bottom - box.top : Lx.column.top + 140;
+    const big = bigPorthole({ left: Lx.column.left, right: Lx.column.right, top: below + 16, bottom: Lx.road.top - 10 }, Lx.column.right - Lx.column.left);
+    const t = portholeTimeline(TAKEOFF.igniteLeadMs);
+    at(0, () => setEnd({ big, startAt: performance.now() }));
+    // the crane lets go while «vamos» plays: the cable up, the arm into the tower
+    at(t.cableAt, () => {
+      if (cableRef.current) anims.push(cableRef.current.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.02)' }], { duration: DRESS.cableMs, easing: 'ease-in', fill: 'forwards' }));
     });
-    at(TAKEOFF.jibAt, () => {
+    at(t.jibAt, () => {
       const slide = Lx.tower.x + Lx.tower.w / 2 - Lx.jib.x0;
-      if (jibRef.current) anims.push(jibRef.current.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${slide}px)` }], { duration: TAKEOFF.jibMs, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' }));
+      if (jibRef.current) anims.push(jibRef.current.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${slide}px)` }], { duration: DRESS.jibMs, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' }));
     });
-    at(TAKEOFF.igniteAt, () => {
+    // back into the window, along the zoom lines
+    at(t.shrinkAt, () => {
+      const ph = portholeRef.current;
+      const c = big ?? Lx.porthole;
+      const outer = big ? big.r + BIG_RIM : Lx.porthole.r + Lx.rim;
+      const into = `translate(${(Lx.window.x - c.x).toFixed(1)}px, ${(Lx.window.y - c.y).toFixed(1)}px) scale(${((Lx.window.r + 1.5) / outer).toFixed(4)})`;
+      if (ph) {
+        anims.push(
+          ph.animate([{ transform: 'none', opacity: 1 }, { transform: into, opacity: 1, offset: 0.86 }, { transform: into, opacity: 0 }], {
+            duration: DRESS.shrinkMs,
+            easing: 'cubic-bezier(0.5, 0, 0.3, 1)',
+            fill: 'forwards',
+          }),
+        );
+      }
+      if (zoomRef.current) anims.push(zoomRef.current.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DRESS.shrinkMs, fill: 'forwards' }));
+    });
+    at(t.igniteAt, () => {
       root.setAttribute('data-ignite', '');
       playSfx('ignite');
     });
-    at(TAKEOFF.liftAt, () => {
+    // it arrives: lift-off
+    at(t.liftAt, () => {
       playSfx('launch');
       const stack = stackRef.current;
       if (stack) anims.push(stack.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-(Lx.padTop + 80)}px)` }], { duration: TAKEOFF.liftMs, easing: 'cubic-bezier(0.55, 0, 0.85, 0.4)', fill: 'forwards' }));
-      const box = root.getBoundingClientRect();
-      liftOffRef.current({ x: box.left + Lx.cx, y: box.top + Lx.padTop });
+      const b = root.getBoundingClientRect();
+      liftOffRef.current({ x: b.left + Lx.cx, y: b.top + Lx.padTop });
     });
     return () => {
       own.forEach(clearTimeout);
       anims.forEach((a) => a.cancel());
       root.removeAttribute('data-ignite');
     };
-  }, [finale, reduced]);
+  }, [ending, reduced]);
+
+  // the porthole goes from its place to the big one (drawn there now: it moves from where it was)
+  useLayoutEffect(() => {
+    const el = portholeRef.current;
+    const Lx = layoutRef.current;
+    if (!end?.big || !el || !Lx) return;
+    const from = Lx.porthole;
+    const s0 = (from.r + Lx.rim) / (end.big.r + BIG_RIM);
+    const move = el.animate(
+      [{ transform: `translate(${(from.x - end.big.x).toFixed(1)}px, ${(from.y - end.big.y).toFixed(1)}px) scale(${s0.toFixed(4)})` }, { transform: 'none' }],
+      { duration: DRESS.moveMs, easing: 'cubic-bezier(0.45, 0, 0.25, 1)' },
+    );
+    const zoom = zoomRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], { delay: DRESS.moveMs - 150, duration: 300, fill: 'backwards' });
+    return () => {
+      move.cancel();
+      zoom?.cancel();
+    };
+  }, [end]);
 
   const step = Math.max(0, Math.min(3, Math.round(sky)));
+  // the porthole now: its place at the top, or its big one in the corner at the end
+  const porthole = L && end?.big ? { ...end.big, rim: BIG_RIM } : L ? { ...L.porthole, rim: L.rim } : null;
   const ink = skyInk(step);
   const next = moving?.piece ?? PIECES[Math.min(PIECES.length - 1, shownPlaced)];
   const seamPiece: Exclude<PieceId, 'nose'> = next === 'nose' ? 'minutes' : next;
@@ -511,20 +553,38 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, finale, onAs
             ))}
           </div>
           <PadSmoke L={L} />
-          {/* the big porthole: the rocket's own window seen close up */}
-          <ZoomLines L={L} light={!ink} zoomRef={zoomRef} reduced={reduced} />
-          <div
-            ref={portholeRef}
-            aria-hidden="true"
-            className="pointer-events-none absolute z-[18]"
-            style={{ left: L.porthole.x - L.porthole.r - L.rim, top: L.porthole.y - L.porthole.r - L.rim, width: 2 * (L.porthole.r + L.rim), height: 2 * (L.porthole.r + L.rim) }}
-          >
-            <PortholeFrame r={L.porthole.r} rim={L.rim}>
-              <PortholePerson outfit={outfit} transition={reduced ? 'cut' : 'walk'} />
-            </PortholeFrame>
-          </div>
+          {/* the big porthole: the rocket's own window seen close up (at the end, large in the corner) */}
+          {porthole && (
+            <>
+              <ZoomLinesSvg
+                W={L.W}
+                H={L.H}
+                big={{ x: porthole.x, y: porthole.y, r: porthole.r + porthole.rim }}
+                small={{ ...L.window, r: L.window.r + 2 }}
+                light={!ink}
+                svgRef={zoomRef}
+                className="z-[17]"
+                stroke={reduced ? 'none' : `stroke ${SKY_MS}ms ease-in-out`}
+              />
+              <div
+                ref={portholeRef}
+                aria-hidden="true"
+                className="pointer-events-none absolute z-[18]"
+                style={{ left: porthole.x - porthole.r - porthole.rim, top: porthole.y - porthole.r - porthole.rim, width: 2 * (porthole.r + porthole.rim), height: 2 * (porthole.r + porthole.rim) }}
+              >
+                <PortholeFrame r={porthole.r} rim={porthole.rim}>
+                  {end ? (
+                    <DressSequence from={outfit} startAt={end.startAt + DRESS.moveMs} reduced={reduced} />
+                  ) : (
+                    <PortholePerson outfit={ending ? 3 : outfit} transition={reduced ? 'cut' : 'walk'} />
+                  )}
+                </PortholeFrame>
+              </div>
+            </>
+          )}
           {/* the questions (or the sentence), on the left */}
           <div
+            ref={columnRef}
             className="absolute z-20 overflow-y-auto overflow-x-hidden px-[14px] pb-4 [scrollbar-width:none]"
             style={{ left: L.column.left - 14, top: L.column.top, width: L.column.right - L.column.left + 28, bottom: L.H - L.cambiarTop - 44 }}
           >
@@ -780,46 +840,5 @@ function PadSmoke({ L }: { L: AssemblyLayout }) {
         />
       ))}
     </svg>
-  );
-}
-
-/** The two dashed lines from the big porthole down to the rocket's small window, and a ring on it. */
-function ZoomLines({ L, light, zoomRef, reduced }: { L: AssemblyLayout; light: boolean; zoomRef: RefObject<SVGSVGElement | null>; reduced: boolean }) {
-  const big = { ...L.porthole, r: L.porthole.r + L.rim };
-  const small = { ...L.window, r: L.window.r + 2 };
-  const lines = zoomLines(big, small);
-  const colour = light ? '#ffffff' : C.ink;
-  const op = light ? 0.75 : 0.55;
-  return (
-    <svg ref={zoomRef} aria-hidden="true" width={L.W} height={L.H} viewBox={`0 0 ${L.W} ${L.H}`} className="pointer-events-none absolute inset-0 z-[17]">
-      <g style={{ stroke: colour, transition: reduced ? 'none' : `stroke ${SKY_MS}ms ease-in-out` }} strokeOpacity={op} strokeWidth={1.3} fill="none">
-        {lines.map(([x1, y1, x2, y2], i) => (
-          <path key={i} d={`M${x1} ${y1}L${x2} ${y2}`} strokeDasharray="5 4" />
-        ))}
-        <circle cx={small.x} cy={small.y} r={small.r} strokeOpacity={Math.min(1, op + 0.2)} strokeWidth={1.4} />
-      </g>
-    </svg>
-  );
-}
-
-/** The porthole's steel rim with its rivets, the glass (`children` inside it) and a glint. */
-function PortholeFrame({ r, rim, children }: { r: number; rim: number; children: ReactNode }) {
-  const R = r + rim;
-  const rivets = Array.from({ length: 12 }, (_, i) => (i * Math.PI) / 6);
-  return (
-    <div className="relative h-full w-full">
-      <svg viewBox={`${-R} ${-R} ${2 * R} ${2 * R}`} className="absolute inset-0 h-full w-full overflow-visible">
-        <circle r={R} fill={DAWN.plate} stroke={STEEL} strokeWidth={2} />
-        {rivets.map((a) => (
-          <circle key={a} cx={(r + rim / 2) * Math.cos(a)} cy={(r + rim / 2) * Math.sin(a)} r={Math.max(1.2, r * 0.03)} fill={STEEL} />
-        ))}
-      </svg>
-      <div className="absolute overflow-hidden rounded-full" style={{ left: rim, top: rim, width: 2 * r, height: 2 * r }}>
-        {children}
-      </div>
-      <svg viewBox={`${-R} ${-R} ${2 * R} ${2 * R}`} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
-        <circle r={r} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={2} />
-      </svg>
-    </div>
   );
 }

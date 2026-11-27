@@ -1,14 +1,32 @@
 'use client';
 
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { motion } from 'motion/react';
-import { FINALE } from '@/components/workout/assembly';
+import { BIG_RIM, DRESS, FINALE, bigPorthole, portholeTimeline, type Circle } from '@/components/workout/assembly';
+import { LAUNCH } from '@/components/workout/launchDrum';
+import { PortholeFrame, ZoomLinesSvg } from '@/components/workout/PortholeFrame';
+import { DressSequence } from '@/components/workout/DressSequence';
 
 /*
  * The creator's automatic finale (phone), over the assembly scene or the start screen's base:
  * the routine's sentence in the sky (`sentence`, when the page itself does not write it), and at
  * lift-off the rocket's white smoke grows from its pad until it covers the whole screen. The white text that follows is whiteVeil.ts. Transforms and opacity only.
+ *
+ * With no questions (the start screen's own launch held on its pad, `dress`): between the sentence
+ * and the rocket a big porthole grows out of the rocket's window, the last change of clothes plays
+ * in it (DressSequence), and it shrinks back into the window; the rocket lifts off as it arrives
+ * (the page lets it go on the same timeline: portholeTimeline).
  */
+
+/** The start screen's held rocket: its window and top on the screen, and when the porthole starts (performance time). */
+export interface FinaleDress {
+  window: Circle;
+  top: number;
+  startAt: number;
+}
+
+/** The big porthole's widest, as a share of the screen's width. */
+export const BIG_PORTHOLE_SHARE = 0.6;
 
 export type FinalePhase = 'wait' | 'read' | 'launch' | 'smoke' | 'white';
 
@@ -32,6 +50,7 @@ export function LaunchFinale({
   sentence,
   smokeFrom,
   reduced,
+  dress = null,
 }: {
   phase: FinalePhase;
   /** written here, at the top (the start screen's launch); null when the page writes it itself */
@@ -39,8 +58,11 @@ export function LaunchFinale({
   /** the pad, on the screen, where the smoke grows from */
   smokeFrom: { x: number; y: number } | null;
   reduced: boolean;
+  /** the porthole of the start screen's launch (null: none) */
+  dress?: FinaleDress | null;
 }) {
   const smokeRef = useRef<HTMLDivElement>(null);
+  const sentenceRef = useRef<HTMLParagraphElement>(null);
 
   // the smoke: puffs growing from the pad, then the white closing over everything
   useLayoutEffect(() => {
@@ -74,6 +96,7 @@ export function LaunchFinale({
     <div className="pointer-events-none fixed inset-0 z-[60] font-[family-name:var(--font-display)] text-ink lg:hidden">
       {sentence && (phase === 'read' || phase === 'launch' || phase === 'smoke') && (
         <motion.p
+          ref={sentenceRef}
           initial={reduced ? false : { opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
@@ -83,6 +106,8 @@ export function LaunchFinale({
           {sentence}
         </motion.p>
       )}
+
+      {dress && !reduced && (phase === 'read' || phase === 'launch') && <DressPorthole dress={dress} sentenceRef={sentenceRef} />}
 
       {/* the smoke, then the white */}
       {(phase === 'smoke' || phase === 'white') && (
@@ -100,5 +125,70 @@ export function LaunchFinale({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The big porthole between the sentence and the held rocket: it grows out of the rocket's window,
+ * the change of clothes plays, it shrinks back into the window (all on portholeTimeline).
+ */
+function DressPorthole({ dress, sentenceRef }: { dress: FinaleDress; sentenceRef: RefObject<HTMLParagraphElement | null> }) {
+  const [big, setBig] = useState<Circle | null>(null);
+  const [box, setBox] = useState({ W: 390, H: 844 });
+  const ref = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<SVGSVGElement>(null);
+
+  // as large as the room between the sentence and the rocket allows
+  useLayoutEffect(() => {
+    const read = () => {
+      const W = window.innerWidth;
+      const below = sentenceRef.current?.getBoundingClientRect().bottom ?? 160;
+      setBox({ W, H: window.innerHeight });
+      setBig(bigPorthole({ left: 16, right: W - 16, top: below + 14, bottom: dress.top - 14 }, Math.round(W * BIG_PORTHOLE_SHARE)));
+    };
+    read();
+  }, [dress, sentenceRef]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!big || !el) return;
+    const t = portholeTimeline(LAUNCH.igniteMs);
+    const now = performance.now();
+    const from = (ms: number) => Math.max(0, dress.startAt + ms - now);
+    const outer = big.r + BIG_RIM;
+    const into = `translate(${(dress.window.x - big.x).toFixed(1)}px, ${(dress.window.y - big.y).toFixed(1)}px) scale(${((dress.window.r + 1.5) / outer).toFixed(4)})`;
+    const anims = [
+      el.animate([{ transform: into, opacity: 0 }, { transform: into, opacity: 1, offset: 0.12 }, { transform: 'none', opacity: 1 }], {
+        delay: from(0),
+        duration: DRESS.moveMs,
+        easing: 'cubic-bezier(0.3, 0, 0.2, 1)',
+        fill: 'backwards',
+      }),
+      el.animate([{ transform: 'none', opacity: 1 }, { transform: into, opacity: 1, offset: 0.86 }, { transform: into, opacity: 0 }], {
+        delay: from(t.shrinkAt),
+        duration: DRESS.shrinkMs,
+        easing: 'cubic-bezier(0.5, 0, 0.3, 1)',
+        fill: 'forwards',
+      }),
+    ];
+    const zoom = zoomRef.current;
+    if (zoom) {
+      anims.push(zoom.animate([{ opacity: 0 }, { opacity: 1 }], { delay: from(t.moveEnd - 200), duration: 300, fill: 'backwards' }));
+      anims.push(zoom.animate([{ opacity: 1 }, { opacity: 0 }], { delay: from(t.shrinkAt), duration: DRESS.shrinkMs, fill: 'forwards' }));
+    }
+    return () => anims.forEach((a) => a.cancel());
+  }, [big, dress]);
+
+  if (!big) return null;
+  const outer = big.r + BIG_RIM;
+  return (
+    <>
+      <ZoomLinesSvg W={box.W} H={box.H} big={{ ...big, r: outer }} small={{ ...dress.window, r: dress.window.r + 2 }} light={false} svgRef={zoomRef} />
+      <div ref={ref} aria-hidden="true" className="absolute" style={{ left: big.x - outer, top: big.y - outer, width: 2 * outer, height: 2 * outer }}>
+        <PortholeFrame r={big.r} rim={BIG_RIM}>
+          <DressSequence from={0} startAt={dress.startAt} reduced={false} />
+        </PortholeFrame>
+      </div>
+    </>
   );
 }

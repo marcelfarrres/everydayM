@@ -151,8 +151,22 @@ export function answerHulls(T: number): Record<PieceId, number> {
   };
 }
 
-/** The widest word of a question's title at its size, px: the porthole never comes nearer the title than this. */
-export const TITLE_ROOM = 190;
+/**
+ * The question's title beside the porthole: never narrower than `TITLE_MIN` px; the porthole as big
+ * as `PORTHOLE_SHARE` of the width when the height allows. A title whose widest word does not fit
+ * its width at its size is set a little smaller (`titleSize`, never under `TITLE_PX.min`).
+ */
+export const TITLE_MIN = 130;
+export const PORTHOLE_SHARE = 0.23;
+/** The questions' title size on a phone (2.45rem) and the least it may be set at, px. */
+export const TITLE_PX = { max: 39.2, min: 30 } as const;
+
+/** The title's size so that its every word fits `width` px (it wraps between words): `max` or less. */
+export function titleSize(title: string, width: number, measure: (text: string, px: number) => number, { max, min }: { max: number; min: number } = TITLE_PX): number {
+  const widest = Math.max(...title.split(/\s+/).filter(Boolean).map((w) => measure(w, max)), 1);
+  if (widest <= width) return max;
+  return Math.max(min, Math.floor(((max * width) / widest) * 4) / 4);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Where everything stands
@@ -251,8 +265,8 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
   const RIM = 11;
   const minR = 26;
   const left = W >= 640 ? 32 : 20;
-  // the porthole as big as the width allows, never nearer the title than its widest word
-  const wantR = Math.max(minR, Math.min(Math.round(0.177 * W), Math.floor((W - 12 - left - 10 - TITLE_ROOM) / 2) - RIM));
+  // the porthole as big as the width allows, never leaving the title less than TITLE_MIN
+  const wantR = Math.max(minR, Math.min(Math.round(PORTHOLE_SHARE * W), Math.floor((W - 12 - left - 10 - TITLE_MIN) / 2) - RIM));
   const crane = 6 + 6 + 28 * u; // the gaps round the porthole, the cable and the jib
   const want = answerHulls(T);
   const answers = want.minutes + want.blocks + want.engine;
@@ -492,17 +506,61 @@ export function fitMs(mode: FitMode): number {
  */
 export const FINALE = { readMs: 3500, smokeMs: 1100, whiteMs: 1400, veilFadeMs: 600, cSentenceMs: 1300, cSkyMs: 2600 } as const;
 
-/** The assembly scene's take-off, ms from its start. */
-export const TAKEOFF = {
-  portholeMs: 650,
-  cableAt: 450,
-  cableMs: 300,
-  jibAt: 700,
-  jibMs: 600,
-  igniteAt: 1300,
-  liftAt: 1800,
-  liftMs: 1500,
-} as const;
+/** The assembly scene's take-off: ignition this long before lift-off, and the climb out of the top, ms (the rest: portholeTimeline). */
+export const TAKEOFF = { igniteLeadMs: 500, liftMs: 1500 } as const;
+
+// ---------------------------------------------------------------------------------------------
+// The last change of clothes in a big porthole, then into the rocket's window and lift-off
+
+/**
+ * The porthole's ending (phone, both paths): it comes to its big place (grows out of the rocket's
+ * window, or moves there from where it was) in `moveMs`; then the sequence plays, `sequenceMs`
+ * long: he stands there, at `changeAt` he walks out through the door and comes back fully in
+ * sports kit, «vamos» (later ONE real video of exactly that: its length is `sequenceMs`); then the
+ * porthole shrinks along the zoom lines into the rocket's window in `shrinkMs`, and the rocket lifts
+ * off exactly as it arrives. The crane (questions' path) lets go of the rocket while «vamos» plays.
+ */
+export const DRESS = { moveMs: 700, sequenceMs: 3200, changeAt: 700, shrinkMs: 650, cableMs: 300, jibMs: 600 } as const;
+
+export interface PortholeTimeline {
+  /** in its big place */
+  moveEnd: number;
+  /** he walks out to change */
+  changeAt: number;
+  /** the sequence is over: it shrinks into the window from here */
+  shrinkAt: number;
+  /** the crane pulls its cable up, and its arm into the tower (done before the shrink) */
+  cableAt: number;
+  jibAt: number;
+  /** ignition, `igniteLeadMs` before lift-off */
+  igniteAt: number;
+  /** it is in the window: lift-off */
+  liftAt: number;
+}
+
+/** The ending, ms from its start (see DRESS). */
+export function portholeTimeline(igniteLeadMs: number, d: typeof DRESS = DRESS): PortholeTimeline {
+  const moveEnd = d.moveMs;
+  const shrinkAt = moveEnd + d.sequenceMs;
+  const liftAt = shrinkAt + d.shrinkMs;
+  const jibAt = Math.max(moveEnd, shrinkAt - d.jibMs - 50);
+  const cableAt = Math.max(moveEnd, jibAt - d.cableMs);
+  return { moveEnd, changeAt: moveEnd + d.changeAt, shrinkAt, cableAt, jibAt, igniteAt: Math.max(moveEnd, liftAt - igniteLeadMs), liftAt };
+}
+
+/** The steel rim round a big porthole's glass, px. */
+export const BIG_RIM = 12;
+
+/**
+ * The big porthole in the free `area` (px, a box on the screen): as large as fits, never wider
+ * than `maxD` (rim included), centred in it; the glass's radius `r` (the rim goes round it). Null
+ * when not even a small one fits.
+ */
+export function bigPorthole(area: { left: number; right: number; top: number; bottom: number }, maxD: number, rim = BIG_RIM): Circle | null {
+  const d = Math.floor(Math.min(maxD, area.right - area.left, area.bottom - area.top));
+  if (d < 2 * rim + 40) return null;
+  return { x: Math.round((area.left + area.right) / 2), y: Math.round((area.top + area.bottom) / 2), r: d / 2 - rim };
+}
 
 /**
  * When the start screen's held launch may ignite (ms, performance time): the sentence has been up

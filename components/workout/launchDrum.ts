@@ -408,6 +408,27 @@ export function barOnPad(L: BaseLayout, barLength: number, barBody: number): { s
 }
 
 /**
+ * Where a rocket's round window is once it stands on the pad, in the base (px): the rocket's box
+ * `box` (W × H, lying, nose right) with its window `win` (in the box), its box centred at
+ * (`cx`, `cy`), turned upright about that centre and shrunk by `scale` and moved down `standY`
+ * (the launch's `translate(0, standY) rotate(-90deg) scale(scale)`). Also the top of the rocket
+ * (the antenna's light).
+ */
+export function standingWindow(
+  box: { W: number; H: number },
+  win: { cx: number; cy: number; r: number },
+  at: { cx: number; cy: number; standY: number; scale: number },
+): { x: number; y: number; r: number; top: number } {
+  const s = at.scale;
+  return {
+    x: at.cx + s * (win.cy - box.H / 2),
+    y: at.cy + at.standY - s * (win.cx - box.W / 2),
+    r: win.r * s,
+    top: at.cy + at.standY - (s * box.W) / 2,
+  };
+}
+
+/**
  * When, during a roulette from `from` turning `steps`, the rocket `index` is out of sight
  * (WHEEL.unseenAt steps or more from the centre), as a share of the spin (0..1): its sentence can be changed then
  * without anyone seeing it. 0 when it already is; the fastest moment when it never is.

@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BIG_RIM,
+  DRESS,
   FINALE,
   PIECES,
   PIECE_UNITS,
   QUICK,
   TAKE,
   TAKEOFF,
-  TITLE_ROOM,
+  TITLE_MIN,
+  TITLE_PX,
   TRUCK,
   answerHulls,
   assemblyLayout,
+  bigPorthole,
   finaleSentence,
   fitMs,
   fittedTarget,
@@ -19,14 +23,16 @@ import {
   padHull,
   pieceBottom,
   pieceModes,
+  portholeTimeline,
   shownMinutes,
   skyInk,
   skyStep,
   takeTimeline,
+  titleSize,
   truckTimeline,
   zoomLines,
 } from '@/components/workout/assembly';
-import { LAUNCH } from '@/components/workout/launchDrum';
+import { LAUNCH, standingWindow } from '@/components/workout/launchDrum';
 
 const ALL = ['minutes', 'rounds', 'intensity'];
 
@@ -127,17 +133,26 @@ describe('the layout', () => {
     }
   });
 
-  it('makes the porthole bigger where the width allows, never nearer the title than its widest word', () => {
+  it('makes the porthole big where the height allows, never leaving the title too narrow', () => {
     const L = at(390, 844);
-    expect(L.porthole.r).toBeGreaterThanOrEqual(66);
+    expect(L.porthole.r).toBeGreaterThanOrEqual(80);
     for (const [w, h] of [
       [390, 844],
       [320, 568],
       [320, 700],
     ]) {
       const M = at(w, h);
-      expect(M.column.titleWidth).toBeGreaterThanOrEqual(TITLE_ROOM);
+      expect(M.column.titleWidth).toBeGreaterThanOrEqual(TITLE_MIN);
     }
+  });
+
+  it('sets a title a little smaller only when a word of it would not fit', () => {
+    const per = (text: string, px: number) => text.length * px * 0.5;
+    expect(titleSize('¿Cuánto tiempo tienes?', 400, per)).toBe(TITLE_PX.max);
+    const px = titleSize('¿A qué intensidad?', 180, per);
+    expect(px).toBeLessThan(TITLE_PX.max);
+    expect(per('intensidad?', px)).toBeLessThanOrEqual(180);
+    expect(titleSize('¿A qué intensidad?', 20, per)).toBe(TITLE_PX.min);
   });
 
   it('makes the answer pieces long enough for their words at 15 px, shortening the nose first', () => {
@@ -218,11 +233,12 @@ describe('the timelines', () => {
     expect(fitMs('quick') * 4).toBeLessThan(fitMs('truck'));
   });
 
-  it('takes off in order: porthole home, cable up, jib in, ignition, lift-off', () => {
-    expect(TAKEOFF.cableAt).toBeLessThan(TAKEOFF.portholeMs);
-    expect(TAKEOFF.jibAt).toBeGreaterThanOrEqual(TAKEOFF.cableAt + TAKEOFF.cableMs - 50);
-    expect(TAKEOFF.igniteAt).toBeGreaterThanOrEqual(TAKEOFF.jibAt + TAKEOFF.jibMs);
-    expect(TAKEOFF.liftAt).toBeGreaterThan(TAKEOFF.igniteAt);
+  it('takes off in order: cable up, jib in, porthole home, ignition, lift-off as it arrives', () => {
+    const t = portholeTimeline(TAKEOFF.igniteLeadMs);
+    expect(t.jibAt).toBeGreaterThanOrEqual(t.cableAt + DRESS.cableMs - 1);
+    expect(t.jibAt + DRESS.jibMs).toBeLessThanOrEqual(t.shrinkAt);
+    expect(t.igniteAt).toBeGreaterThan(t.shrinkAt);
+    expect(t.liftAt).toBe(t.shrinkAt + DRESS.shrinkMs);
   });
 
   it('lifts the held launch off once the sentence has been read', () => {
@@ -258,5 +274,51 @@ describe('the sentence', () => {
 
   it('says focus, minutes and intensity', () => {
     expect(finaleSentence('pierna y glúteo', 30, 'media')).toBe('Hoy, pierna y glúteo. 30 min, intensidad media.');
+  });
+});
+
+describe('the big porthole of the ending', () => {
+  it('comes, plays its one sequence, then shrinks into the window and the rocket lifts off as it arrives', () => {
+    for (const lead of [360, 500]) {
+      const t = portholeTimeline(lead);
+      expect(t.moveEnd).toBe(DRESS.moveMs);
+      expect(t.changeAt).toBeGreaterThan(t.moveEnd);
+      expect(t.shrinkAt - t.moveEnd).toBe(DRESS.sequenceMs);
+      expect(t.liftAt - t.shrinkAt).toBe(DRESS.shrinkMs);
+      expect(t.liftAt - t.igniteAt).toBe(lead);
+      // the crane has let go before the porthole starts back
+      expect(t.cableAt).toBeGreaterThanOrEqual(t.moveEnd);
+      expect(t.jibAt + DRESS.jibMs).toBeLessThanOrEqual(t.shrinkAt);
+      expect(t.cableAt + DRESS.cableMs).toBeLessThanOrEqual(t.jibAt + 1);
+      // the sentence has been up long enough to read by lift-off
+      expect(t.liftAt).toBeGreaterThanOrEqual(FINALE.readMs);
+    }
+  });
+
+  it('is as large as the free space allows, up to its cap, centred in it', () => {
+    const wide = bigPorthole({ left: 0, right: 390, top: 200, bottom: 500 }, 234)!;
+    expect(2 * (wide.r + BIG_RIM)).toBe(234);
+    expect(wide.x).toBe(195);
+    expect(wide.y).toBe(350);
+    const short = bigPorthole({ left: 20, right: 270, top: 300, bottom: 460 }, 999)!;
+    expect(2 * (short.r + BIG_RIM)).toBe(160);
+    expect(short.y - short.r - BIG_RIM).toBeGreaterThanOrEqual(300);
+    expect(short.x + short.r + BIG_RIM).toBeLessThanOrEqual(270);
+    expect(bigPorthole({ left: 0, right: 50, top: 0, bottom: 500 }, 300)).toBeNull();
+  });
+});
+
+describe("the standing rocket's window", () => {
+  it('follows the launch turning the rocket nose up over its pad', () => {
+    const box = { W: 300, H: 80 };
+    // a window 40 px before the nose's end, on the centre line
+    const w = standingWindow(box, { cx: 260, cy: 40, r: 5 }, { cx: 200, cy: 100, standY: 50, scale: 0.9 });
+    expect(w.x).toBeCloseTo(200, 6);
+    expect(w.y).toBeCloseTo(100 + 50 - 0.9 * 110, 6);
+    expect(w.r).toBeCloseTo(4.5, 6);
+    expect(w.top).toBeCloseTo(100 + 50 - 0.9 * 150, 6);
+    expect(w.top).toBeLessThan(w.y);
+    // a little above the centre line lying is a little to the left standing
+    expect(standingWindow(box, { cx: 260, cy: 30, r: 5 }, { cx: 200, cy: 100, standY: 50, scale: 1 }).x).toBeCloseTo(190, 6);
   });
 });

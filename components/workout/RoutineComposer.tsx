@@ -27,7 +27,7 @@ import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { barLines } from '@/components/workout/rocketShape';
 import { PadRocket } from '@/components/workout/PadRocket';
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
-import { LaunchBase, useTextMeasure, type LaunchBaseHandle } from '@/components/workout/LaunchBase';
+import { LaunchBase, useTextMeasure, type LaunchBaseHandle, type LaunchHold } from '@/components/workout/LaunchBase';
 import { Porthole } from '@/components/workout/Porthole';
 import { standInExercise } from '@/lib/intent/standIn';
 import { randomLanding } from '@/components/workout/drumRandom';
@@ -38,7 +38,7 @@ import { playSfx } from '@/lib/audio/sfx';
 import { unlockPlayerAudio } from '@/lib/audio/unlock';
 import { AssemblyScene, type Take } from '@/components/workout/AssemblyScene';
 import { LoosePiece } from '@/components/workout/AssemblyRocket';
-import { FINALE_SENTENCE, LaunchFinale, type FinalePhase } from '@/components/workout/LaunchFinale';
+import { FINALE_SENTENCE, LaunchFinale, type FinaleDress, type FinalePhase } from '@/components/workout/LaunchFinale';
 import { openVeil, type Veil } from '@/components/workout/whiteVeil';
 import { LAUNCH } from '@/components/workout/launchDrum';
 import type { Outfit } from '@/components/workout/PortholePerson';
@@ -52,8 +52,11 @@ import {
   igniteAt,
   joinNames,
   pieceModes,
+  portholeTimeline,
   skyInk,
   skyStep,
+  titleSize,
+  TITLE_PX,
   type PieceId,
 } from '@/components/workout/assembly';
 import type {
@@ -244,6 +247,8 @@ type Finale = {
   shownAt: number | null;
   smokeFrom: { x: number; y: number } | null;
   viaBase: boolean;
+  /** C, held on the base's pad: the big porthole between the sentence and the rocket (LaunchFinale) */
+  dress?: FinaleDress | null;
 };
 
 const isPhone = () => typeof window !== 'undefined' && !window.matchMedia(DESKTOP).matches;
@@ -295,8 +300,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const [heard, setHeard] = useState<RoutineIntent | null>(null);
   const [finale, setFinale] = useState<Finale | null>(null);
   const finaleRef = useRef<Finale | null>(null);
-  // the start screen's base holding its rocket on the pad until the sentence has been read
+  // the start screen's base holding its rocket on the pad until the sentence has been read (and
+  // the porthole's change of clothes has played): its go, and where its rocket will stand
   const gateRef = useRef<(() => void) | null>(null);
+  const holdRef = useRef<(LaunchHold & { uprightAt: number }) | null>(null);
   const veilRef = useRef<Veil | null>(null);
   // a fresh base after going back (a launch held on its pad is dropped with it)
   const [baseKey, setBaseKey] = useState(0);
@@ -606,6 +613,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     unlockPlayerAudio({ startMusic: false });
     understand(prompt);
     gateRef.current = null;
+    holdRef.current = null;
     updateFinale({ path: 'C', phase: 'wait', startedAt: clockNow(), shownAt: null, smokeFrom: null, viaBase });
     void build({}, false);
   };
@@ -761,6 +769,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     // (phone: whatever was being built or taking off is dropped, the base starts afresh)
     if (finaleRef.current) setBaseKey((k) => k + 1);
     gateRef.current = null;
+    holdRef.current = null;
     updateFinale(null);
     launching.current = false;
     setAssembled(false);
@@ -801,19 +810,30 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       // C: the sentence goes up once the routine is built, and not before the drum has cleared away
       at(finale.startedAt + FINALE.cSentenceMs - now, () => updateFinale({ phase: 'read', shownAt: performance.now() }));
     } else if (finale.phase === 'read' && finale.shownAt !== null) {
-      if (finale.path === 'C' && finale.viaBase && !reducedMotion) {
-        // the base's rocket, held on its pad, ignites so that it lifts off once the sentence has been read
-        at(igniteAt(finale.shownAt, LAUNCH.igniteMs) - now, () => {
-          const go = gateRef.current;
-          gateRef.current = null;
-          if (go) {
-            updateFinale({ phase: 'launch' });
-            go();
-          } else updateFinale({ phase: 'smoke', smokeFrom: null });
-        });
+      const ignite = () => {
+        const go = gateRef.current;
+        gateRef.current = null;
+        if (go) {
+          updateFinale({ phase: 'launch' });
+          go();
+        } else updateFinale({ phase: 'smoke', smokeFrom: null });
+      };
+      const hold = holdRef.current;
+      if (finale.path === 'C' && finale.viaBase && !reducedMotion && hold) {
+        // the base's rocket, held on its pad: once it stands there (and the sentence is up) the big
+        // porthole plays the change of clothes and shrinks into its window; it lifts off as it arrives
+        if (!finale.dress) {
+          const startAt = Math.max(finale.shownAt, hold.uprightAt);
+          at(0, () => updateFinale({ dress: { window: hold.window, top: hold.top, startAt } }));
+        } else at(finale.dress.startAt + portholeTimeline(LAUNCH.igniteMs).igniteAt - now, ignite);
+      } else if (finale.path === 'C' && finale.viaBase && !reducedMotion) {
+        // (no word of where it stands: lift off once the sentence has been read)
+        at(igniteAt(finale.shownAt, LAUNCH.igniteMs) - now, ignite);
+      } else if (finale.path === 'B' && !reducedMotion) {
+        // (B: the assembly scene plays its own ending and lifts off: onLiftOff)
       } else {
         at(finale.shownAt + FINALE.readMs - now, () =>
-          updateFinale(reducedMotion ? { phase: 'white' } : finale.path === 'B' ? { phase: 'launch' } : { phase: 'smoke', smokeFrom: null }),
+          updateFinale(reducedMotion ? { phase: 'white' } : { phase: 'smoke', smokeFrom: null }),
         );
       }
     } else if (finale.phase === 'smoke') {
@@ -1223,10 +1243,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 // (path C: a suggestion that says it all takes off into the finale; inside the tap)
                 if (isPhone() && questionsFor(suggestion).length === 0) beginAuto(suggestion, !reducedMotion);
               }}
-              liftGate={(go) => {
+              liftGate={(go, hold) => {
                 const f = finaleRef.current;
                 if (!f || f.path !== 'C' || !f.viaBase) return false;
                 gateRef.current = go;
+                holdRef.current = { ...hold, uprightAt: performance.now() + hold.uprightInMs };
                 return true;
               }}
               onLiftOff={liftOff}
@@ -1249,8 +1270,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           modes={pieceModes(questionIds, answeredCount)}
           labels={pieceLabels}
           sky={sky}
-          outfit={sky as Outfit}
-          finale={finale?.path !== 'B' ? 'none' : finale.phase === 'read' ? 'read' : finale.phase === 'wait' ? 'none' : 'launch'}
+          // (the last change of clothes is the ending's, in the big porthole)
+          outfit={Math.min(sky, 2) as Outfit}
+          ending={finale?.path === 'B' && finale.phase !== 'wait'}
           onAssembled={onAssembled}
           onLiftOff={liftOff}
           take={pending}
@@ -1265,7 +1287,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 transition={{ duration: 0.7, ease: EASE }}
                 aria-live="polite"
                 className={`pt-2 text-ink ${FINALE_SENTENCE}`}
-                style={{ maxWidth: L.column.titleWidth }}
+                // (the porthole leaves the top for the corner below: the sentence takes the column)
+                style={{ maxWidth: L.column.right - L.column.left }}
               >
                 {finaleText}
               </motion.p>
@@ -1286,6 +1309,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                         >
                           <h1
                             className={`text-balance text-[clamp(2.45rem,8vw,4rem)] font-semibold leading-[1] tracking-[-0.035em] transition-colors duration-[1200ms] ${ink ? 'text-ink' : 'text-white'}`}
+                            // (beside the big porthole: a little smaller only if a word would not fit)
+                            style={{ fontSize: titleSize(q.title, L.column.titleWidth, measureText) < TITLE_PX.max ? `${titleSize(q.title, L.column.titleWidth, measureText)}px` : undefined }}
                           >
                             {q.title}
                           </h1>
@@ -1662,6 +1687,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         <LaunchFinale
           phase={finale.phase}
           sentence={finale.path === 'C' ? finaleText : null}
+          dress={finale.path === 'C' ? (finale.dress ?? null) : null}
           smokeFrom={finale.smokeFrom}
           reduced={Boolean(reducedMotion)}
         />

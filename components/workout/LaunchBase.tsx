@@ -41,6 +41,7 @@ import {
   rouletteMs,
   rouletteSteps,
   rouletteSwapAt,
+  standingWindow,
   ticksBetween,
   wheelSlot,
   wrapOffset,
@@ -119,7 +120,7 @@ interface LaunchBaseProps {
    * calls go when the rocket may ignite (the routine is ready and its sentence has been read), or
    * false: the launch goes on as always.
    */
-  liftGate?: (go: () => void) => boolean;
+  liftGate?: (go: () => void, hold: LaunchHold) => boolean;
   /** a held launch (liftGate) lifts off now: where its pad is on the screen, px */
   onLiftOff?: (pad: { x: number; y: number }) => void;
   /** Random: where to land (any sentence of the bank; null: one of the wheel's at random) */
@@ -135,6 +136,13 @@ interface LaunchBaseProps {
   barG?: PadRocketGeometry;
   barHang?: number;
   ref?: Ref<LaunchBaseHandle>;
+}
+
+/** A launch held on the pad: where its rocket's window and top will be on the screen once it stands there, and in how long. */
+export interface LaunchHold {
+  window: { x: number; y: number; r: number };
+  top: number;
+  uprightInMs: number;
 }
 
 export interface LaunchBaseHandle {
@@ -693,7 +701,18 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
    * out of the top of the screen; `onEnd` once it is out of sight. `body`: the hull's thickness on
    * the pad, px. A launch the page holds (liftGate) waits on the pad, docked, before ignition.
    */
-  const padSequence = (el: HTMLElement, tl: LaunchTimeline, onPad: () => string, upright: string, liftTo: (out: number) => string, standY: number, k: number, body: number, onEnd: () => void) => {
+  const padSequence = (
+    el: HTMLElement,
+    tl: LaunchTimeline,
+    onPad: () => string,
+    upright: string,
+    liftTo: (out: number) => string,
+    standY: number,
+    k: number,
+    body: number,
+    onEnd: () => void,
+    standing: { box: { W: number; H: number }; window: { cx: number; cy: number; r: number }; scale: number },
+  ) => {
     const root = rootRef.current;
     if (!root || !L) return;
     // 7. ignition: flame, a harder tremble, smoke at the pad
@@ -732,11 +751,17 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       });
       later(LAUNCH.igniteMs + LAUNCH.liftMs, onEnd);
     };
+    // (where its window will be, on the screen, for the page's porthole to zoom into)
+    const rb = root.getBoundingClientRect();
+    const w = standingWindow(standing.box, standing.window, { cx: L.rocket.cx, cy: L.centreY, standY, scale: standing.scale });
     const held =
-      callbacks.current.liftGate?.(() => {
-        open = true;
-        fire();
-      }) ?? false;
+      callbacks.current.liftGate?.(
+        () => {
+          open = true;
+          fire();
+        },
+        { window: { x: rb.left + w.x, y: rb.top + w.y, r: w.r }, top: rb.top + w.top, uprightInMs: tl.towerAt },
+      ) ?? false;
 
     const cues = [
       sfxCue(clockNow() + tl.dockAt + LAUNCH.dockMs * 0.8, () => playSfx('towerDock')),
@@ -886,7 +911,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     // 4–8. it stands up, the tower docks, ignition, lift-off
     const { k, standY } = padPlace(L);
     const upright = `translate(0px, ${standY}px) rotate(-90deg) scale(${k})`;
-    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate(0px, ${out}px) rotate(-90deg) scale(${k})`, standY, k, G.T, finish);
+    padSequence(el, tl, () => el.style.transform || 'none', upright, (out) => `translate(0px, ${out}px) rotate(-90deg) scale(${k})`, standY, k, G.T, finish, { box: G, window: G.window, scale: k });
   };
 
   /** The typed sentence's launch (see LaunchBaseHandle): the text bar's rocket flies from the base. */
@@ -942,7 +967,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
 
     // 4–8. as every launch
     const { k, standY } = padPlace(L);
-    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body, onGone);
+    padSequence(el, tl, () => onPad, at(0, standY, -90, k * pad.scale), (out) => at(0, out, -90, k * pad.scale), standY, k, pad.body, onGone, { box: barG, window: barG.window, scale: k * pad.scale });
     return true;
   };
   const launchBarRef = useRef(launchBar);
