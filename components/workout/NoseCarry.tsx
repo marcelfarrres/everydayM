@@ -126,11 +126,15 @@ export function NoseCrane({ g, hang, width, reach }: { g: PadRocketGeometry; han
   const half = g.W * 0.25;
   return (
     <svg aria-hidden="true" width={x1} height={rig} viewBox={`0 0 ${x1} ${rig}`} className="pointer-events-none absolute left-0 overflow-visible lg:hidden" style={{ top: hull - rig }}>
-      <path d={`M${x0} ${jibTop}H${x1}M${x0} ${jibBot}H${x1}${zig}`} stroke={DAWN.steel} strokeWidth={1.6} fill="none" />
-      <circle cx={x0 + 1} cy={(jibTop + jibBot) / 2} r={4.6} fill="#ff3b30" opacity={0.25} />
-      <circle cx={x0 + 1} cy={(jibTop + jibBot) / 2} r={2} fill="#ff3b30" />
-      <rect x={mid - 8} y={jibBot} width={16} height={6} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1} />
-      <path d={`M${mid} ${jibBot + 6}V${spread}`} stroke="#131313" strokeWidth={1.4} />
+      {/* the arm and its trolley: they stay put while the nose is lowered over the keyboard (--nose-lower) */}
+      <g className="nose-arm">
+        <path d={`M${x0} ${jibTop}H${x1}M${x0} ${jibBot}H${x1}${zig}`} stroke={DAWN.steel} strokeWidth={1.6} fill="none" />
+        <circle cx={x0 + 1} cy={(jibTop + jibBot) / 2} r={4.6} fill="#ff3b30" opacity={0.25} />
+        <circle cx={x0 + 1} cy={(jibTop + jibBot) / 2} r={2} fill="#ff3b30" />
+        <rect x={mid - 8} y={jibBot} width={16} height={6} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1} />
+      </g>
+      {/* the cable, paid out as the nose goes down */}
+      <path className="nose-cable" d={`M${mid} ${jibBot + 6}V${spread}`} stroke="#131313" strokeWidth={1.4} style={{ ['--cable-len' as string]: spread - jibBot - 6 }} />
       <rect x={mid - half} y={spread} width={2 * half} height={5} rx={1} fill={DAWN.plate} stroke={DAWN.steel} strokeWidth={1} />
       <path d={`M${mid - half + 4} ${spread + 5}L${mid - half * 0.72} ${rig}M${mid + half - 4} ${spread + 5}L${mid + half * 0.72} ${rig}`} stroke="#131313" strokeWidth={1.2} />
     </svg>

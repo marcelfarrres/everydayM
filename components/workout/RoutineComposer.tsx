@@ -26,6 +26,7 @@ import { HOP, riseKeyframes, waitingEngine } from '@/components/workout/rocketFl
 import { launchedUntil } from '@/components/workout/rocketHandoff';
 import { PadRocket } from '@/components/workout/PadRocket';
 import { NoseCarry, NoseCrane, noseCraneReach, type NoseSpot } from '@/components/workout/NoseCarry';
+import { NOSE_DOCK, noseDock, type NoseDock } from '@/components/workout/noseDock';
 import { PAD_BAR, fitLabel, padBarLayout } from '@/components/workout/padRocketShape';
 import { LaunchBase, useTextMeasure, type LaunchHold } from '@/components/workout/LaunchBase';
 import { fitDrumLabel } from '@/components/workout/drumLabel';
@@ -421,6 +422,48 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   // (--pad-dvh) until the field is left. (Not testable without a real phone keyboard.)
   const formRef = useRef<HTMLFormElement>(null);
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  // ...and, like a chat, the nose rests just above the keyboard (the crane lowers it, or lifts it
+  // if the keyboard leaves too little room) and the keyboard covers the rocket base, which fades
+  // out. Where the keyboard's top is: the visual viewport (noseDock). The browser's own scroll to
+  // the field is undone: the slogan and the porthole stay where they are.
+  // (shown instead of the field's own text while not typed in, when it is smaller than 16 px or cut)
+  const noseCopy = !desktop && !typing && noseText !== null && (noseText.cut || noseText.px < 16) ? noseText : null;
+  const [dock, setDock] = useState<NoseDock | null>(null);
+  const docked = typing && !desktop && dock?.open ? dock : null;
+  const portholeBoxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    const form = formRef.current;
+    const bar = barRef.current;
+    if (!typing || desktop || !vv || !form || !bar) return;
+    const read = () => {
+      // (no page scroll: the browser's own move to the field is undone)
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const top = window.scrollY;
+      // where the nose hangs when nothing is open: from the layout, whatever it is moved by now
+      let noseBottom = bar.offsetHeight;
+      for (let n: HTMLElement | null = bar; n; n = n.offsetParent instanceof HTMLElement ? n.offsetParent : null) noseBottom += n.offsetTop;
+      const ph = portholeBoxRef.current?.firstElementChild;
+      setDock(
+        noseDock({
+          pageH: form.getBoundingClientRect().bottom + top,
+          vvHeight: vv.height,
+          vvPageTop: top + vv.offsetTop,
+          noseBottom,
+          portholeH: ph instanceof HTMLElement ? ph.offsetHeight : 0,
+        }),
+      );
+    };
+    read();
+    vv.addEventListener('resize', read);
+    vv.addEventListener('scroll', read);
+    window.addEventListener('scroll', read);
+    return () => {
+      vv.removeEventListener('resize', read);
+      vv.removeEventListener('scroll', read);
+      window.removeEventListener('scroll', read);
+    };
+  }, [typing, desktop]);
   // ...the drum of suggestions: which one is centred (kept across "Cambiar"), and its stand-in clip
   const [drumCentre, setDrumCentre] = useState(0);
   const launching = useRef(false);
@@ -930,6 +973,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
   // Phone: where the field, the microphone and "send" sit in the rocket's hull, as CSS variables the bar's `max-lg:` classes read.
   const barVars = {
+    // (phone, typing: docked over the keyboard; the crane's arm stays, its cable longer by --nose-lower)
+    transform: docked ? `translateY(${docked.lower - docked.rise}px)` : undefined,
+    transition: reducedMotion ? undefined : `transform ${NOSE_DOCK.moveMs}ms cubic-bezier(0.2, 0.8, 0.3, 1)`,
+    '--nose-lower': docked ? docked.lower : 0,
     '--bar-h': `${bar.height}px`,
     '--fig-l': `${-bar.hangLeft}px`,
     '--txt-l': `${bar.textLeft}px`,
@@ -1116,7 +1163,18 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           </h1>
           <div className={`relative min-h-0 flex-1 transition-opacity duration-700 lg:hidden ${dayC ? 'opacity-0' : ''}`}>
             {/* (between the slogan and the crane's arm over the nose, clear of both, as big as fits) */}
-            <div className="absolute inset-x-0 top-[6px] flex items-center justify-center" style={{ bottom: Math.round(noseCraneReach(bar.g) + 6) }}>
+            <div
+              ref={portholeBoxRef}
+              className="absolute inset-x-0 top-[6px] flex items-center justify-center"
+              // (typing, with too little room over the keyboard: it gives way from its top as the nose comes up)
+              style={{
+                bottom: Math.round(noseCraneReach(bar.g) + 6),
+                transformOrigin: '50% 0',
+                transform: docked && docked.portholeScale < 1 ? `scale(${docked.portholeScale.toFixed(3)})` : undefined,
+                opacity: docked && docked.portholeScale < 0.5 ? docked.portholeScale * 2 : undefined,
+                transition: reducedMotion ? undefined : `transform ${NOSE_DOCK.moveMs}ms ease-out, opacity ${NOSE_DOCK.moveMs}ms ease-out`,
+              }}
+            >
               <Porthole clip={standIn} neutral={typing || text.trim() !== ''} className="relative aspect-square h-[min(100%,88vw)] shrink-0" />
             </div>
           </div>
@@ -1153,6 +1211,14 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                   submit(text);
                 }
               }}
+              // (phone: a tap focuses it without the browser scrolling the page to it)
+              onTouchEnd={(e) => {
+                const field = e.currentTarget;
+                if (desktop || document.activeElement === field) return;
+                e.preventDefault();
+                field.focus({ preventScroll: true });
+                field.setSelectionRange(field.value.length, field.value.length);
+              }}
               onFocus={() => {
                 if (blurTimer.current) clearTimeout(blurTimer.current);
                 // (phone: the crane holding the nose creaks a little; inside the tap, so the sound may wake)
@@ -1171,12 +1237,13 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                 }, 250);
               }}
               placeholder={desktop ? 'Hombros, 20 minutos' : PHONE_PLACEHOLDER}
-              className={`field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-hidden max-lg:whitespace-pre max-lg:rounded-lg max-lg:py-[10px] max-lg:text-[length:var(--txt-px)] max-lg:leading-6 max-lg:caret-heat max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:placeholder:text-[length:var(--ph-px)] max-lg:placeholder:text-[#888780] max-lg:focus-visible:bg-ink/[0.04] ${noseText?.cut && !typing ? 'max-lg:text-transparent' : ''}`}
+              className={`field-sizing-content max-h-40 min-h-12 flex-1 resize-none bg-transparent py-3 text-lg font-medium text-ink caret-ink placeholder:text-ink/50 focus:outline-none max-lg:absolute max-lg:left-[var(--txt-l)] max-lg:top-[var(--txt-t)] max-lg:h-[var(--txt-h)] max-lg:max-h-none max-lg:min-h-0 max-lg:w-[var(--txt-w)] max-lg:flex-none max-lg:overflow-hidden max-lg:whitespace-pre max-lg:rounded-lg max-lg:py-[10px] max-lg:text-[length:max(16px,var(--txt-px))] max-lg:leading-6 max-lg:caret-heat max-lg:[field-sizing:fixed] max-lg:[clip-path:inset(8px_0)] max-lg:[scrollbar-width:none] max-lg:placeholder:text-[length:var(--ph-px)] max-lg:placeholder:text-[#888780] max-lg:focus-visible:bg-ink/[0.04] ${noseCopy ? 'max-lg:text-transparent' : ''}`}
             />
-            {/* (phone: too long for its line even at its smallest, it shows cut with «…» while not typed in) */}
-            {!desktop && noseText?.cut && !typing && (
+            {/* (phone, while not typed in: the sentence at its fitted size, cut with «…» if it must be;
+                the field itself never goes under 16 px, or iOS would zoom in on focus) */}
+            {noseCopy && (
               <span aria-hidden="true" className="pointer-events-none absolute left-[var(--txt-l)] top-[var(--txt-t)] h-[var(--txt-h)] w-[var(--txt-w)] overflow-hidden whitespace-pre py-[10px] text-[length:var(--txt-px)] font-medium leading-6 text-ink lg:hidden">
-                {noseText.text}
+                {noseCopy.text}
               </span>
             )}
             {speechSupported && (
@@ -1228,7 +1295,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
 
           {/* phone: the rocket base, the suggestions on its drum and the red "Random" button; it stays
               while the keyboard is up (the crew then wait on the bar's top) */}
-          <div className="-mx-5 shrink-0 sm:-mx-8 lg:hidden">
+          <div
+            className={`-mx-5 shrink-0 sm:-mx-8 lg:hidden ${docked ? 'pointer-events-none opacity-0' : ''} ${reducedMotion ? '' : 'transition-opacity duration-[280ms]'}`}
+            // (typing: the keyboard covers it; nothing in it can be reached meanwhile)
+            inert={docked ? true : undefined}
+          >
             <LaunchBase
               key={baseKey}
               suggestions={drum}
