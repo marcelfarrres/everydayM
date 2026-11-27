@@ -11,6 +11,7 @@ import {
   fuelPath,
   hintOffset,
   isStill,
+  isMark,
   keyMinutes,
   levelY,
   magnet,
@@ -36,6 +37,7 @@ describe('the minutes tank', () => {
   it('moves the level half of what the finger travels, up for more', () => {
     const ppm = 10;
     expect(dragMinutes(30, -40, ppm)).toBe(32); // 40 px up: 20 px of level: 2 minutes
+    expect(snapMinutes(dragMinutes(30, -60, ppm))).toBe(33); // any whole minute
     expect(dragMinutes(30, 40, ppm)).toBe(28);
     expect(dragMinutes(30, -1000, ppm)).toBe(TANK.max);
     expect(dragMinutes(30, 1000, ppm)).toBe(TANK.min);
@@ -44,15 +46,18 @@ describe('the minutes tank', () => {
     expect((dragMinutes(30, -100, ppmReal) - 30) * ppmReal).toBeCloseTo(50, 6);
   });
 
-  it('settles on the marks: snaps to the nearest, and is drawn onto a mark when near one', () => {
-    expect(snapMinutes(27.4)).toBe(25);
-    expect(snapMinutes(27.6)).toBe(30);
+  it('settles on every whole minute (the marks click harder), drawn onto a minute when near one', () => {
+    expect(snapMinutes(31.4)).toBe(31);
+    expect(snapMinutes(32.6)).toBe(33);
     expect(snapMinutes(12)).toBe(20);
     expect(snapMinutes(47)).toBe(40);
+    for (let m = 20; m <= 40; m++) expect(snapMinutes(m)).toBe(m);
+    expect([20, 25, 30, 35, 40].every(isMark)).toBe(true);
+    expect([21, 23, 33, 39].some(isMark)).toBe(false);
     expect(magnet(30)).toBe(30);
-    expect(Math.abs(magnet(30.6) - 30)).toBeLessThan(0.6);
+    expect(Math.abs(magnet(30.2) - 30)).toBeLessThan(0.2);
     expect(magnet(32.5)).toBe(32.5);
-    // never jumps: it follows the finger smoothly across the zone's edge, and never goes backwards
+    // never jumps: it follows the finger smoothly across the zones' edges, and never goes backwards
     let prev = magnet(25);
     for (let m = 25; m <= 35; m += 0.05) {
       const g = magnet(m);
@@ -62,10 +67,12 @@ describe('the minutes tank', () => {
     }
   });
 
-  it('steps a mark at a time with the keys', () => {
-    expect(keyMinutes(30, 'ArrowUp')).toBe(35);
-    expect(keyMinutes(30, 'ArrowRight')).toBe(35);
-    expect(keyMinutes(30, 'ArrowDown')).toBe(25);
+  it('steps a minute at a time with the arrows, a mark with Page Up and Down', () => {
+    expect(keyMinutes(30, 'ArrowUp')).toBe(31);
+    expect(keyMinutes(30, 'ArrowRight')).toBe(31);
+    expect(keyMinutes(30, 'ArrowDown')).toBe(29);
+    expect(keyMinutes(32, 'PageUp')).toBe(37);
+    expect(keyMinutes(22, 'PageDown')).toBe(20);
     expect(keyMinutes(40, 'ArrowUp')).toBe(40);
     expect(keyMinutes(20, 'ArrowLeft')).toBe(20);
     expect(keyMinutes(33, 'Home')).toBe(20);

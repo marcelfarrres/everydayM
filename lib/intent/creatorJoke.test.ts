@@ -9,6 +9,9 @@ describe('creator jokes', () => {
   it('teases minutes under 25, and accepts 25 or more', () => {
     expect(joke({ kind: 'minutes', minutes: 20 })).toBe('time');
     expect(joke({ kind: 'minutes', minutes: 24 })).toBe('time');
+    // any whole minute (the tank sets 21, 22, 23… too)
+    for (const m of [21, 22, 23]) expect(joke({ kind: 'minutes', minutes: m })).toBe('time');
+    for (const m of [26, 31, 33, 39]) expect(joke({ kind: 'minutes', minutes: m })).toBeNull();
     expect(joke({ kind: 'minutes', minutes: 25 })).toBeNull();
     expect(joke({ kind: 'minutes', minutes: 30 })).toBeNull();
     expect(joke({ kind: 'minutes', minutes: 40 })).toBeNull();

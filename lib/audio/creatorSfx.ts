@@ -43,8 +43,9 @@ export const CREATOR_SFX = {
   bolt: { sound: 'clack', level: 1.5 },
   spark: { sound: 'spark', level: 1 },
   quickPiece: { sound: 'clack', level: 1.3 },
-  // the minutes' tank: a small click as its level settles on each mark
-  levelClick: { sound: 'drumClick', level: 1.4, gapMs: 50 },
+  // the minutes' tank: a soft tick as its level settles on each whole minute, a stronger click on the marks (20, 25 … 40)
+  levelTick: { sound: 'drumClick', level: 0.8, gapMs: 35 },
+  levelClick: { sound: 'drumClick', level: 1.5, gapMs: 35 },
   // the white screen
   veil: { sound: 'veilWhoosh', level: 1, gapMs: 1000 },
 } as const satisfies Record<string, CreatorCue>;

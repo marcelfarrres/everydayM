@@ -10,13 +10,15 @@
 export const TANK = {
   min: 20,
   max: 40,
-  step: 5,
+  /** it sets any whole minute; the marks (and their stronger click) every `mark` */
+  step: 1,
+  mark: 5,
   /** the level moves this share of the finger's travel */
   drag: 0.5,
-  /** within this many minutes of a mark the level is drawn onto it */
-  magnet: 1.3,
+  /** within this many minutes of a whole minute the level is drawn onto it */
+  magnet: 0.42,
   /** how strongly, there (0: not at all, 1: stuck on it) */
-  pull: 0.75,
+  pull: 0.6,
   /** px between the tank's ends and the 40 mark (room for the value written above the level) and the 20 mark */
   padTop: 52,
   padBottom: 22,
@@ -32,11 +34,14 @@ export function levelY(minutes: number, top: number, bottom: number): number {
 /** Px per minute of the level, in a tank from `top` to `bottom`. */
 export const pxPerMinute = (top: number, bottom: number) => (bottom - top - TANK.padTop - TANK.padBottom) / (TANK.max - TANK.min);
 
-/** The nearest mark to `minutes` (20, 25, … 40). */
+/** The nearest whole minute to `minutes`, within 20–40. */
 export function snapMinutes(minutes: number): number {
   const m = Math.round(minutes / TANK.step) * TANK.step;
   return Math.max(TANK.min, Math.min(TANK.max, m));
 }
+
+/** A mark (20, 25, … 40): the level landing there clicks harder. */
+export const isMark = (minutes: number) => Math.round(minutes) % TANK.mark === 0;
 
 /**
  * A drag: the finger went `dy` px (down: positive) from where it pressed the tank, which then
@@ -48,7 +53,7 @@ export function dragMinutes(start: number, dy: number, ppm: number): number {
   return Math.max(TANK.min, Math.min(TANK.max, m));
 }
 
-/** Where the level is drawn for `minutes` mid-drag: pulled onto a mark when near one (it "lands" on each). */
+/** Where the level is drawn for `minutes` mid-drag: pulled onto a whole minute when near one (it "lands" on each). */
 export function magnet(minutes: number): number {
   const mark = snapMinutes(minutes);
   const d = minutes - mark;
@@ -59,11 +64,13 @@ export function magnet(minutes: number): number {
   return mark + d * keep;
 }
 
-/** Arrow keys: one mark up or down (Home and End: the ends). */
+/** Keys: arrows one minute up or down, Page Up and Down one mark (5), Home and End the ends. */
 export function keyMinutes(minutes: number, key: string): number | null {
   const m = snapMinutes(minutes);
-  if (key === 'ArrowUp' || key === 'ArrowRight' || key === 'PageUp') return Math.min(TANK.max, m + TANK.step);
-  if (key === 'ArrowDown' || key === 'ArrowLeft' || key === 'PageDown') return Math.max(TANK.min, m - TANK.step);
+  if (key === 'ArrowUp' || key === 'ArrowRight') return Math.min(TANK.max, m + TANK.step);
+  if (key === 'ArrowDown' || key === 'ArrowLeft') return Math.max(TANK.min, m - TANK.step);
+  if (key === 'PageUp') return Math.min(TANK.max, m + TANK.mark);
+  if (key === 'PageDown') return Math.max(TANK.min, m - TANK.mark);
   if (key === 'Home') return TANK.min;
   if (key === 'End') return TANK.max;
   return null;

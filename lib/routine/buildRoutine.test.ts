@@ -240,6 +240,14 @@ describe('durations', () => {
     }
   });
 
+  it('builds a routine for any whole minute from 20 to 40 (not only every 5), near that length', () => {
+    for (let m = 20; m <= 40; m++) {
+      const { meta } = buildRoutine(library(), gluteIntent({ targetMinutes: m }), seeded(m));
+      expect(meta.totalSeconds).toBeGreaterThan((m - 6) * 60);
+      expect(meta.totalSeconds).toBeLessThan((m + 6) * 60);
+    }
+  });
+
   it('estimates in solveForMinutes exactly what the queue lasts when clips are uniform', () => {
     const { meta } = buildRoutine(
       library(),

@@ -257,6 +257,7 @@ describe('the timelines', () => {
 describe('the minutes shown', () => {
   it('shows the length chosen, not the real length of the routine', () => {
     expect(shownMinutes(30, 28)).toBe(30);
+    for (let m = 20; m <= 40; m++) expect(shownMinutes(m, 28)).toBe(m);
   });
 
   it('shows the real length when none was chosen', () => {

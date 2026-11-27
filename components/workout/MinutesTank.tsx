@@ -13,6 +13,7 @@ import {
   hintOffset,
   isStill,
   keyMinutes,
+  isMark,
   levelMarks,
   levelY,
   magnet,
@@ -301,11 +302,11 @@ export function MinutesTank({
     return () => clearTimeout(t);
   }, [reduced, kick]);
 
-  /** A mark reached: the click, a light tick, the value. */
+  /** A whole minute reached: a soft tick (on the marks, the stronger click), a light buzz, the value. */
   const land = (mark: number) => {
-    creatorSfx('levelClick');
+    creatorSfx(isMark(mark) ? 'levelClick' : 'levelTick');
     try {
-      navigator.vibrate?.(6);
+      navigator.vibrate?.(isMark(mark) ? 8 : 3);
     } catch {
       // no haptics: fine
     }
