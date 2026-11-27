@@ -11,6 +11,7 @@ import { stopAllSfx } from '@/lib/audio/sfx';
 import { useMusicControls, usePlayerMusic } from '@/lib/audio/useMusic';
 import { playbackUrl } from '@/lib/media';
 import type { RoutineItem, RoutineMeta, TimelineSegment } from '@/types/workout';
+import { AudioDebug } from './AudioDebug';
 import { CheerHits, type CheerDemo } from './CheerHits';
 import { DesktopBackdrop } from './DesktopBackdrop';
 import { PlayerMenu } from './PlayerMenu';
@@ -18,6 +19,7 @@ import { PlayerWidget } from './PlayerWidget';
 import { RestClock, type RestClockPhase } from './RestClock';
 import { RestFrame } from './RestFrame';
 import { RocketWidget } from './RocketWidget';
+import { SoundRescue } from './SoundRescue';
 import { Stage } from './Stage';
 import { useBusyAfter, useCountdownBeep, useIsDesktop, useLagged } from './hooks';
 import { longRestWords, clock, cloudLabel, finalCount, isExercise, journeyOf, nextExerciseAfter, restScreenOf, type TalksDone } from './model';
@@ -317,6 +319,11 @@ export function WorkoutPlayer({
         onCreateClip={onOpenTiktok}
         onExit={onExit}
       />
+
+      {/* The browser wants a tap to bring the music back (lib/audio/watchdog.ts). */}
+      {music.needsTap && <SoundRescue />}
+      {/* Only with ?audiodebug=1 in the URL. */}
+      <AudioDebug />
 
       {/* Phone: how far you are. The twin of "Â·Â·Â·" across the top: the same 44 px pill, fill,
           margins and line, so the two read as a pair. It steps aside for "Activar sonido" of a talk. */}

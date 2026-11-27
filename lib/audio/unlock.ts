@@ -9,6 +9,11 @@ import { primeTalkVideo } from './talkVideo';
  * Everything the player will later play with sound, unlocked in one go. Call it synchronously
  * inside the tap that starts the routine ("Empezar"), before any await: iPhone only allows sound
  * from a user gesture, and only for what was started during it.
+ *
+ * The creator (phone) calls it twice: `{ startMusic: false }` in the user's last tap, and later
+ * `{ queue }` outside any gesture when the workout starts on its own. That second call only
+ * starts the music (its elements were unlocked by the tap) and points the talk element at the
+ * first talk; it does not play the talk element (see primeTalkVideo).
  */
 
 /** The first vídeo hablado the routine will play, so it starts loading during the tap. */
@@ -30,8 +35,10 @@ export function unlockPlayerAudio({
   try {
     getAudioContext(); // creates or resumes the shared context, inside the tap
     preloadSfx(); // the recorded effects start loading now, so the first take-off isn't late
-    getMusicEngine()?.unlock(startMusic);
+    // The talk element first: on iPhone a video starting with sound pauses music already playing
+    // (the watchdog in music.ts would bring it back, but better not to cause it).
     primeTalkVideo(firstTalkUrl(queue));
+    getMusicEngine()?.unlock(startMusic);
   } catch {
     // sound is a bonus: never block the routine
   }
