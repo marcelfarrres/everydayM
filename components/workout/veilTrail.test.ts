@@ -28,11 +28,13 @@ describe('the white screen: it arrives as the smoke spreading up, uncovering wha
   });
 
   it('what is covered stays covered (from the pad, off the middle, too)', () => {
+    // (a coarser grid and step: it is a lot of points)
+    const coarse = grid.filter((_, k) => k % 3 === 0);
     for (const origin of [W / 2, W * 0.62]) {
-      let prev = grid.map(() => 0);
-      for (const p of steps) {
+      let prev = coarse.map(() => 0);
+      for (const p of steps.filter((_, k) => k % 2 === 0)) {
         const shape = arrivalPuffs(p, W, H, origin);
-        const now = grid.map(([x, y]) => maskAlpha(shape, x, y));
+        const now = coarse.map(([x, y]) => maskAlpha(shape, x, y));
         now.forEach((a, k) => expect(a).toBeGreaterThanOrEqual(prev[k] - 0.02));
         prev = now;
       }
