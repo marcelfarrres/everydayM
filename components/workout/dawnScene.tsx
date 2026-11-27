@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { PAD_COLORS as C } from '@/components/workout/padRocketShape';
 
 /*
@@ -113,10 +114,41 @@ export function RoadLamp({ x, top, q, lit = true }: { x: number; top: number; q:
   );
 }
 
-/** A few cars on the road, both ways, long gaps between them (CSS: pad-car-*; parked with reduced motion). */
-export function RoadCars({ W, top, q }: { W: number; top: number; q: number }) {
+/** The two thin lit clouds of the dawn (the sketch's, against the horizon `hz`, `k` times its size). */
+export function DawnClouds({ hz, k }: { hz: number; k: number }) {
+  const X = (x: number) => x * k;
+  const Y = (y: number) => hz + (y - 235) * k;
   return (
-    <g style={{ ['--pad-road' as string]: `${W}px` }}>
+    <>
+      <path
+        d={`M${X(150)} ${Y(204)}Q${X(200)} ${Y(199)} ${X(262)} ${Y(203)}Q${X(300)} ${Y(205)} ${X(320)} ${Y(201)}V${Y(206)}Q${X(280)} ${Y(209)} ${X(240)} ${Y(207)}Q${X(190)} ${Y(205)} ${X(150)} ${Y(207)}Z`}
+        fill={DAWN.cloud}
+        opacity={0.38}
+      />
+      <path d={`M0 ${Y(214)}Q${X(30)} ${Y(211)} ${X(60)} ${Y(214)}Q${X(40)} ${Y(217)} 0 ${Y(217)}Z`} fill={DAWN.cloud} opacity={0.3} />
+    </>
+  );
+}
+
+/** Each car's own delay in its loop (CSS: pad-car-a/b/c), s. */
+const CAR_DELAYS = [-6, -2, -15];
+
+/**
+ * A few cars on the road, both ways, long gaps between them (CSS: pad-car-*; parked with reduced
+ * motion). Their place in their loops follows the page's clock, so a new scene drawn over the
+ * same road (the start screen giving way to the questions) has them exactly where they were.
+ */
+export function RoadCars({ W, top, q }: { W: number; top: number; q: number }) {
+  const ref = useRef<SVGGElement>(null);
+  useLayoutEffect(() => {
+    const cars = ref.current?.querySelectorAll<SVGGElement>('.pad-car');
+    const now = performance.now() / 1000;
+    cars?.forEach((car, i) => {
+      car.style.animationDelay = `${(CAR_DELAYS[i] ?? 0) - now}s`;
+    });
+  }, []);
+  return (
+    <g ref={ref} style={{ ['--pad-road' as string]: `${W}px` }}>
       <g className="pad-car pad-car-b">
         <Car y={top - 0.2 * q} k={0.95 * q} flip />
       </g>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { PAD_COLORS as C } from '@/components/workout/padRocketShape';
-import { DAWN, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
+import { DAWN, DawnClouds, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
 import { RocketPiece } from '@/components/workout/AssemblyRocket';
 import { PortholePerson, type Outfit } from '@/components/workout/PortholePerson';
 import { PortholeFrame, ZoomLinesSvg } from '@/components/workout/PortholeFrame';
@@ -14,6 +14,7 @@ import {
   BIG_RIM,
   DRESS,
   PIECES,
+  PICK,
   QUICK,
   SKY_MS,
   SKY_STEPS,
@@ -24,6 +25,8 @@ import {
   bigPorthole,
   liftFor,
   padHull,
+  pickPoses,
+  pickTimeline,
   portholeTimeline,
   skyInk,
   takeTimeline,
@@ -33,7 +36,7 @@ import {
   type FitMode,
   type PieceId,
 } from '@/components/workout/assembly';
-import { playSfx } from '@/lib/audio/sfx';
+import { creatorSfx, type CreatorCueName } from '@/lib/audio/creatorSfx';
 
 /*
  * The creator's questions (phone), in the dawn of the start screen's base: the questions on the
@@ -81,6 +84,8 @@ interface AssemblySceneProps {
   onTaken?: (piece: PieceId) => void;
   /** a piece is on and bolted */
   onFitted?: (piece: PieceId) => void;
+  /** the loose pieces of this kind wait in the column to be chosen: the crane's hook drifts over them */
+  picking?: PieceId | null;
   /** the left column: the questions (or the finale's sentence); `ink`: dark text (the sky is light) */
   children: (L: AssemblyLayout, ink: boolean) => ReactNode;
 }
@@ -93,7 +98,7 @@ const EASE_DRIVE = 'cubic-bezier(0.25, 0.7, 0.3, 1)';
 const EASE_LIFT = 'cubic-bezier(0.45, 0, 0.3, 1)';
 const STEEL = DAWN.steel;
 
-export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, children }: AssemblySceneProps) {
+export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAssembled, onLiftOff, take = null, onTaken, onFitted, picking = null, children }: AssemblySceneProps) {
   const reduced = useReducedMotion() ?? false;
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -117,6 +122,13 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     const ro = new ResizeObserver(read);
     ro.observe(root);
     return () => ro.disconnect();
+  }, []);
+
+  // the sun starts where the start screen had it, and rises a little as the questions open
+  const [risen, setRisen] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setRisen(true), 60);
+    return () => clearTimeout(t);
   }, []);
 
   const L = useMemo(() => {
@@ -163,6 +175,14 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
       }),
     [],
   );
+  /** A sound `ms` from now (dropped if the scene goes). */
+  const cue = (ms: number, name: CreatorCueName) => {
+    timers.current.push(
+      setTimeout(() => {
+        if (alive.current) creatorSfx(name);
+      }, Math.max(0, ms)),
+    );
+  };
   // a piece set moving is on the page (its element exists) once React has committed it
   const committed = useRef<(() => void) | null>(null);
   const onPage = () => new Promise<void>((resolve) => {
@@ -179,6 +199,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
   const spark = () => {
     const box = sparksRef.current;
     if (!box) return;
+    creatorSfx('spark');
     box.querySelectorAll<HTMLElement>('[data-spark]').forEach((s, i) =>
       s.animate(
         [
@@ -229,6 +250,8 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     const outTo = Lx.W - Lx.truck.stopLeft + 16;
     truck.style.visibility = 'visible';
     const drive = truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: 'translateX(0px)' }], { duration: t.driveIn[1], easing: EASE_DRIVE, fill: 'both' });
+    cue(0, 'truckIn');
+    cue(t.lift[0], 'liftUp');
     const span = t.lift[1] - t.fly[0];
     const off = (ms: number) => Math.min(1, Math.max(0, (ms - t.fly[0]) / span));
     const travel = fly.animate(
@@ -247,16 +270,16 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
 
     await sleep(t.dockAt);
     if (!alive.current) return;
-    playSfx('towerDock');
+    creatorSfx('dock');
     setBolting(true);
     await sleep(t.bolts[0] - t.dockAt);
     if (!alive.current) return;
     spark();
-    playSfx('clack');
+    creatorSfx('bolt');
     await sleep(t.bolts[1] - t.bolts[0]);
     if (!alive.current) return;
     spark();
-    playSfx('clack');
+    creatorSfx('bolt');
     await sleep(t.placedAt - t.bolts[1]);
     if (!alive.current) return;
     travel.cancel();
@@ -279,10 +302,197 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     });
   };
 
+  // ── the crane picking the answer (blocks, intensity) ───────────────────────────────────────
+  const hookRef = useRef<HTMLDivElement>(null);
+  const trolleyRef = useRef<HTMLDivElement>(null);
+  const wireRef = useRef<HTMLDivElement>(null);
+  const hookAnims = useRef<Animation[]>([]);
+  // the piece the crane is carrying now (its hook stays out until the piece is on)
+  const [carrying, setCarrying] = useState(false);
+
+  /** The hook's tip now (scene px), wherever its animations have it. */
+  const hookNow = (): { x: number; y: number } => {
+    const Lx = layoutRef.current;
+    const el = hookRef.current;
+    const park = { x: Lx ? Lx.pick.loadX : 0, y: Lx ? Lx.pick.parkY : 0 };
+    if (!el || !Lx) return park;
+    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    const g = hookGeometry(Lx);
+    return { x: m.m41 + g.w / 2, y: m.m42 + g.h };
+  };
+  /** The trolley, its wire and the hook along `points` (offsets 0..1), `ms` long. */
+  const moveHook = (points: { x: number; y: number; offset: number; easing?: string }[], ms: number, delay = 0) => {
+    const Lx = layoutRef.current;
+    const hook = hookRef.current;
+    const trolley = trolleyRef.current;
+    const wire = wireRef.current;
+    if (!Lx || !hook || !trolley || !wire) return [];
+    const g = hookGeometry(Lx);
+    const opts = { duration: Math.max(1, ms), delay, fill: 'forwards' as const };
+    const anims = [
+      hook.animate(points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translate(${(p.x - g.w / 2).toFixed(1)}px, ${(p.y - g.h).toFixed(1)}px)` })), opts),
+      trolley.animate(points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translateX(${(p.x - g.trolleyW / 2).toFixed(1)}px)` })), opts),
+      wire.animate(
+        points.map((p) => ({ offset: p.offset, easing: p.easing, transform: `translateX(${p.x.toFixed(1)}px) scaleY(${Math.max(0.01, p.y - g.h * 0.6 - g.wireTop).toFixed(1)})` })),
+        opts,
+      ),
+    ];
+    hookAnims.current.push(...anims);
+    return anims;
+  };
+  const stopHook = () => {
+    const at = hookNow();
+    hookAnims.current.forEach((a) => a.cancel());
+    hookAnims.current = [];
+    moveHook([{ ...at, offset: 0 }, { ...at, offset: 1 }], 1);
+  };
+
+  // while an answer waits to be chosen, the hook drifts from one loose piece to the next
+  useEffect(() => {
+    if (!picking || reduced || carrying || !L) return;
+    const root = rootRef.current;
+    const column = columnRef.current;
+    if (!root || !column) return;
+    let k = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const spots = () => {
+      const box = root.getBoundingClientRect();
+      return Array.from(column.querySelectorAll<HTMLElement>(`[data-loose="${picking}"]`))
+        .filter((el) => !(el as HTMLButtonElement).disabled)
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.right - box.left + 10, y: r.top - box.top + r.height / 2 - 4 };
+        });
+    };
+    const next = () => {
+      const s = spots();
+      if (s.length > 0) {
+        const to = s[k % s.length];
+        k += 1;
+        const from = hookNow();
+        const mid = { x: (from.x + to.x) / 2, y: Math.min(from.y, to.y) - 14 };
+        moveHook(
+          [
+            { ...from, offset: 0, easing: 'ease-in-out' },
+            { ...mid, offset: 0.5, easing: 'ease-in-out' },
+            { ...to, offset: 1 },
+          ],
+          PICK.idleMoveMs,
+        );
+      }
+      timer = setTimeout(next, PICK.idleMoveMs + PICK.idleRestMs);
+    };
+    timer = setTimeout(next, 120);
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [picking, reduced, carrying, L]);
+
+  /** The answer's piece (blocks, intensity), picked by the crane from where it was tapped and taken to the rocket. */
+  const fitPicked = async (piece: PieceId, from: Take) => {
+    const Lx = layoutRef.current;
+    const root = rootRef.current;
+    if (!Lx || !root) return;
+    const lift = liftFor(Lx, piece);
+    const box = root.getBoundingClientRect();
+    const at = { x: from.rect.left - box.left, y: from.rect.top - box.top };
+    setTruckLift(lift);
+    setCarrying(true);
+    const shown = onPage();
+    setMoving({ piece, mode: 'truck', from: at, label: from.label });
+    await shown;
+    await truckFree.current;
+    const fly = flyRef.current;
+    const truck = truckRef.current;
+    const platform = liftRef.current;
+    const scissor = scissorRef.current;
+    if (!alive.current || !fly || !truck || !platform || !scissor) {
+      if (alive.current) place(piece);
+      setCarrying(false);
+      return;
+    }
+    const t = pickTimeline();
+    const b = Lx.pieces[piece];
+    const c0 = { x: at.x + b.len / 2, y: at.y + Lx.box / 2 };
+    const start = hookNow();
+    stopHook();
+    const poses = pickPoses({ at, len: b.len, box: Lx.box, hook: start, loadX: Lx.pick.loadX, cx: Lx.cx, dropTop: b.top + lift, lift, parkY: Lx.pick.parkY, raise: 0.4 * Lx.T }, t);
+    const total = t.lift[1];
+    const travel = fly.animate(
+      poses.map((p) => ({ offset: p.t / total, transform: `translate(${(p.piece.x - c0.x).toFixed(1)}px, ${(p.piece.y - c0.y).toFixed(1)}px) rotate(${p.piece.rot.toFixed(1)}deg)` })),
+      { duration: total, fill: 'both' },
+    );
+    moveHook(
+      poses.filter((p) => p.t <= t.hookUp[1]).map((p) => ({ ...p.hook, offset: p.t / t.hookUp[1] })),
+      t.hookUp[1],
+    );
+    // the truck: to its loading spot left of the rocket, waits for the piece, then under the rocket
+    const shift = Lx.cx - Lx.pick.loadX;
+    const inFrom = -(Lx.truck.stopLeft + Lx.truck.width + 16);
+    const outTo = Lx.W - Lx.truck.stopLeft + 16;
+    truck.style.visibility = 'visible';
+    const drive = truck.animate(
+      [
+        { transform: `translateX(${inFrom}px)`, easing: EASE_DRIVE },
+        { transform: `translateX(${-shift}px)`, offset: t.truckIn[1] / t.drive[1] },
+        { transform: `translateX(${-shift}px)`, offset: t.drive[0] / t.drive[1], easing: EASE_DRIVE },
+        { transform: 'translateX(0px)' },
+      ],
+      { duration: t.drive[1], fill: 'both' },
+    );
+    cue(0, 'truckIn');
+    cue(t.lift[0], 'liftUp');
+    const up = { delay: t.lift[0], duration: t.lift[1] - t.lift[0], easing: EASE_LIFT, fill: 'both' as const };
+    const raise = platform.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-lift}px)` }], up);
+    const open = scissor.animate([{ transform: 'scaleY(0.04)' }, { transform: 'scaleY(1)' }], up);
+
+    await sleep(t.grab[0]);
+    if (!alive.current) return;
+    // the grab: a clang of the hook on the piece
+    creatorSfx('hookGrab');
+    await sleep(t.lower[1] - t.grab[0]);
+    if (!alive.current) return;
+    creatorSfx('hookRelease');
+    await sleep(t.dockAt - t.lower[1]);
+    if (!alive.current) return;
+    creatorSfx('dock');
+    setBolting(true);
+    await sleep(t.bolts[0] - t.dockAt);
+    if (!alive.current) return;
+    spark();
+    creatorSfx('bolt');
+    await sleep(t.bolts[1] - t.bolts[0]);
+    if (!alive.current) return;
+    spark();
+    creatorSfx('bolt');
+    await sleep(t.placedAt - t.bolts[1]);
+    if (!alive.current) return;
+    travel.cancel();
+    place(piece);
+    setBolting(false);
+    setCarrying(false);
+
+    const down = { duration: PICK.lowerLiftMs, easing: EASE_LIFT, fill: 'both' as const };
+    const lower = platform.animate([{ transform: `translateY(${-lift}px)` }, { transform: 'translateY(0px)' }], down);
+    const close = scissor.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.04)' }], down);
+    const away = truck.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${outTo}px)` }], {
+      delay: PICK.lowerLiftMs,
+      duration: PICK.driveOutMs,
+      easing: 'cubic-bezier(0.5, 0, 0.75, 0.6)',
+      fill: 'both',
+    });
+    truckFree.current = sleep(t.endAt - t.placedAt).then(() => {
+      truck.style.visibility = 'hidden';
+      [drive, raise, open, lower, close, away].forEach((a) => a.cancel());
+    });
+  };
+
   const fitPiece = async (piece: PieceId, mode: FitMode) => {
     const from = takeRef.current;
     if (mode === 'truck' && from && from.piece === piece) {
-      await fitTaken(piece, from);
+      // (the blocks and the intensity: the crane picks it; the minutes: it flies as before)
+      if (piece === 'blocks' || piece === 'engine') await fitPicked(piece, from);
+      else await fitTaken(piece, from);
       return;
     }
     if (mode === 'truck') await truckFree.current;
@@ -305,7 +515,7 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
       await sleep(QUICK.riseMs);
       if (!alive.current) return;
       spark();
-      playSfx('clack');
+      creatorSfx('quickPiece');
       await sleep(QUICK.boltMs);
       if (!alive.current) return;
       place(piece);
@@ -325,6 +535,8 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     const outTo = Lx.W - Lx.truck.stopLeft + 16;
     truck.style.visibility = 'visible';
     const drive = truck.animate([{ transform: `translateX(${inFrom}px)` }, { transform: 'translateX(0px)' }], { duration: TRUCK.driveInMs, easing: EASE_DRIVE, fill: 'both' });
+    cue(0, 'truckIn');
+    cue(TRUCK.driveInMs, 'liftUp');
     fly.animate(
       [
         { transform: `translate(${inFrom}px, ${lift}px)`, easing: EASE_DRIVE },
@@ -339,16 +551,16 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
 
     await sleep(tl.dockAt);
     if (!alive.current) return;
-    playSfx('towerDock');
+    creatorSfx('dock');
     setBolting(true);
     await sleep(tl.bolts[0] - tl.dockAt);
     if (!alive.current) return;
     spark();
-    playSfx('clack');
+    creatorSfx('bolt');
     await sleep(tl.bolts[1] - tl.bolts[0]);
     if (!alive.current) return;
     spark();
-    playSfx('clack');
+    creatorSfx('bolt');
     await sleep(tl.placedAt - tl.bolts[1]);
     if (!alive.current) return;
     place(piece);
@@ -458,11 +670,11 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
     });
     at(t.igniteAt, () => {
       root.setAttribute('data-ignite', '');
-      playSfx('ignite');
+      creatorSfx('ignite');
     });
     // it arrives: lift-off
     at(t.liftAt, () => {
-      playSfx('launch');
+      creatorSfx('liftOff');
       const stack = stackRef.current;
       if (stack) anims.push(stack.animate([{ transform: 'translateY(0px)' }, { transform: `translateY(${-(Lx.padTop + 80)}px)` }], { duration: TAKEOFF.liftMs, easing: 'cubic-bezier(0.55, 0, 0.85, 0.4)', fill: 'forwards' }));
       const b = root.getBoundingClientRect();
@@ -505,8 +717,8 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
       <div data-safe-probe="" aria-hidden="true" className="pointer-events-none invisible absolute h-0 w-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]" />
       {L && (
         <>
-          <Backdrop L={L} step={step} uid={uid} reduced={reduced} />
-          <Crane L={L} uid={uid} jibRef={jibRef} cableRef={cableRef} />
+          <Backdrop L={L} step={step} uid={uid} reduced={reduced} risen={risen} />
+          <Crane L={L} uid={uid} jibRef={jibRef} cableRef={cableRef} pickOut={!reduced && (picking !== null || carrying)} reduced={reduced} />
           {/* the mechanics' platform on the tower, at the seam being bolted */}
           <MechanicsPlatform L={L} y={L.platform[seamPiece]} bolting={bolting} reduced={reduced} />
           <Truck L={L} lift={truckLift} truckRef={truckRef} liftRef={liftRef} scissorRef={scissorRef} />
@@ -582,6 +794,8 @@ export function AssemblyScene({ target, modes, labels, sky, outfit, ending, onAs
               </div>
             </>
           )}
+          {/* the crane's picking hook over the loose answers (blocks, intensity) */}
+          <PickHook L={L} shown={!reduced && (picking !== null || carrying)} hookRef={hookRef} trolleyRef={trolleyRef} wireRef={wireRef} />
           {/* the questions (or the sentence), on the left */}
           <div
             ref={columnRef}
@@ -603,12 +817,13 @@ const fade = (reduced: boolean) => (reduced ? 'none' : `opacity ${SKY_MS}ms ease
 const tween = (reduced: boolean, what = 'transform') => (reduced ? 'none' : `${what} ${SKY_MS}ms ease-in-out`);
 
 /** The sky (a layer per step, faded in over the one before), the sun, the skyline, the ground, the road, the pad. */
-function Backdrop({ L, step, uid, reduced }: { L: AssemblyLayout; step: number; uid: string; reduced: boolean }) {
+function Backdrop({ L, step, uid, reduced, risen }: { L: AssemblyLayout; step: number; uid: string; reduced: boolean; risen: boolean }) {
   const { W, H, horizon: hz, road } = L;
   const k = W / 320;
   const q = road.h / 20;
   const s = SKY_STEPS[step];
-  const sun = L.suns[step];
+  // (first exactly where the start screen had it: it rises a little as the questions open)
+  const sun = step === 0 && !risen ? L.dawn.sun : L.suns[step];
   const deckL = L.cx - 1.5 * L.T;
   const deckR = L.tower.x + L.tower.w + 4;
   const u = L.T / 36;
@@ -616,14 +831,15 @@ function Backdrop({ L, step, uid, reduced }: { L: AssemblyLayout; step: number; 
     <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 z-0">
       <defs>
         {SKY_STEPS.map((st, i) => (
-          <linearGradient key={i} id={`${uid}-sky${i}`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={hz + 1}>
+          // (the dawn: as on the start screen, from its base's top down to the horizon; above it, the page's dark)
+          <linearGradient key={i} id={`${uid}-sky${i}`} gradientUnits="userSpaceOnUse" x1={0} y1={i === 0 ? L.dawn.top : 0} x2={0} y2={hz + 1}>
             {st.sky.map(([at, c]) => (
               <stop key={`${at}`} offset={at} stopColor={c} />
             ))}
           </linearGradient>
         ))}
         <radialGradient id={`${uid}-glow`}>
-          <stop offset={0} stopColor={DAWN.glow} stopOpacity={0.75} />
+          <stop offset={0} stopColor={DAWN.glow} stopOpacity={0.85} />
           <stop offset={1} stopColor={DAWN.glow} stopOpacity={0} />
         </radialGradient>
         <clipPath id={`${uid}-sky-clip`}>
@@ -636,14 +852,13 @@ function Backdrop({ L, step, uid, reduced }: { L: AssemblyLayout; step: number; 
       {/* the sun climbs a step with every piece */}
       <g clipPath={`url(#${uid}-sky-clip)`}>
         <g style={{ transform: `translate(${sun.x}px, ${sun.y}px)`, transition: tween(reduced) }}>
-          <circle r={sun.r * 5} fill={`url(#${uid}-glow)`} style={{ opacity: s.glow, transition: fade(reduced) }} />
+          <circle r={L.dawn.glow} fill={`url(#${uid}-glow)`} style={{ opacity: step === 0 ? 1 : (s.glow * 0.75) / 0.85, transition: fade(reduced) }} />
           <circle r={sun.r} style={{ fill: s.sun, transition: tween(reduced, 'fill') }} />
         </g>
       </g>
       {/* two thin lit clouds while it is still dawn */}
       <g style={{ opacity: step <= 1 ? 1 : 0, transition: fade(reduced) }}>
-        <path d={`M${0.47 * W} ${Math.round(hz * 0.72)}q${0.16 * W} ${-5 * k} ${0.35 * W} ${-1 * k}v${5 * k}q${-0.2 * W} ${4 * k} ${-0.35 * W} ${1 * k}z`} fill={DAWN.cloud} opacity={0.38} />
-        <path d={`M0 ${Math.round(hz * 0.8)}q${0.09 * W} ${-3 * k} ${0.19 * W} 0q${-0.06 * W} ${3 * k} ${-0.19 * W} ${3 * k}z`} fill={DAWN.cloud} opacity={0.3} />
+        <DawnClouds hz={hz} k={k} />
       </g>
       {/* the far skyline, sliding a little with every step (two copies: no end shows) */}
       <g style={{ transform: `translateX(${L.skylineShift[step]}px)`, transition: tween(reduced) }}>
@@ -654,11 +869,19 @@ function Backdrop({ L, step, uid, reduced }: { L: AssemblyLayout; step: number; 
       </g>
       {/* the ground, the road, the pad and the strip in front */}
       <rect y={hz} width={W} height={H - hz} style={{ fill: s.ground, transition: tween(reduced, 'fill') }} />
+      {/* (at dawn the ground darkens towards the bottom, as on the start screen) */}
+      <defs>
+        <linearGradient id={`${uid}-gnd`} gradientUnits="userSpaceOnUse" x1={0} y1={hz} x2={0} y2={H}>
+          <stop offset={0} stopColor={DAWN.ground[0]} />
+          <stop offset={1} stopColor={DAWN.ground[1]} />
+        </linearGradient>
+      </defs>
+      <rect y={hz} width={W} height={H - hz} fill={`url(#${uid}-gnd)`} style={{ opacity: step === 0 ? 1 : 0, transition: fade(reduced) }} />
       <rect y={road.top} width={W} height={road.h} style={{ fill: s.road, transition: tween(reduced, 'fill') }} />
       <path d={`M0 ${road.top}H${W}M0 ${road.top + road.h}H${W}`} stroke={DAWN.roadEdge} strokeOpacity={0.7} strokeWidth={0.8} />
       <path d={`M0 ${road.top + road.h / 2}H${W}`} stroke={DAWN.roadLine} strokeOpacity={0.55} strokeWidth={1} strokeDasharray={`${9 * q} ${8 * q}`} />
-      <RoadLamp x={Math.round(0.1 * W)} top={road.top} q={q} lit={s.lamps} />
-      <RoadLamp x={Math.round(0.42 * W)} top={road.top} q={q} lit={s.lamps} />
+      <RoadLamp x={118 * k} top={road.top} q={q} lit={s.lamps} />
+      <RoadLamp x={204 * k} top={road.top} q={q} lit={s.lamps} />
       <RoadCars W={W} top={road.top} q={q} />
       <g stroke={STEEL} strokeWidth={1.1} fill={DAWN.plate}>
         <rect x={deckL} y={L.padTop} width={deckR - deckL} height={Math.max(5, 6 * u)} rx={1.5} />
@@ -674,7 +897,22 @@ function Backdrop({ L, step, uid, reduced }: { L: AssemblyLayout; step: number; 
  * operator's cab, and the jib over the rocket with its trolley and the cable down to the antenna.
  * The jib slides into the tower before lift-off (clipped there): the rocket climbs through clear sky.
  */
-function Crane({ L, uid, jibRef, cableRef }: { L: AssemblyLayout; uid: string; jibRef: RefObject<SVGGElement | null>; cableRef: RefObject<SVGGElement | null> }) {
+function Crane({
+  L,
+  uid,
+  jibRef,
+  cableRef,
+  pickOut,
+  reduced,
+}: {
+  L: AssemblyLayout;
+  uid: string;
+  jibRef: RefObject<SVGGElement | null>;
+  cableRef: RefObject<SVGGElement | null>;
+  /** the arm's extension over the loose answers is out (the hook picks one) */
+  pickOut: boolean;
+  reduced: boolean;
+}) {
   const { W, H, tower: t, jib, cable } = L;
   const u = L.T / 36;
   const mastX = t.x + t.w / 2;
@@ -687,11 +925,18 @@ function Crane({ L, uid, jibRef, cableRef }: { L: AssemblyLayout; uid: string; j
   let counter = '';
   for (let x = t.x + t.w; x < W; x += bay) counter += `M${x} ${y1}L${x + bay / 2} ${y0}L${x + bay} ${y1}`;
   const hook = Math.max(2.4, 3 * u);
+  // the extension: the same lattice, from over the loose answers to the arm's end (slides out of it)
+  const ext = L.pick.x0;
+  let extZig = '';
+  for (let x = ext; x < jib.x0 + bay; x += bay) extZig += `M${x} ${y1}L${x + bay / 2} ${y0}L${x + bay} ${y1}`;
   return (
     <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 z-[5]" style={{ overflow: 'visible' }}>
       <defs>
         <clipPath id={`${uid}-jib`}>
           <rect x={-20} y={0} width={mastX + 20} height={H} />
+        </clipPath>
+        <clipPath id={`${uid}-ext`}>
+          <rect x={-20} y={0} width={jib.x0 + 20} height={H} />
         </clipPath>
       </defs>
       <SteelTower x={t.x} w={t.w} top={t.top} bottom={t.bottom} />
@@ -705,6 +950,11 @@ function Crane({ L, uid, jibRef, cableRef }: { L: AssemblyLayout; uid: string; j
       {/* the jib, over the rocket: slides into the tower before lift-off */}
       <g clipPath={`url(#${uid}-jib)`}>
         <g ref={jibRef}>
+          <g clipPath={`url(#${uid}-ext)`}>
+            <g style={{ transform: pickOut ? 'none' : `translateX(${jib.x0 - ext + bay}px)`, transition: reduced ? 'none' : 'transform 520ms cubic-bezier(0.45, 0, 0.25, 1)' }}>
+              <path d={`M${ext} ${y0}H${jib.x0 + bay}M${ext} ${y1}H${jib.x0 + bay}${extZig}`} stroke={STEEL} strokeWidth={1.4} fill="none" />
+            </g>
+          </g>
           <path d={`M${jib.x0} ${y0}H${mastX}M${jib.x0} ${y1}H${mastX}${zig}`} stroke={STEEL} strokeWidth={1.4} fill="none" />
           <circle cx={jib.x0 + 1} cy={(y0 + y1) / 2} r={5 * u} fill={C.red} opacity={0.25} />
           <circle cx={jib.x0 + 1} cy={(y0 + y1) / 2} r={Math.max(1.6, 2 * u)} fill={C.red} />
@@ -840,5 +1090,55 @@ function PadSmoke({ L }: { L: AssemblyLayout }) {
         />
       ))}
     </svg>
+  );
+}
+
+/** The picking hook's sizes (scene px): its box (the tip at its bottom centre), the trolley, where its wire starts. */
+function hookGeometry(L: AssemblyLayout) {
+  const u = L.T / 36;
+  return { w: Math.round(13 * u), h: Math.round(15 * u), trolleyW: Math.round(16 * u), trolleyH: Math.max(3, Math.round(5 * u)), wireTop: L.jib.y + L.jib.h + Math.max(3, Math.round(5 * u)) };
+}
+
+/**
+ * The crane's picking hook: a trolley on the arm, its wire and an open hook (its tip at the bottom
+ * centre of its box). Moved by the scene through refs (Web Animations); parked over the waiting
+ * truck's spot until it is needed.
+ */
+function PickHook({
+  L,
+  shown,
+  hookRef,
+  trolleyRef,
+  wireRef,
+}: {
+  L: AssemblyLayout;
+  shown: boolean;
+  hookRef: RefObject<HTMLDivElement | null>;
+  trolleyRef: RefObject<HTMLDivElement | null>;
+  wireRef: RefObject<HTMLDivElement | null>;
+}) {
+  const g = hookGeometry(L);
+  const park = { x: L.pick.loadX, y: L.pick.parkY };
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[22]" style={{ opacity: shown ? 1 : 0, transition: 'opacity 300ms ease' }}>
+      <div
+        ref={trolleyRef}
+        className="absolute left-0"
+        style={{ top: L.jib.y + L.jib.h, width: g.trolleyW, height: g.trolleyH, background: DAWN.plate, boxShadow: `inset 0 0 0 1px ${STEEL}`, transform: `translateX(${park.x - g.trolleyW / 2}px)` }}
+      />
+      <div
+        ref={wireRef}
+        className="absolute left-0 origin-top"
+        style={{ top: g.wireTop, width: 1.3, height: 1, background: C.ink, transform: `translateX(${park.x}px) scaleY(${Math.max(0.01, park.y - g.h * 0.6 - g.wireTop)})` }}
+      />
+      <div ref={hookRef} className="absolute left-0 top-0" style={{ width: g.w, height: g.h, transform: `translate(${park.x - g.w / 2}px, ${park.y - g.h}px)` }}>
+        <svg viewBox="0 0 13 15" className="h-full w-full overflow-visible">
+          {/* the eye, the shank and the open hook, its tip up on the right */}
+          <circle cx={6.5} cy={2.4} r={1.9} fill="none" stroke={C.ink} strokeWidth={1.3} />
+          <path d="M6.5 4.3V9.2Q6.5 14.2 10 13.6Q12.4 13.1 12 9.8" fill="none" stroke={C.ink} strokeWidth={1.6} strokeLinecap="round" />
+          <path d="M6.5 6.2H8.4" stroke={DAWN.hazard} strokeWidth={1.4} />
+        </svg>
+      </div>
+    </div>
   );
 }

@@ -73,9 +73,9 @@ import {
   type CrewTrack,
 } from '@/components/workout/padCrew';
 import { getAudioContext } from '@/lib/audio';
-import { playSfx } from '@/lib/audio/sfx';
+import { creatorSfx } from '@/lib/audio/creatorSfx';
 import { sfxCue } from '@/lib/audio/sfxCue';
-import { DAWN, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
+import { DAWN, DawnClouds, RoadCars, RoadLamp, Skyline, SteelTower } from '@/components/workout/dawnScene';
 import { BASE_DAY } from '@/components/workout/assembly';
 
 /*
@@ -338,7 +338,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     }
     if (ticksBetween(lastTick.current, p) > 0) {
       lastTick.current = p;
-      playSfx('drumClick');
+      creatorSfx('wheelTick');
     }
   }, [L, n]);
 
@@ -372,7 +372,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
     moving.current = false;
     // the clamps snap shut on the chosen rocket («pum»: CSS), the crew land on it this same frame
     rootRef.current?.toggleAttribute('data-moving', clampsOpen(false));
-    playSfx('towerDock');
+    // «pum», and the chosen rocket's engine comes to life
+    creatorSfx('clampShut');
+    creatorSfx('engineStart');
     const idx = centreIndex(pos.current, n);
     pos.current = idx;
     lastTick.current = idx;
@@ -436,7 +438,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
         const is = crewPoint(c.a, T);
         if (stepSoundDue(stepsCrossed(prevA, c.a, was.onLadder || is.onLadder ? CREW.rung : CREW.stride), now, lastStep.current)) {
           lastStep.current = now;
-          playSfx(is.onLadder ? 'ladderStep' : 'metalStep');
+          creatorSfx(is.onLadder ? 'crewRung' : 'crewStep');
         }
         // on the centred rocket while the wheel turns: they hop from rocket to rocket (up in the air
         // if it goes fast or long), and land as it settles
@@ -457,7 +459,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
             // touchdown: a little squash, and a step on the steel
             c.lifted = false;
             c.landUntil = now + HOP.landMs;
-            playSfx('metalStep');
+            creatorSfx('crewLand');
           }
         }
         const landing = now < c.landUntil;
@@ -654,7 +656,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
   const random = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (busy.current || rolling.current || drag.current?.moved || n < 2) return;
     wake();
-    playSfx('buttonThunk', { gesture: true });
+    creatorSfx('randomButton', { gesture: true });
     const button = e.currentTarget;
     button.setAttribute('data-hit', '');
     setTimeout(() => button.removeAttribute('data-hit'), 170);
@@ -742,9 +744,9 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       if (fired || !due || !open || !alive.current) return;
       fired = true;
       ignite();
-      playSfx('ignite');
+      creatorSfx('ignite');
       later(LAUNCH.igniteMs, () => {
-        playSfx('launch');
+        creatorSfx('liftOff');
         lift();
         const box = root.getBoundingClientRect();
         callbacks.current.onLiftOff?.({ x: box.left + L.rocket.cx, y: box.top + L.padY });
@@ -764,10 +766,10 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       ) ?? false;
 
     const cues = [
-      sfxCue(clockNow() + tl.dockAt + LAUNCH.dockMs * 0.8, () => playSfx('towerDock')),
+      sfxCue(clockNow() + tl.dockAt + LAUNCH.dockMs * 0.8, () => creatorSfx('gantryDock')),
       ...(held
         ? []
-        : [sfxCue(clockNow() + tl.igniteAt, () => playSfx('ignite')), sfxCue(clockNow() + tl.liftAt, () => playSfx('launch'))]),
+        : [sfxCue(clockNow() + tl.igniteAt, () => creatorSfx('ignite')), sfxCue(clockNow() + tl.liftAt, () => creatorSfx('liftOff'))]),
     ];
     pending.current.push(() => cues.forEach((cue) => cue?.cancel()));
 
@@ -841,7 +843,7 @@ export function LaunchBase({ suggestions, initialIndex, onCentre, onLaunchStart,
       });
       // the door opens, they step in one after the other, it closes
       later(hopAt[i], () => {
-        playSfx('metalStep');
+        creatorSfx('crewBoard');
         node.animate(hop, { duration: LAUNCH.hopMs, easing: 'ease-in', fill: 'forwards' });
       });
     });
@@ -1135,7 +1137,6 @@ function Backdrop({ L, scene, uid }: { L: BaseLayout; scene: BaseScene; uid: str
   const { width: W, height: H } = L;
   const { k, horizon: hz, road } = scene;
   const X = (x: number) => x * k;
-  const Y = (y: number) => hz + (y - 235) * k; // a sketch y (horizon at 235) to the base
   const q = road.h / 20; // the sketch's road is 20 px
   return (
     <svg aria-hidden="true" width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0">
@@ -1173,12 +1174,7 @@ function Backdrop({ L, scene, uid }: { L: BaseLayout; scene: BaseScene; uid: str
           <circle cx={X(92)} cy={hz - 1} r={22 * k} fill={DAWN.sun} />
         </g>
       </g>
-      <path
-        d={`M${X(150)} ${Y(204)}Q${X(200)} ${Y(199)} ${X(262)} ${Y(203)}Q${X(300)} ${Y(205)} ${X(320)} ${Y(201)}V${Y(206)}Q${X(280)} ${Y(209)} ${X(240)} ${Y(207)}Q${X(190)} ${Y(205)} ${X(150)} ${Y(207)}Z`}
-        fill={DAWN.cloud}
-        opacity={0.38}
-      />
-      <path d={`M0 ${Y(214)}Q${X(30)} ${Y(211)} ${X(60)} ${Y(214)}Q${X(40)} ${Y(217)} 0 ${Y(217)}Z`} fill={DAWN.cloud} opacity={0.3} />
+      <DawnClouds hz={hz} k={k} />
       {/* the far skyline: hills, a hangar, a small gantry with its rocket, a water tower */}
       <Skyline W={W} hz={hz} k={k} />
       {/* the ground and its road: shoulders, the dashed centre line, two lamps */}

@@ -22,6 +22,8 @@ import {
   liftFor,
   padHull,
   pieceBottom,
+  pickPoses,
+  pickTimeline,
   pieceModes,
   portholeTimeline,
   shownMinutes,
@@ -320,5 +322,52 @@ describe("the standing rocket's window", () => {
     expect(w.top).toBeLessThan(w.y);
     // a little above the centre line lying is a little to the left standing
     expect(standingWindow(box, { cx: 260, cy: 30, r: 5 }, { cx: 200, cy: 100, standY: 50, scale: 1 }).x).toBeCloseTo(190, 6);
+  });
+});
+
+describe('the crane picking an answer', () => {
+  const at = (w: number, h: number) => assemblyLayout(w, h, padHull(w, h), 0, 0);
+  it('goes, grabs, swings it upright, carries, lowers onto the waiting truck, which takes it under the rocket: bolted in about 3 s', () => {
+    const t = pickTimeline();
+    const order = [t.go[1], t.grab[1], t.swing[1], t.carry[1], t.lower[1], t.drive[1], t.dockAt, t.bolts[0], t.bolts[1], t.placedAt, t.nextAt];
+    for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+    expect(t.truckIn[1]).toBeLessThanOrEqual(t.lower[0]);
+    expect(t.placedAt).toBeGreaterThan(2700);
+    expect(t.placedAt).toBeLessThan(3400);
+    expect(t.hookUp[1]).toBeLessThanOrEqual(t.drive[1]);
+  });
+
+  it('keeps the piece on the hook from the grab to the lift, and ends where the old flight ended', () => {
+    const from = { x: 20, y: 320 };
+    const len = 120;
+    const box = 60;
+    const cfg = { at: from, len, box, hook: { x: 170, y: 300 }, loadX: 240, cx: 313, dropTop: 600, lift: 140, parkY: 300, raise: 12 };
+    const poses = pickPoses(cfg);
+    const t = pickTimeline();
+    for (let i = 1; i < poses.length; i++) expect(poses[i].t).toBeGreaterThanOrEqual(poses[i - 1].t);
+    // from the grab to the drop the hook holds the piece's end: lying its right end, upright its top
+    for (const p of poses.filter((q) => q.t >= t.go[1] && q.t <= t.lower[1])) {
+      const th = (p.piece.rot * Math.PI) / 180;
+      expect(p.piece.x + (len / 2) * Math.cos(th)).toBeCloseTo(p.hook.x, 6);
+      expect(p.piece.y + (len / 2) * Math.sin(th)).toBeCloseTo(p.hook.y, 6);
+    }
+    // it starts lying where it was tapped, and ends upright in its place (centre on the rocket's line)
+    expect(poses[0].piece).toEqual({ x: 80, y: 350, rot: 0 });
+    const last = poses[poses.length - 1];
+    expect(last.t).toBe(t.lift[1]);
+    expect(last.piece).toEqual({ x: 313, y: 600 - 140 + 60, rot: -90 });
+  });
+
+  it('starts the answers under the crane arm, and lets the truck wait clear of the rocket', () => {
+    for (const [w, h] of [
+      [390, 844],
+      [320, 568],
+    ]) {
+      const L = at(w, h);
+      expect(L.column.top + L.column.titleMin).toBeGreaterThanOrEqual(L.jib.y + L.jib.h + 12);
+      expect(L.pick.loadX + L.box / 2).toBeLessThan(L.cx - L.box / 2);
+      expect(L.pick.x0).toBeLessThan(L.jib.x0);
+      expect(L.pick.parkY).toBeGreaterThan(L.jib.y + L.jib.h);
+    }
   });
 });

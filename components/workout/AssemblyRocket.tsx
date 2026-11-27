@@ -169,7 +169,8 @@ export function RocketPiece({
  * (the minutes, the blocks) or the engine, lying so its words read across, the same drawing and
  * size as on the rocket. A tap fits it: the page hands its box to the assembly scene, which flies
  * that piece (drawn the same, in the same spot) onto the truck's lift. It bobs gently while it
- * waits (asm-bob, staggered by `index`; still with reduced motion).
+ * waits (asm-bob, staggered by `index`; still with reduced motion). `raised` (the crane's answers):
+ * it floats over a soft shadow on the ground and presses down a little under the finger.
  */
 export function LoosePiece({
   piece,
@@ -180,6 +181,7 @@ export function LoosePiece({
   onClick,
   hidden = false,
   faded = false,
+  raised = false,
 }: {
   piece: PieceId;
   L: AssemblyLayout;
@@ -191,6 +193,8 @@ export function LoosePiece({
   hidden?: boolean;
   /** another piece was chosen: it fades away */
   faded?: boolean;
+  /** looks pressable: raised over a soft shadow, pressing down under the finger */
+  raised?: boolean;
 }) {
   const b = L.pieces[piece];
   // a hull segment has no fins: its button is the hull and a little air, not the fins' bands
@@ -202,11 +206,21 @@ export function LoosePiece({
       disabled={faded || hidden}
       aria-label={label}
       data-loose={piece}
-      className={`relative shrink-0 cursor-pointer rounded-lg transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-[0.98] motion-reduce:transition-none ${faded ? 'opacity-0' : ''}`}
+      className={`group relative shrink-0 cursor-pointer rounded-lg transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:scale-[0.98] motion-reduce:transition-none ${faded ? 'opacity-0' : ''}`}
       style={{ width: b.len, height: L.box - 2 * trim, visibility: hidden ? 'hidden' : undefined }}
     >
+      {raised && (
+        // its shadow on the ground under it (it stays put while the piece bobs: the piece floats)
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-[6%] right-[6%] rounded-[50%] bg-black/30 blur-[3px] transition-transform duration-100 group-active:scale-x-95"
+          style={{ bottom: -7, height: 7 }}
+        />
+      )}
       <span className="asm-bob pointer-events-none absolute left-0" style={{ top: -trim, animationDelay: `${-index * 0.45}s` }}>
-        <RocketPiece piece={piece} L={L} label={label} measure={measure} lying className="block" />
+        <span className={`block ${raised ? 'transition-transform duration-100 group-active:translate-y-[3px]' : ''}`}>
+          <RocketPiece piece={piece} L={L} label={label} measure={measure} lying className="block" />
+        </span>
       </span>
     </button>
   );

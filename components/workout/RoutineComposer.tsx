@@ -35,6 +35,7 @@ import { SUGGESTIONS, pickSuggestions } from '@/lib/intent/suggestions';
 import { creatorJoke, type CreatorSend } from '@/lib/intent/creatorJoke';
 import { CreatorJoke, jokeOrigin, type ActiveJoke } from '@/components/workout/CreatorJoke';
 import { playSfx } from '@/lib/audio/sfx';
+import { creatorSfx } from '@/lib/audio/creatorSfx';
 import { unlockPlayerAudio } from '@/lib/audio/unlock';
 import { AssemblyScene, type Take } from '@/components/workout/AssemblyScene';
 import { LoosePiece } from '@/components/workout/AssemblyRocket';
@@ -44,6 +45,7 @@ import { LAUNCH } from '@/components/workout/launchDrum';
 import type { Outfit } from '@/components/workout/PortholePerson';
 import {
   FINALE,
+  OPEN_QUESTIONS_MS,
   PAGE_DAY,
   TAKE,
   finaleSentence,
@@ -307,6 +309,12 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
   const veilRef = useRef<Veil | null>(null);
   // a fresh base after going back (a launch held on its pad is dropped with it)
   const [baseKey, setBaseKey] = useState(0);
+  // phone: the start screen fading away over the questions as they open (the same dawn under both)
+  const [askLeaving, setAskLeaving] = useState(false);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+  }, []);
   const updateFinale = useCallback((next: Partial<Finale> | Finale | null) => {
     const value = next === null ? null : ({ ...(finaleRef.current ?? {}), ...next } as Finale);
     finaleRef.current = value;
@@ -634,6 +642,11 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
       setAnswers({});
       setAsked(0);
       setAssembled(false);
+      if (isPhone() && !reducedMotion) {
+        setAskLeaving(true);
+        if (leaveTimer.current) clearTimeout(leaveTimer.current);
+        leaveTimer.current = setTimeout(() => setAskLeaving(false), OPEN_QUESTIONS_MS);
+      }
       setView('questions');
       return;
     }
@@ -839,6 +852,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
     } else if (finale.phase === 'smoke') {
       at(FINALE.smokeMs, () => updateFinale({ phase: 'white' }));
     } else if (finale.phase === 'white') {
+      if (!veilRef.current) creatorSfx('veil');
       veilRef.current ??= openVeil({ warmup: Boolean(built?.queue.some((item) => item.kind === 'warmup')), reduced: Boolean(reducedMotion) });
       at(FINALE.whiteMs, handOff);
     }
@@ -1094,7 +1108,9 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
         </motion.div>
       </div>
 
-      {view === 'ask' ? (
+      {/* (the start screen; on a phone it stays a moment over the questions as they open, fading away
+          over the very same dawn: only its own things leave) */}
+      {(view === 'ask' || askLeaving) && (
         <form
           ref={formRef}
           onSubmit={(e) => {
@@ -1103,7 +1119,10 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           }}
           // (phone, while typing: its height held in px, and the base's 40dvh with it)
           style={heldHeight !== null && !desktop ? ({ height: `${heldHeight}px`, '--pad-dvh': `${heldHeight / 100}px` } as CSSProperties) : undefined}
-          className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pb-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))]"
+          className={`mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-5 pb-8 sm:px-8 lg:px-16 max-lg:h-dvh max-lg:justify-start max-lg:gap-0 max-lg:pb-0 max-lg:pt-[calc(4rem+env(safe-area-inset-top))] ${
+            view !== 'ask' ? 'asm-leave max-lg:pointer-events-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30' : ''
+          }`}
+          aria-hidden={view !== 'ask' ? true : undefined}
         >
           <motion.h1
             initial={reducedMotion ? false : { opacity: 0, y: 16 }}
@@ -1162,6 +1181,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
               }}
               onFocus={() => {
                 if (blurTimer.current) clearTimeout(blurTimer.current);
+                // (phone: the bar's rocket comes to life; inside the tap, so the sound may wake)
+                if (!typing && !window.matchMedia(DESKTOP).matches) creatorSfx('engineStart', { gesture: true });
                 setTyping(true);
                 // (phone: hold the page's height before the keyboard can squeeze it)
                 const form = formRef.current;
@@ -1261,7 +1282,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
             />
           </div>
         </form>
-      ) : phoneQuestions ? (
+      )}
+      {view === 'ask' ? null : phoneQuestions ? (
         // phone: the questions on the left, their answers as the very pieces they fit; on the right
         // the routine's rocket is built, a piece per answer, in the dawn that turns to day; then it
         // takes off by itself
@@ -1278,6 +1300,8 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
           take={pending}
           onTaken={pieceTaken}
           onFitted={pieceFitted}
+          // (blocks, intensity: the crane's hook drifts over the loose answers until one is tapped)
+          picking={!pending && !finale && questions[asked] && questions[asked].id !== 'minutes' ? (questions[asked].id === 'intensity' ? 'engine' : 'blocks') : null}
         >
           {(L, ink) =>
             finale?.path === 'B' && finaleText ? (
@@ -1357,6 +1381,7 @@ export function RoutineComposer({ onStart, onOpenStudio }: RoutineComposerProps)
                           index={i}
                           hidden={mine && pending?.taken}
                           faded={Boolean(pending) && !mine}
+                          raised
                           onClick={(e) => {
                             if (pending) return;
                             const difficulty = q.id === 'intensity' ? option.patch.difficulty : undefined;

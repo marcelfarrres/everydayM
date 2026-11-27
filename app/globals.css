@@ -845,6 +845,17 @@ body {
   }
 }
 
+/* the start screen giving way to the questions (phone): its own things fade over the same dawn
+   (OPEN_QUESTIONS_MS in assembly.ts) */
+.asm-leave {
+  animation: asm-leave 550ms ease-in-out forwards;
+}
+@keyframes asm-leave {
+  to {
+    opacity: 0;
+  }
+}
+
 /* the creator's loose pieces (the answers, phone): a gentle bob while they wait to be chosen */
 .asm-bob {
   animation: asm-bob 1.8s ease-in-out infinite alternate;

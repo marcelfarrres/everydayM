@@ -9,7 +9,7 @@
  */
 
 import { NOSE } from '@/components/workout/rocketPaths';
-import { barOnPad, baseLayout } from '@/components/workout/launchDrum';
+import { barOnPad, baseLayout, baseScene } from '@/components/workout/launchDrum';
 import { estimateTextWidth, padBarLayout } from '@/components/workout/padRocketShape';
 
 // ---------------------------------------------------------------------------------------------
@@ -156,7 +156,7 @@ export function answerHulls(T: number): Record<PieceId, number> {
  * as `PORTHOLE_SHARE` of the width when the height allows. A title whose widest word does not fit
  * its width at its size is set a little smaller (`titleSize`, never under `TITLE_PX.min`).
  */
-export const TITLE_MIN = 130;
+export const TITLE_MIN = 160;
 export const PORTHOLE_SHARE = 0.23;
 /** The questions' title size on a phone (2.45rem) and the least it may be set at, px. */
 export const TITLE_PX = { max: 39.2, min: 30 } as const;
@@ -198,8 +198,13 @@ export interface AssemblyLayout {
   road: { top: number; h: number };
   /** the pad's deck: the rocket's nozzle stands on it */
   padTop: number;
-  /** the darker strip in front, where «Cambiar» sits */
+  /** the darker strip in front (none now: the ground runs to the bottom, as on the start screen) */
   foreTop: number;
+  /**
+   * The start screen's dawn, exactly where it was (the questions open over the same scene, no jump):
+   * the top of its base (its sky's gradient runs from there to the horizon) and its sun.
+   */
+  dawn: { top: number; sun: Circle; glow: number };
   pieces: Record<PieceId, PieceBox>;
   /** the top of the antenna's light */
   rocketTop: number;
@@ -224,13 +229,24 @@ export interface AssemblyLayout {
   /** where the mechanics' platform stands (their feet) for each seam they bolt, and their scale */
   platform: Record<Exclude<PieceId, 'nose'>, number>;
   mechanic: number;
-  /** «Cambiar»: the top of its 44 px button */
+  /** the questions' column ends 44 px under this (above the road) */
   cambiarTop: number;
+  /**
+   * The crane picking the answers (blocks, intensity): the left end of its arm's extension over the
+   * loose pieces, where the truck's lift waits (its centre) while the hook lowers a piece onto it,
+   * and how high the hook parks.
+   */
+  pick: { x0: number; loadX: number; parkY: number };
   /** how much the pieces' hulls were shortened to fit (1: not at all) */
   squeeze: number;
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
+
+/** The sun rises this share of the horizon's height while the start screen gives way to the questions. */
+export const DAWN_RISE = 0.03;
+/** The start screen gives way to the questions: its things fade out over the same scene, ms. */
+export const OPEN_QUESTIONS_MS = 550;
 
 /**
  * The scene `W` × `H` px with a hull `T` px thick; `safeTop`/`safeBottom`: the screen's insets.
@@ -244,13 +260,18 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
   const box = r1(T + 2 * finH);
   const header = 64 + safeTop;
 
-  // from the bottom: «Cambiar», the strip in front, the road, the pad
-  const cambiarTop = Math.round(H - safeBottom - 14 - 44);
-  const foreTop = cambiarTop - 8;
-  const roadH = Math.round(Math.max(20, Math.min(30, (26 * H) / 844)));
-  const road = { top: foreTop - 8 - roadH, h: roadH };
+  // from the bottom: the start screen's own ground, road and horizon (the same scene goes on),
+  // the pad on the road's near edge
+  const baseH = Math.min(380, Math.max(236, H * 0.4));
+  const dawnTop = Math.round(H - baseH);
+  const startBase = baseLayout(Math.min(W, 672), baseH, safeBottom);
+  const startScene = baseScene(startBase);
+  const road = { top: Math.round(dawnTop + startScene.road.top), h: startScene.road.h };
+  const roadH = road.h;
   const padTop = road.top - 2;
-  const horizon = Math.round(padTop - Math.max(10, 0.02 * H));
+  const horizon = Math.round(dawnTop + startScene.horizon);
+  const foreTop = H;
+  const cambiarTop = road.top - 6 - 44;
 
   // across: the tower on the right, the rocket just left of it
   const edge = Math.round(W * 0.067);
@@ -319,17 +340,23 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
     right,
     top: header + 20,
     titleWidth: Math.max(120, Math.min(right, portholeLeft - 10) - left),
-    titleMin: Math.max(0, Math.round(porthole.y + R + RIM + 12 - (header + 20))),
+    // (the answers start under the porthole, and under the crane's arm: its hook hangs over them)
+    titleMin: Math.max(0, Math.round(porthole.y + R + RIM + 12 - (header + 20)), Math.round(jibY + jibH + 16 - (header + 20))),
   };
 
-  // the sun, climbing (the sketch's positions on its 390 × 844, against the horizon)
+  // the sun, climbing: first where the start screen had it (a little higher: it rises as the
+  // questions open), then the sketch's positions on its 390 × 844, against the horizon
   const sx = W / 390;
+  const k = W / 320;
+  const dawnSun: Circle = { x: Math.round(92 * k), y: horizon - 1, r: Math.round(22 * k) };
   const suns: Circle[] = [
-    [0.18, 0.006, 24],
-    [0.215, 0.15, 24],
-    [0.256, 0.264, 25],
-    [0.246, 0.405, 26],
-  ].map(([x, up, r]) => ({ x: Math.round(W * x), y: Math.round(horizon - horizon * up), r: Math.round(r * sx) }));
+    { ...dawnSun, y: Math.round(dawnSun.y - DAWN_RISE * horizon) },
+    ...[
+      [0.215, 0.15, 24],
+      [0.256, 0.264, 25],
+      [0.246, 0.405, 26],
+    ].map(([x, up, r]) => ({ x: Math.round(W * x), y: Math.round(horizon - horizon * up), r: Math.round(r * sx) })),
+  ];
   const skylineShift = [0, 1, 2, 3].map((s) => -Math.round(s * 0.06 * W));
 
   // the truck: its bed under the rocket, wide enough for the engine's fins
@@ -369,6 +396,12 @@ export function assemblyLayout(W: number, H: number, T: number, safeTop = 0, saf
     platform,
     mechanic,
     cambiarTop,
+    dawn: { top: dawnTop, sun: dawnSun, glow: Math.round(118 * k) },
+    pick: {
+      x0: Math.round(left + Math.min(engineLen, hull.blocks) - 6),
+      loadX: Math.round(cx - box - 12),
+      parkY: Math.round(jibY + jibH + 14),
+    },
     squeeze: r1(squeeze * 100) / 100,
   };
 }
@@ -508,6 +541,135 @@ export const FINALE = { readMs: 3500, smokeMs: 1100, whiteMs: 1400, veilFadeMs: 
 
 /** The assembly scene's take-off: ignition this long before lift-off, and the climb out of the top, ms (the rest: portholeTimeline). */
 export const TAKEOFF = { igniteLeadMs: 500, liftMs: 1500 } as const;
+
+// ---------------------------------------------------------------------------------------------
+// The crane chooses and hooks (the blocks and the intensity questions)
+
+/**
+ * The crane picks the answer's piece (blocks, intensity), ms from the tap: its open hook goes to
+ * that piece's end (`go`), grabs it (`grab`: a clang), lifts it so it swings upright hanging from
+ * the hook (`swing`), carries it over the truck waiting left of the rocket (`carry`), lowers it
+ * onto the truck's lift (`lower`) and lets go; the truck drives under the rocket (`drive`), the
+ * lift raises it (`lift`), it docks, two bolts, placed (about 3.1 s), the next question a beat
+ * later. While no piece is chosen the hook drifts from one loose piece to the next (`idle*`).
+ */
+export const PICK = {
+  goMs: 280,
+  grabMs: 160,
+  swingMs: 380,
+  carryMs: 500,
+  lowerMs: 260,
+  hookUpMs: 380,
+  truckInMs: 850,
+  driveMs: 450,
+  liftMs: 500,
+  boltGapMs: 90,
+  boltMs: 520,
+  beatMs: 280,
+  lowerLiftMs: 300,
+  driveOutMs: 750,
+  idleMoveMs: 950,
+  idleRestMs: 650,
+} as const;
+
+export interface PickTimeline {
+  go: [number, number];
+  grab: [number, number];
+  swing: [number, number];
+  carry: [number, number];
+  lower: [number, number];
+  /** the hook lets go and goes back up */
+  hookUp: [number, number];
+  /** the truck drives to its loading spot, then under the rocket */
+  truckIn: [number, number];
+  drive: [number, number];
+  lift: [number, number];
+  dockAt: number;
+  bolts: [number, number];
+  placedAt: number;
+  nextAt: number;
+  lowerLift: [number, number];
+  driveOut: [number, number];
+  endAt: number;
+}
+
+export function pickTimeline(p: typeof PICK = PICK): PickTimeline {
+  const go: [number, number] = [0, p.goMs];
+  const grab: [number, number] = [go[1], go[1] + p.grabMs];
+  const swing: [number, number] = [grab[1], grab[1] + p.swingMs];
+  const carry: [number, number] = [swing[1], swing[1] + p.carryMs];
+  const lower: [number, number] = [carry[1], carry[1] + p.lowerMs];
+  const truckIn: [number, number] = [0, Math.min(p.truckInMs, lower[0])];
+  const drive: [number, number] = [lower[1], lower[1] + p.driveMs];
+  const lift: [number, number] = [drive[1], drive[1] + p.liftMs];
+  const dockAt = lift[1];
+  const bolt1 = dockAt + p.boltGapMs;
+  const placedAt = dockAt + p.boltGapMs + p.boltMs;
+  return {
+    go,
+    grab,
+    swing,
+    carry,
+    lower,
+    hookUp: [lower[1], lower[1] + p.hookUpMs],
+    truckIn,
+    drive,
+    lift,
+    dockAt,
+    bolts: [bolt1, bolt1 + Math.round(p.boltMs / 2)],
+    placedAt,
+    nextAt: placedAt + p.beatMs,
+    lowerLift: [placedAt, placedAt + p.lowerLiftMs],
+    driveOut: [placedAt + p.lowerLiftMs, placedAt + p.lowerLiftMs + p.driveOutMs],
+    endAt: placedAt + p.lowerLiftMs + p.driveOutMs,
+  };
+}
+
+/** A point of the pick: the piece's centre and turn (deg, CSS: -90 is upright), and the hook's tip. */
+export interface PickPose {
+  t: number;
+  piece: { x: number; y: number; rot: number };
+  hook: { x: number; y: number };
+}
+
+/**
+ * The pick, pose by pose (ms from the tap, scene px): the loose piece lying with its box's top-left
+ * at `at` (`len` × `box`), the hook starting at `hook`, the truck's lift centred at `loadX` while it
+ * waits, then under the rocket (`cx`); the piece's top on the lift at `dropTop` before the lift
+ * raises it by `lift`; the hook parks back up at `parkY`. Between two poses: straight lines (the
+ * swing is drawn as an arc of poses about the hook).
+ */
+export function pickPoses(
+  { at, len, box, hook, loadX, cx, dropTop, lift, parkY, raise }: { at: { x: number; y: number }; len: number; box: number; hook: { x: number; y: number }; loadX: number; cx: number; dropTop: number; lift: number; parkY: number; raise: number },
+  t: PickTimeline = pickTimeline(),
+): PickPose[] {
+  const c0 = { x: at.x + len / 2, y: at.y + box / 2 };
+  const end = { x: at.x + len, y: c0.y };
+  const lying = { ...c0, rot: 0 };
+  const poses: PickPose[] = [
+    { t: 0, piece: lying, hook },
+    { t: t.go[1], piece: lying, hook: end },
+    { t: t.grab[1], piece: lying, hook: end },
+  ];
+  // the swing: it turns about its end (the hook) while the hook rises
+  const steps = 6;
+  for (let i = 1; i <= steps; i++) {
+    const s = i / steps;
+    const th = (-Math.PI / 2) * s;
+    const h = { x: end.x, y: end.y - raise * s };
+    poses.push({ t: t.swing[0] + (t.swing[1] - t.swing[0]) * s, piece: { x: h.x - (len / 2) * Math.cos(th), y: h.y - (len / 2) * Math.sin(th), rot: -90 * s }, hook: h });
+  }
+  // carried over the waiting truck, a little above, then lowered onto its lift
+  const above = { x: loadX, y: dropTop - Math.max(24, raise) };
+  poses.push({ t: t.carry[1], piece: { x: above.x, y: above.y + len / 2, rot: -90 }, hook: above });
+  const onLift = { x: loadX, y: dropTop };
+  poses.push({ t: t.lower[1], piece: { x: onLift.x, y: onLift.y + len / 2, rot: -90 }, hook: onLift });
+  // the hook lets go and parks up; the truck takes the piece under the rocket; the lift raises it
+  poses.push({ t: t.hookUp[1], piece: { x: onLift.x + ((cx - loadX) * (t.hookUp[1] - t.drive[0])) / (t.drive[1] - t.drive[0]), y: onLift.y + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
+  poses.push({ t: t.drive[1], piece: { x: cx, y: dropTop + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
+  poses.push({ t: t.lift[1], piece: { x: cx, y: dropTop - lift + len / 2, rot: -90 }, hook: { x: loadX, y: parkY } });
+  return poses.sort((a, b) => a.t - b.t);
+}
 
 // ---------------------------------------------------------------------------------------------
 // The last change of clothes in a big porthole, then into the rocket's window and lift-off
